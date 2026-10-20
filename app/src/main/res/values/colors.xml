@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 转存喵：图标橘色底（与新图标一致） -->
+    <color name="ic_launcher_background">#FE6430</color>
+</resources>
