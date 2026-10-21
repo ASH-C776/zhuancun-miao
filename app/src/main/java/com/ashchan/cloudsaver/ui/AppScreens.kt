@@ -15,6 +15,12 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.webkit.CookieManager
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceError
+import android.webkit.WebResourceResponse
+import android.webkit.SslErrorHandler
+import android.net.http.SslError
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 import android.provider.MediaStore
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -99,8 +105,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -1241,8 +1249,45 @@ private fun SettingsEntry(title: String, subtitle: String, showDot: Boolean = fa
     }
 }
 
-// ==================== 夸克 Cookie 获取弹框（内置 WebView 登录 → 自动读取 Cookie） ====================
+// ==================== 夸克 Cookie 获取页（全屏 WebView 登录 → 自动读取 Cookie） ====================
 
+/** 夸克登录页候选入口：主域名被网络掐断时依次降级尝试 */
+private val QUARK_LOGIN_ENTRY = listOf(
+    "https://pan.quark.cn/#/login",
+    "https://www.quark.cn/",
+    "https://drive-pc.quark.cn/",
+)
+
+/** 参与自检的夸克域名（用于判断是网络问题还是 App 问题） */
+private val QUARK_PROBE_HOSTS = listOf(
+    "pan.quark.cn" to "https://pan.quark.cn/",
+    "www.quark.cn" to "https://www.quark.cn/",
+    "account.quark.cn" to "https://account.quark.cn/",
+    "passport.quark.cn" to "https://passport.quark.cn/",
+    "drive-pc.quark.cn" to "https://drive-pc.quark.cn/",
+)
+
+/** 把 WebView 的底层错误码翻译成人话 + 处理建议 */
+private fun describeWebError(code: Int, desc: String): String {
+    val d = desc.uppercase()
+    return when {
+        code == -6 || d.contains("ERR_CONNECTION_RESET") ->
+            "网络连接被重置（${desc.take(40)}）。通常是当前网络（公司/校园网/代理/运营商）拦截或掐断了到夸克服务器的连接，与 App 本身无关。"
+        code == -2 || d.contains("ERR_NAME_NOT_RESOLVED") || d.contains("ERR_NAME_RESOLUTION_FAILED") ->
+            "域名解析失败（${desc.take(40)}）。当前网络的 DNS 无法解析夸克域名，可尝试换用其他网络或 DNS。"
+        code == -8 || d.contains("ERR_TIMED_OUT") || d.contains("ERR_TIMEOUT") ->
+            "连接超时（${desc.take(40)}）。网络太慢或被限制，可换网络后重试。"
+        code == -11 || d.contains("ERR_CERT") || d.contains("ERR_SSL") ->
+            "HTTPS 证书校验失败（${desc.take(40)}）。可能存在 HTTPS 中间人代理（如公司代理），请关闭代理或换网络。"
+        code == -10 || d.contains("ERR_REDIRECT") ->
+            "跳转被拒绝（${desc.take(40)}）。目标站点拒绝了本次跳转，可尝试更换入口。"
+        d.contains("ERR_BLOCKED") || d.contains("ERR_ACCESS_DENIED") ->
+            "访问被拒绝（${desc.take(40)}）。夸克可能对该网络/设备做了风控拦截，可换网络或稍后重试。"
+        else -> "页面加载失败（${desc.take(40)}）。可尝试重试或用下方「网络自检」判断是网络问题还是页面问题。"
+    }
+}
+
+/** 夸克 Cookie 获取页：内置 WebView 登录 → 登录成功后自动读取 Cookie 回填 */
 @Composable
 private fun QuarkCookieDialog(
     onCookieObtained: (String) -> Unit,
@@ -1250,8 +1295,14 @@ private fun QuarkCookieDialog(
 ) {
     var agreed by remember { mutableStateOf(false) }
     var loadingUrl by remember { mutableStateOf("") }
+    var entryIndex by remember { mutableStateOf(0) }
+    var webError by remember { mutableStateOf<String?>(null) }
+    var probeResult by remember { mutableStateOf<List<String>?>(null) }
+    var probing by remember { mutableStateOf(false) }
+    var reloadKey by remember { mutableStateOf(0) }
     val got = remember { mutableStateOf(false) } // 防止重复回调
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
     // 沉浸式：让对话框窗口延伸到状态栏/导航栏后面
     // ⚠️ view 在组合作用域取，parent 必须在 SideEffect 内部读（组合阶段 parent 还是 null）
@@ -1330,6 +1381,88 @@ private fun QuarkCookieDialog(
                         )
                         Spacer(Modifier.height(4.dp))
                     }
+
+                    // 加载失败诊断卡
+                    webError?.let { err ->
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.errorContainer,
+                        ) {
+                            Column(Modifier.padding(12.dp)) {
+                                Text(
+                                    "页面加载失败",
+                                    style = MaterialTheme.typography.titleSmall,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                )
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    err,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    TextButton(
+                                        onClick = {
+                                            webError = null
+                                            reloadKey++
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                    ) { Text("重试", maxLines = 1) }
+                                    TextButton(
+                                        onClick = {
+                                            // 换一个入口线路（主域名不通时降级）
+                                            if (entryIndex < QUARK_LOGIN_ENTRY.lastIndex) {
+                                                entryIndex++
+                                                webError = null
+                                                reloadKey++
+                                            } else {
+                                                Toast.makeText(context, "已尝试所有入口，请换用其他网络", Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                    ) { Text("换个入口", maxLines = 1) }
+                                    TextButton(
+                                        onClick = { probing = true; probeResult = null },
+                                        modifier = Modifier.weight(1f),
+                                    ) { Text("网络自检", maxLines = 1) }
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                    }
+
+                    // 网络自检结果
+                    probeResult?.let { list ->
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                        ) {
+                            Column(Modifier.padding(12.dp)) {
+                                Text("网络自检结果", style = MaterialTheme.typography.titleSmall)
+                                Spacer(Modifier.height(4.dp))
+                                list.forEach { line ->
+                                    Text(
+                                        line,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                                Spacer(Modifier.height(6.dp))
+                                Text(
+                                    "若多数域名都失败，说明当前网络无法访问夸克，请换网络（Wi-Fi/流量）或关闭代理后重试；这与 App 无关。",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                    }
+                    if (probing) {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        Spacer(Modifier.height(8.dp))
+                    }
+
                     // WebView 容器（悬浮「获取 Cookie」按钮叠在左下角）
                     Box(
                         Modifier
@@ -1337,18 +1470,20 @@ private fun QuarkCookieDialog(
                             .weight(1f)
                             .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp)),
                     ) {
-                        AndroidView(
-                            modifier = Modifier.fillMaxSize(),
+                        // key 变化时重建 WebView（用于「重试」「换个入口」）
+                        key(entryIndex, reloadKey) {
+                            AndroidView(
+                                modifier = Modifier.fillMaxSize(),
                             factory = { ctx ->
                                 CookieManager.getInstance().apply { setAcceptCookie(true) }
                                 WebView(ctx).apply {
-                                settings.javaScriptEnabled = true
-                                settings.domStorageEnabled = true
-                                // 允许双指捏合缩放（不显示系统缩放按钮），方便放大看二维码
-                                settings.setSupportZoom(true)
-                                settings.builtInZoomControls = true
-                                settings.displayZoomControls = false
-                                // 夸克手机端没有网页登录入口（会跳 UC 推广页），必须用桌面 UA 走 PC 版登录页
+                                    settings.javaScriptEnabled = true
+                                    settings.domStorageEnabled = true
+                                    // 允许双指捏合缩放（不显示系统缩放按钮），方便放大看二维码
+                                    settings.setSupportZoom(true)
+                                    settings.builtInZoomControls = true
+                                    settings.displayZoomControls = false
+                                    // 夸克手机端没有网页登录入口（会跳 UC 推广页），必须用桌面 UA 走 PC 版登录页
                                     settings.userAgentString =
                                         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                                     webViewClient = object : WebViewClient() {
@@ -1371,12 +1506,40 @@ private fun QuarkCookieDialog(
                                                 onCookieObtained(all)
                                             }
                                         }
+
+                                        // 主框架加载失败：翻译成中文诊断
+                                        override fun onReceivedError(
+                                            view: WebView?,
+                                            request: WebResourceRequest?,
+                                            error: WebResourceError?,
+                                        ) {
+                                            super.onReceivedError(view, request, error)
+                                            if (request?.isForMainFrame != true) return
+                                            val code = error?.errorCode ?: 0
+                                            val desc = error?.description?.toString().orEmpty()
+                                            webError = describeWebError(code, desc)
+                                        }
+
+                                        override fun onReceivedHttpError(
+                                            view: WebView?,
+                                            request: WebResourceRequest?,
+                                            errorResponse: WebResourceResponse?,
+                                        ) {
+                                            super.onReceivedHttpError(view, request, errorResponse)
+                                            if (request?.isForMainFrame != true) return
+                                            val code = errorResponse?.statusCode ?: 0
+                                            if (code >= 400) {
+                                                webError = "夸克服务器返回 HTTP $code。该地址可能被当前网络拦截，" +
+                                                    "可点「换个入口」重试，或用「网络自检」确认网络连通性。"
+                                            }
+                                        }
                                     }
                                     // 直接打开登录页，避免落到「下载 App」推广页
-                                    loadUrl("https://pan.quark.cn/#/login")
+                                    loadUrl(QUARK_LOGIN_ENTRY[entryIndex])
                                 }
                             },
-                        )
+                            )
+                        }
                         // 悬浮手动获取按钮（自动识别失败时的兜底）
                         Button(
                             onClick = {
@@ -1403,6 +1566,37 @@ private fun QuarkCookieDialog(
                 }
             }
         }
+    }
+
+    // 网络自检：并发探测各夸克域名
+    LaunchedEffect(probing) {
+        if (!probing) return@LaunchedEffect
+        val client = OkHttpClient.Builder()
+            .connectTimeout(6, TimeUnit.SECONDS)
+            .readTimeout(6, TimeUnit.SECONDS)
+            .build()
+        val results = QUARK_PROBE_HOSTS.map { (host, url) ->
+            val desc = runCatching {
+                val req = okhttp3.Request.Builder()
+                    .url(url)
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0")
+                    .build()
+                client.newCall(req).execute().use { r -> "HTTP ${r.code}" }
+            }.getOrElse { e ->
+                val msg = e.message.orEmpty()
+                when {
+                    e is java.net.UnknownHostException -> "DNS 解析失败"
+                    e is java.net.SocketTimeoutException -> "连接超时"
+                    e is javax.net.ssl.SSLException -> "TLS/证书错误"
+                    e is java.net.ConnectException -> "连接被拒绝"
+                    msg.contains("reset", true) -> "连接被重置"
+                    else -> "失败：${msg.take(30)}"
+                }
+            }
+            host to desc
+        }
+        probeResult = results.map { (host, r) -> "· $host → $r" }
+        probing = false
     }
 }
 
