@@ -17,8 +17,8 @@
 ## 📥 下载
 
 - **Releases 页面**：<https://github.com/ASH-C776/zhuancun-miao/releases>
-- **直接下载 APK**：[releases/zhuancun-miao-v0.4.1.apk](releases/zhuancun-miao-v0.4.1.apk)（约 1.9MB）
-  - 国内直连 GitHub 不畅时，可用加速链接：[ghfast.top 加速下载](https://ghfast.top/https://github.com/ASH-C776/zhuancun-miao/raw/main/releases/zhuancun-miao-v0.4.1.apk)
+- **直接下载 APK**：[zhuancun-miao-v0.4.1.apk](https://github.com/ASH-C776/zhuancun-miao/releases/download/v0.4.1/zhuancun-miao-v0.4.1.apk)（约 1.9MB）
+  - 国内直连 GitHub 不畅时，可用加速链接：[ghfast.top 加速下载](https://ghfast.top/https://github.com/ASH-C776/zhuancun-miao/releases/download/v0.4.1/zhuancun-miao-v0.4.1.apk)
 - 或自行克隆本仓库构建：`gradle :app:assembleRelease`
 
 ## 🖼 截图
