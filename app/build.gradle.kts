@@ -12,8 +12,8 @@ android {
         applicationId = "com.ashchan.cloudsaver"
         minSdk = 26
         targetSdk = 34
-        versionCode = 20
-        versionName = "0.4.1"
+        versionCode = 21
+        versionName = "0.5.0"
     }
 
     signingConfigs {
@@ -40,6 +40,8 @@ android {
         }
         debug {
             // 调试包不混淆，便于排查接口问题
+            // 版本名加 -debug 后缀：关于页一眼区分调试版 / 正式版（仍是同一 App，会互相覆盖）
+            versionNameSuffix = "-debug"
         }
     }
 

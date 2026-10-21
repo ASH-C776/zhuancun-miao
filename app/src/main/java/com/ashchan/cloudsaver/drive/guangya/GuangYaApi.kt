@@ -51,4 +51,30 @@ interface GuangYaApi {
         @Header("x-action") xAction: String = "401",
         @Body body: JsonObject,
     ): Response<JsonObject>
+
+    // ---------- 短信验证码登录（account.guangyapan.com） ----------
+    // ① 初始化验证：返回 captcha_token（5 分钟有效），或返回需人机验证的 url
+    @POST("v1/shield/captcha/init")
+    suspend fun captchaInit(@Body body: JsonObject): Response<JsonObject>
+
+    // ② 发送短信验证码（header 带第①步的 captcha_token）
+    @POST("v1/auth/verification")
+    suspend fun sendVerification(
+        @Header("x-captcha-token") captchaToken: String,
+        @Body body: JsonObject,
+    ): Response<JsonObject>
+
+    // ③ 校验短信验证码（header 带第②步的 verification_id）
+    @POST("v1/auth/verification/verify")
+    suspend fun verifyCode(
+        @Header("x-captcha-verification-id") verificationId: String,
+        @Body body: JsonObject,
+    ): Response<JsonObject>
+
+    // ④ 完成登录（header 带第①步的 captcha_token），返回 access_token + refresh_token
+    @POST("v1/auth/signin")
+    suspend fun signIn(
+        @Header("x-captcha-token") captchaToken: String,
+        @Body body: JsonObject,
+    ): Response<JsonObject>
 }

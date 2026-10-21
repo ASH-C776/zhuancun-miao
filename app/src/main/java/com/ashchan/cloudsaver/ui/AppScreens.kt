@@ -11,6 +11,10 @@ import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import android.webkit.CookieManager
+import android.webkit.WebResourceRequest
 import android.provider.MediaStore
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -40,6 +44,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -49,15 +54,23 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.viewinterop.AndroidView
+import kotlinx.coroutines.delay
 import androidx.compose.ui.text.style.TextAlign
 import com.ashchan.cloudsaver.R
 import androidx.compose.material3.AlertDialog
@@ -83,6 +96,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -98,8 +112,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.CreationExtras
@@ -711,6 +728,7 @@ fun SettingsScreen(viewModel: AppViewModel) {
     val loading by viewModel.loginLoading.collectAsState()
     val error by viewModel.loginError.collectAsState()
     val update by viewModel.update.collectAsState()
+    val smsState by viewModel.smsLoginState.collectAsState()
 
     // 系统返回键回主页（而不是退出 App）
     BackHandler { viewModel.go(Screen.HOME) }
@@ -718,6 +736,7 @@ fun SettingsScreen(viewModel: AppViewModel) {
     var accessToken by remember { mutableStateOf("") }
     var refreshToken by remember { mutableStateOf("") }
     var cookie by remember { mutableStateOf("") }
+    var showQuarkCookie by remember { mutableStateOf(false) }
 
     // 凭证脱敏显示：前 9 位可见，其后以星号遮蔽（仅界面展示，存储保持原样）
     fun maskSecret(raw: String): String {
@@ -792,8 +811,8 @@ fun SettingsScreen(viewModel: AppViewModel) {
 
             when (driveType) {
                 DriveType.GUANGYA -> {
-                    Text("光鸭云盘登录", style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.height(8.dp))
+                    SmsLoginEntry(enabled = account == null, onClick = { viewModel.openSmsLogin() })
+                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
                     OutlinedTextField(
                         value = if (account != null) maskSecret(refreshToken) else refreshToken,
                         onValueChange = { refreshToken = it },
@@ -821,8 +840,17 @@ fun SettingsScreen(viewModel: AppViewModel) {
                 }
 
                 DriveType.QUARK -> {
-                    Text("夸克 Cookie 登录", style = MaterialTheme.typography.titleMedium)
-                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "获取 Quark Cookie",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (account == null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .tappable(enabled = account == null) { if (account == null) showQuarkCookie = true }
+                            .padding(vertical = 8.dp),
+                    )
+                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
                     OutlinedTextField(
                         value = if (account != null) maskSecret(cookie) else cookie,
                         onValueChange = { cookie = it },
@@ -852,6 +880,30 @@ fun SettingsScreen(viewModel: AppViewModel) {
                 null -> Text("请选择要配置的网盘", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
+            // 光鸭短信验证码登录弹框
+            if (smsState.open) {
+                GuangYaSmsDialog(
+                    state = smsState,
+                    onAgree = { viewModel.smsAgreeDeclaration() },
+                    onRequestCode = { viewModel.smsRequestCode(it) },
+                    onHumanVerified = { viewModel.smsHumanVerified(it) },
+                    onSubmitCode = { viewModel.smsSubmitCode(it) },
+                    onClose = { viewModel.closeSmsLogin() },
+                    onTokenObtained = { refreshToken = it },
+                )
+            }
+
+            // 夸克 Cookie 获取弹框（内置 WebView 登录 → 自动读取 Cookie）
+            if (showQuarkCookie) {
+                QuarkCookieDialog(
+                    onCookieObtained = {
+                        cookie = it
+                        showQuarkCookie = false
+                    },
+                    onClose = { showQuarkCookie = false },
+                )
+            }
+
             error?.let {
                 Spacer(Modifier.height(8.dp))
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
@@ -868,6 +920,285 @@ fun SettingsScreen(viewModel: AppViewModel) {
             Spacer(Modifier.height(16.dp))
         }
     }
+}
+
+// 设置页「验证码获取」入口行：光鸭登录标题下，单行、明确可点击
+@Composable
+private fun SmsLoginEntry(enabled: Boolean, onClick: () -> Unit) {
+    Text(
+        text = "验证码获取 Refresh token",
+        style = MaterialTheme.typography.bodyMedium,
+        fontWeight = FontWeight.SemiBold,
+        color = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+        modifier = Modifier
+            .fillMaxWidth()
+            .tappable(enabled = enabled) { if (enabled) onClick() }
+            .padding(vertical = 8.dp),
+    )
+}
+
+// ==================== 光鸭短信验证码登录弹框 ====================
+
+@Composable
+fun GuangYaSmsDialog(
+    state: AppViewModel.SmsLoginState,
+    onAgree: () -> Unit,
+    onRequestCode: (String) -> Unit,
+    onHumanVerified: (String) -> Unit,
+    onSubmitCode: (String) -> Unit,
+    onClose: () -> Unit,
+    onTokenObtained: (String) -> Unit,
+) {
+    // 成功后回填 refreshToken 到设置页输入框，并关闭弹框
+    LaunchedEffect(state.resultRefreshToken) {
+        if (state.resultRefreshToken != null) {
+            onTokenObtained(state.resultRefreshToken!!)
+            onClose()
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onClose,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp),
+        ) {
+            Column(Modifier.fillMaxWidth().padding(20.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("光鸭验证码登录", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.weight(1f))
+                    IconButton(onClick = onClose, modifier = Modifier.size(28.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "关闭")
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+
+                when (state.phase) {
+                    AppViewModel.SmsPhase.DECLARATION -> SmsDeclaration(onAgree = onAgree)
+                    AppViewModel.SmsPhase.PHONE -> SmsPhoneInput(state, onRequestCode = onRequestCode, onClose = onClose)
+                    AppViewModel.SmsPhase.CODE -> SmsCodeInput(state, onSubmit = onSubmitCode, onResend = onRequestCode, onClose = onClose)
+                    AppViewModel.SmsPhase.HUMAN_VERIFY -> SmsHumanVerify(state, onHumanVerified = onHumanVerified, onClose = onClose)
+                    AppViewModel.SmsPhase.SUCCESS -> SmsSuccess()
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SmsDeclaration(onAgree: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("🔒", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.width(6.dp))
+                Text("隐私说明", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "本功能仅在你的设备本地向光鸭官方服务器发送手机号与验证码，用于换取登录凭证。" +
+                    "我们不会收集、上传或存储你的手机号、验证码、Token 到任何第三方服务器。" +
+                    "验证码仅用于本次登录，请仅在可信设备上使用。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                lineHeight = 18.sp,
+            )
+        }
+    }
+    Spacer(Modifier.height(16.dp))
+    Button(onClick = onAgree, modifier = Modifier.fillMaxWidth()) {
+        Text("我已了解，开始", maxLines = 1)
+    }
+}
+
+@Composable
+private fun SmsPhoneInput(state: AppViewModel.SmsLoginState, onRequestCode: (String) -> Unit, onClose: () -> Unit) {
+    var phone by remember { mutableStateOf(state.phone) }
+    OutlinedTextField(
+        value = phone,
+        onValueChange = { phone = it },
+        label = { Text("手机号") },
+        placeholder = { Text("如 13800138000") },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+        modifier = Modifier.fillMaxWidth(),
+    )
+    Spacer(Modifier.height(8.dp))
+    state.error?.let {
+        Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        Spacer(Modifier.height(8.dp))
+    }
+    if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+    Spacer(Modifier.height(8.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        TextButton(
+            onClick = onClose,
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+        ) { Text("取消", maxLines = 1, style = MaterialTheme.typography.labelMedium) }
+        Button(
+            onClick = { onRequestCode(phone) },
+            enabled = !state.loading,
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+        ) { Text("获取验证码", maxLines = 1, style = MaterialTheme.typography.labelMedium) }
+    }
+}
+
+@Composable
+private fun SmsCodeInput(
+    state: AppViewModel.SmsLoginState,
+    onSubmit: (String) -> Unit,
+    onResend: (String) -> Unit,
+    onClose: () -> Unit,
+) {
+    var code by remember { mutableStateOf("") }
+    OutlinedTextField(
+        value = code,
+        onValueChange = { code = it.filter { c -> c.isDigit() }.take(6) },
+        label = { Text("验证码") },
+        placeholder = { Text("6 位短信验证码") },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        modifier = Modifier.fillMaxWidth(),
+    )
+    Spacer(Modifier.height(6.dp))
+    Text("验证码 5 分钟内有效", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
+    Spacer(Modifier.height(8.dp))
+    state.error?.let {
+        Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        Spacer(Modifier.height(8.dp))
+    }
+    if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
+    Spacer(Modifier.height(8.dp))
+    if (!state.loading) {
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            TextButton(onClick = { onResend(state.phone) }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)) {
+                Text("收不到验证码？重新获取", maxLines = 1, style = MaterialTheme.typography.labelMedium)
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        TextButton(
+            onClick = onClose,
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+        ) { Text("取消", maxLines = 1, style = MaterialTheme.typography.labelMedium) }
+        Button(
+            onClick = { onSubmit(code) },
+            enabled = !state.loading && code.length >= 4,
+            modifier = Modifier.weight(1.2f),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+        ) { Text("登录并获取", maxLines = 1, style = MaterialTheme.typography.labelMedium) }
+    }
+}
+
+@Composable
+private fun SmsHumanVerify(
+    state: AppViewModel.SmsLoginState,
+    onHumanVerified: (String) -> Unit,
+    onClose: () -> Unit,
+) {
+    Text(
+        "需要完成人机验证。请在下方完成验证，系统会自动继续。",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(Modifier.height(8.dp))
+    AndroidView(
+        factory = { context ->
+            WebView(context).apply {
+                settings.javaScriptEnabled = true
+                settings.domStorageEnabled = true
+                webViewClient = object : WebViewClient() {
+                    override fun onPageFinished(view: WebView?, url: String?) {
+                        super.onPageFinished(view, url)
+                        extractCaptchaToken(url ?: "")?.let { onHumanVerified(it) }
+                    }
+
+                    @Suppress("DEPRECATION")
+                    override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+                        val token = extractCaptchaToken(url ?: "")
+                        if (token != null) {
+                            onHumanVerified(token)
+                            return true
+                        }
+                        return false
+                    }
+                }
+                loadUrl(state.captchaUrl ?: "")
+            }
+        },
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(320.dp)
+            .clip(RoundedCornerShape(12.dp)),
+    )
+    Spacer(Modifier.height(8.dp))
+    Text(
+        "若验证后未自动继续，请点「改用手动粘贴」返回，使用手动粘贴 Token 方式登录。",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.outline,
+    )
+    Spacer(Modifier.height(8.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        TextButton(
+            onClick = onClose,
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+        ) { Text("取消", maxLines = 1, style = MaterialTheme.typography.labelMedium) }
+        Button(
+            onClick = onClose,
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+        ) { Text("改用手动粘贴", maxLines = 1, style = MaterialTheme.typography.labelMedium) }
+    }
+}
+
+@Composable
+private fun SmsSuccess() {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+        Icon(Icons.Default.Check, contentDescription = null, tint = SuccessGreen, modifier = Modifier.size(40.dp))
+        Spacer(Modifier.height(8.dp))
+        Text("已获取登录凭证", style = MaterialTheme.typography.titleSmall)
+        Spacer(Modifier.height(4.dp))
+        Text("Token 已填入输入框，点「登录」即可", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** 从验证回调 URL / 页面地址里尽力提取 captcha_token（最佳努力，视光鸭实际返回格式而定） */
+private fun extractCaptchaToken(url: String): String? {
+    if (url.isBlank()) return null
+    val names = listOf("captcha_token", "captchaToken", "ctoken", "token", "ticket", "validate")
+    runCatching {
+        val raw = url.substringAfter("?", "").substringBefore("#")
+        for (pair in raw.split("&")) {
+            val kv = pair.split("=", limit = 2)
+            val k = kv.getOrElse(0) { "" }
+            val v = kv.getOrElse(1) { "" }
+            if (names.any { it.equals(k, true) } && v.isNotBlank()) return v
+        }
+        // fragment 也扫一遍
+        val frag = url.substringAfter("#", "")
+        for (pair in frag.split("&")) {
+            val kv = pair.split("=", limit = 2)
+            val k = kv.getOrElse(0) { "" }
+            val v = kv.getOrElse(1) { "" }
+            if (names.any { it.equals(k, true) } && v.isNotBlank()) return v
+        }
+    }
+    return null
 }
 
 /** 设置页底部列表入口行：标题 + 副标题 + 右侧箭头（可选红点提示） */
@@ -907,6 +1238,171 @@ private fun SettingsEntry(title: String, subtitle: String, showDot: Boolean = fa
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(18.dp),
         )
+    }
+}
+
+// ==================== 夸克 Cookie 获取弹框（内置 WebView 登录 → 自动读取 Cookie） ====================
+
+@Composable
+private fun QuarkCookieDialog(
+    onCookieObtained: (String) -> Unit,
+    onClose: () -> Unit,
+) {
+    var agreed by remember { mutableStateOf(false) }
+    var loadingUrl by remember { mutableStateOf("") }
+    val got = remember { mutableStateOf(false) } // 防止重复回调
+    val context = LocalContext.current
+
+    // 沉浸式：让对话框窗口延伸到状态栏/导航栏后面
+    // ⚠️ view 在组合作用域取，parent 必须在 SideEffect 内部读（组合阶段 parent 还是 null）
+    val view = LocalView.current
+    SideEffect {
+        val window = (view.parent as? DialogWindowProvider)?.window
+        window?.let { w ->
+            WindowCompat.setDecorFitsSystemWindows(w, false)
+            w.setStatusBarColor(android.graphics.Color.TRANSPARENT)
+            w.setNavigationBarColor(android.graphics.Color.TRANSPARENT)
+        }
+    }
+
+    // 全屏页面（不再是小弹框）
+    Dialog(
+        onDismissRequest = onClose,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.surface,
+        ) {
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .padding(horizontal = 16.dp)
+            ) {
+                // 顶栏：标题 + 关闭
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "获取 Quark Cookie",
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(onClick = onClose) {
+                        Icon(Icons.Filled.Close, contentDescription = "关闭")
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+
+                if (!agreed) {
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                    ) {
+                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.Top) {
+                            Icon(
+                                Icons.Filled.Lock,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp).padding(top = 1.dp),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "本功能通过内置浏览器打开夸克官方登录页，登录过程由夸克官方处理。我们不会收集、上传或存储你的账号密码与 Cookie。\n\nCookie 通常约 1 个月失效，届时需重新获取。",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    Button(onClick = { agreed = true }, modifier = Modifier.fillMaxWidth().height(48.dp)) {
+                        Text("我已了解，开始", maxLines = 1)
+                    }
+                } else {
+                    if (loadingUrl.isNotBlank()) {
+                        Text(
+                            loadingUrl,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                    }
+                    // WebView 容器（悬浮「获取 Cookie」按钮叠在左下角）
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp)),
+                    ) {
+                        AndroidView(
+                            modifier = Modifier.fillMaxSize(),
+                            factory = { ctx ->
+                                CookieManager.getInstance().apply { setAcceptCookie(true) }
+                                WebView(ctx).apply {
+                                settings.javaScriptEnabled = true
+                                settings.domStorageEnabled = true
+                                // 允许双指捏合缩放（不显示系统缩放按钮），方便放大看二维码
+                                settings.setSupportZoom(true)
+                                settings.builtInZoomControls = true
+                                settings.displayZoomControls = false
+                                // 夸克手机端没有网页登录入口（会跳 UC 推广页），必须用桌面 UA 走 PC 版登录页
+                                    settings.userAgentString =
+                                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                                    webViewClient = object : WebViewClient() {
+                                        override fun onPageFinished(view: WebView?, url: String?) {
+                                            super.onPageFinished(view, url)
+                                            loadingUrl = url.orEmpty()
+                                            if (got.value) return
+                                            val cm = CookieManager.getInstance()
+                                            val all = buildString {
+                                                append(cm.getCookie("https://pan.quark.cn/") ?: "")
+                                                append("; ")
+                                                append(cm.getCookie("https://quark.cn/") ?: "")
+                                            }
+                                            val u = url.orEmpty()
+                                            // 登录成功后 pan.quark.cn 带 kps，且不在登录页/推广落地页
+                                            if (all.contains("kps=") &&
+                                                !u.contains("login") && !u.contains("passport") && !u.contains("account.quark")
+                                            ) {
+                                                got.value = true
+                                                onCookieObtained(all)
+                                            }
+                                        }
+                                    }
+                                    // 直接打开登录页，避免落到「下载 App」推广页
+                                    loadUrl("https://pan.quark.cn/#/login")
+                                }
+                            },
+                        )
+                        // 悬浮手动获取按钮（自动识别失败时的兜底）
+                        Button(
+                            onClick = {
+                                val cm = CookieManager.getInstance()
+                                val all = buildString {
+                                    append(cm.getCookie("https://pan.quark.cn/") ?: "")
+                                    append("; ")
+                                    append(cm.getCookie("https://quark.cn/") ?: "")
+                                }
+                                if (all.contains("kps=")) {
+                                    onCookieObtained(all)
+                                } else {
+                                    Toast.makeText(context, "尚未检测到登录，请先在网页登录", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(12.dp)
+                                .height(40.dp),
+                        ) {
+                            Text("获取 Cookie", maxLines = 1, style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

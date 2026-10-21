@@ -13,6 +13,8 @@
 - 暖橘奶油 · M3 Expressive 界面，深浅色主题（自动 / 亮 / 暗）
 - 凭证加密存储，界面脱敏显示
 - 内置检查更新：新版本发布后「关于」页自动提示
+- 光鸭：App 内「验证码获取」手机号 + 短信一键登录，自动回填 Refresh Token
+- 夸克：App 内「获取 Quark Cookie」内置 WebView 登录页一键取 Cookie，免手动抓包
 
 ## 🐾 为什么是转存喵？
 
@@ -31,8 +33,8 @@
 ## 📥 下载
 
 - **Releases 页面**：<https://github.com/ASH-C776/zhuancun-miao/releases>
-- **直接下载 APK**：[zhuancun-miao-v0.4.1.apk](https://github.com/ASH-C776/zhuancun-miao/releases/download/v0.4.1/zhuancun-miao-v0.4.1.apk)（约 1.9MB）
-  - 国内直连 GitHub 不畅时，可用加速链接：[ghfast.top 加速下载](https://ghfast.top/https://github.com/ASH-C776/zhuancun-miao/releases/download/v0.4.1/zhuancun-miao-v0.4.1.apk)
+- **直接下载 APK**：[zhuancun-miao-v0.5.0.apk](https://github.com/ASH-C776/zhuancun-miao/releases/download/v0.5.0/zhuancun-miao-v0.5.0.apk)（约 1.9MB）
+  - 国内直连 GitHub 不畅时，可用加速链接：[ghfast.top 加速下载](https://ghfast.top/https://github.com/ASH-C776/zhuancun-miao/releases/download/v0.5.0/zhuancun-miao-v0.5.0.apk)
 - 或自行克隆本仓库构建：`gradle :app:assembleRelease`
 
 ## 🖼 截图
@@ -43,7 +45,7 @@
 
 ## 🚀 使用
 
-1. 设置 → 登录网盘（光鸭填 Refresh Token，夸克填 Cookie；获取办法请自行研究）
+1. 设置 → 登录网盘：光鸭可点「验证码获取」用手机号 + 短信验证码一键登录并自动回填 Refresh Token；夸克可点「获取 Quark Cookie」在内置登录页一键取 Cookie。也可手动粘贴 Token / Cookie。
 2. 主页粘贴分享链接、填写剧名、选择转存路径与命名规则
 3. 开始转存 → 预览确认 → 完成
 

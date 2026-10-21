@@ -13,6 +13,7 @@ import com.ashchan.cloudsaver.core.model.RuleMode
 import com.ashchan.cloudsaver.core.model.ShareInfo
 import com.ashchan.cloudsaver.core.model.TransferResult
 import com.ashchan.cloudsaver.drive.DriveFactory
+import com.ashchan.cloudsaver.drive.guangya.GuangYaSmsLogin
 import com.ashchan.cloudsaver.rename.RenameEngine
 import com.ashchan.cloudsaver.storage.CredentialStore
 import com.ashchan.cloudsaver.storage.RuleStore
@@ -145,8 +146,10 @@ class AppViewModel(
 
     /** 语义化版本比较：remote 是否比 current 新（逐段数字比较） */
     private fun isNewerVersion(remote: String, current: String): Boolean {
-        val r = remote.split('.').map { it.trim().toIntOrNull() ?: 0 }
-        val c = current.split('.').map { it.trim().toIntOrNull() ?: 0 }
+        // 剥离 -debug 等后缀，只取开头的「数字.数字...」部分（如 "0.4.1-debug" → "0.4.1"），
+        // 否则 "1-debug" 会被解析成 0，导致调试版恒误报「有更新」
+        val r = sanitizeVersion(remote).split('.').map { it.toIntOrNull() ?: 0 }
+        val c = sanitizeVersion(current).split('.').map { it.toIntOrNull() ?: 0 }
         for (i in 0 until maxOf(r.size, c.size)) {
             val rv = r.getOrElse(i) { 0 }
             val cv = c.getOrElse(i) { 0 }
@@ -154,6 +157,10 @@ class AppViewModel(
         }
         return false
     }
+
+    /** 只保留版本号开头的「数字.数字...」部分，去掉 -debug 等后缀与前置 v/V */
+    private fun sanitizeVersion(v: String): String =
+        v.trimStart('v', 'V').takeWhile { it.isDigit() || it == '.' }
 
     private val _rules = MutableStateFlow<List<RenameRule>>(emptyList())
     val rules: StateFlow<List<RenameRule>> = _rules.asStateFlow()
@@ -297,6 +304,138 @@ class AppViewModel(
     /** 设置页读取当前配置网盘的已保存凭证（用于回填） */
     fun loadSavedCredential(): String? =
         credentialStore.loadCredential(_settingsDriveType.value)
+
+    // ---------- 光鸭短信验证码登录（设置页弹框） ----------
+    /** 短信登录弹框各阶段 */
+    enum class SmsPhase { DECLARATION, PHONE, CODE, HUMAN_VERIFY, SUCCESS }
+
+    /** 短信登录弹框状态（声明 → 手机号 → 验证码 → 人机验证 → 成功回填） */
+    data class SmsLoginState(
+        val open: Boolean = false,
+        val phase: SmsPhase = SmsPhase.DECLARATION,
+        val phone: String = "",
+        val code: String = "",
+        val captchaUrl: String? = null,           // 人机验证页 url（需要时）
+        val countdown: Int = 0,                    // 重新获取验证码倒计时（秒）
+        val loading: Boolean = false,
+        val error: String? = null,
+        val resultRefreshToken: String? = null,    // 成功后产出，UI 取走后清空
+    )
+
+    private val _smsLogin = MutableStateFlow(SmsLoginState())
+    val smsLoginState: StateFlow<SmsLoginState> = _smsLogin.asStateFlow()
+
+    // 跨步骤的中间令牌（不进 UI 状态，仅内部流转）
+    private var smsCaptchaToken: String? = null
+    private var smsVerificationId: String? = null
+
+    /** 打开短信登录弹框（进入声明页） */
+    fun openSmsLogin() {
+        _smsLogin.value = SmsLoginState(open = true, phase = SmsPhase.DECLARATION)
+    }
+
+    /** 关闭弹框并复位 */
+    fun closeSmsLogin() {
+        _smsLogin.value = SmsLoginState()
+        smsCaptchaToken = null
+        smsVerificationId = null
+    }
+
+    /** 声明页「我已了解」→ 进入手机号输入 */
+    fun smsAgreeDeclaration() {
+        _smsLogin.update { it.copy(phase = SmsPhase.PHONE, error = null) }
+    }
+
+    /** 手机号页「获取验证码」：初始化验证并发送短信 */
+    fun smsRequestCode(phone: String) {
+        val formatted = phone.trim()
+        if (formatted.isBlank()) {
+            _smsLogin.update { it.copy(error = "请输入手机号") }
+            return
+        }
+        viewModelScope.launch {
+            _smsLogin.update { it.copy(loading = true, error = null, phone = formatted) }
+            runCatching {
+                val init = GuangYaSmsLogin.captchaInit(formatted)
+                when (init) {
+                    is GuangYaSmsLogin.CaptchaInitResult.Token -> {
+                        smsCaptchaToken = init.captchaToken
+                        val vid = GuangYaSmsLogin.sendCode(init.captchaToken, formatted)
+                        smsVerificationId = vid
+                        _smsLogin.update { it.copy(phase = SmsPhase.CODE, loading = false, countdown = 60) }
+                    }
+                    is GuangYaSmsLogin.CaptchaInitResult.HumanVerify -> {
+                        // 需要人机验证：交给 WebView 兜底层处理
+                        _smsLogin.update {
+                            it.copy(phase = SmsPhase.HUMAN_VERIFY, loading = false, captchaUrl = init.url)
+                        }
+                    }
+                }
+            }.onFailure { e ->
+                _smsLogin.update { it.copy(loading = false, error = readableSmsError(e)) }
+            }
+        }
+    }
+
+    /** 人机验证完成后（WebView 提取到 captcha_token）回调，继续发送短信 */
+    fun smsHumanVerified(captchaToken: String) {
+        val phone = _smsLogin.value.phone
+        viewModelScope.launch {
+            _smsLogin.update { it.copy(loading = true, error = null) }
+            runCatching {
+                smsCaptchaToken = captchaToken
+                val vid = GuangYaSmsLogin.sendCode(captchaToken, phone)
+                smsVerificationId = vid
+                _smsLogin.update { it.copy(phase = SmsPhase.CODE, loading = false, captchaUrl = null, countdown = 60) }
+            }.onFailure { e ->
+                _smsLogin.update { it.copy(loading = false, error = readableSmsError(e)) }
+            }
+        }
+    }
+
+    /** 验证码页「登录并获取 Token」：校验 → 登录 → 产出 refresh_token */
+    fun smsSubmitCode(code: String) {
+        val phone = _smsLogin.value.phone
+        val captchaToken = smsCaptchaToken
+        val verificationId = smsVerificationId
+        if (captchaToken.isNullOrBlank() || verificationId.isNullOrBlank()) {
+            _smsLogin.update { it.copy(error = "登录状态已失效，请重新获取验证码") }
+            return
+        }
+        if (code.trim().length < 4) {
+            _smsLogin.update { it.copy(error = "请输入收到的验证码") }
+            return
+        }
+        viewModelScope.launch {
+            _smsLogin.update { it.copy(loading = true, error = null) }
+            runCatching {
+                val vToken = GuangYaSmsLogin.verifyCode(verificationId, code.trim(), phone)
+                val refresh = GuangYaSmsLogin.signIn(captchaToken, vToken, code.trim(), phone)
+                _smsLogin.update { it.copy(phase = SmsPhase.SUCCESS, loading = false, resultRefreshToken = refresh) }
+            }.onFailure { e ->
+                _smsLogin.update { it.copy(loading = false, error = readableSmsError(e)) }
+            }
+        }
+    }
+
+    /** UI 取走成功产出的 refresh_token 后调用，清空结果并关闭弹框 */
+    fun smsConsumeResult() {
+        _smsLogin.update { it.copy(resultRefreshToken = null, open = false) }
+        smsCaptchaToken = null
+        smsVerificationId = null
+    }
+
+    /** 短信登录相关错误转中文 */
+    private fun readableSmsError(e: Throwable): String {
+        val msg = e.message ?: ""
+        return when {
+            msg.isNotBlank() -> msg
+            e is java.net.UnknownHostException -> "网络错误：无法连接光鸭服务器，请检查网络"
+            e is java.net.ConnectException -> "网络错误：连接光鸭服务器失败，请检查网络"
+            e is java.net.SocketTimeoutException -> "请求超时，请稍后重试"
+            else -> "操作失败，请重试或改用手动粘贴 Token"
+        }
+    }
 
     // ---------- 主页网盘选择 ----------
     /** 主页点击网盘卡片：已登录则切换；未登录则提示去设置 */
