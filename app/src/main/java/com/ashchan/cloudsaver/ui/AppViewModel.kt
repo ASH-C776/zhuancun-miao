@@ -16,7 +16,9 @@ import com.ashchan.cloudsaver.drive.DriveFactory
 import com.ashchan.cloudsaver.drive.guangya.GuangYaSmsLogin
 import com.ashchan.cloudsaver.rename.RenameEngine
 import com.ashchan.cloudsaver.storage.CredentialStore
+import com.ashchan.cloudsaver.storage.RecordStore
 import com.ashchan.cloudsaver.storage.RuleStore
+import com.ashchan.cloudsaver.storage.TransferRecord
 import com.ashchan.cloudsaver.transfer.TransferManager
 import java.net.HttpURLConnection
 import java.net.URL
@@ -27,7 +29,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /** 页面导航状态 */
-enum class Screen { HOME, SETTINGS, FOLDER_PICKER, ABOUT, DONATE }
+enum class Screen { HOME, HISTORY, SETTINGS, FOLDER_PICKER, ABOUT, DONATE }
 
 /** 项目仓库（更新检测与跳转均基于此） */
 const val REPO_URL = "https://github.com/ASH-C776/zhuancun-miao"
@@ -57,6 +59,10 @@ data class PreviewItem(
     val newName: String,
     val filtered: Boolean,
     val hasUnresolved: Boolean,
+    /** 目标剧文件夹里已存在同名/同集文件，默认跳过 */
+    val alreadyExists: Boolean = false,
+    /** 是否参与本次转存（已存在默认 false，可勾选强制重转） */
+    val included: Boolean = true,
 )
 
 /** 预命名预览弹窗状态 */
@@ -73,6 +79,7 @@ data class PreviewDialogState(
 class AppViewModel(
     private val credentialStore: CredentialStore,
     private val ruleStore: RuleStore,
+    private val recordStore: RecordStore,
 ) : ViewModel() {
 
     // ---------- 状态 ----------
@@ -206,14 +213,81 @@ class AppViewModel(
     /** 分享 fid -> 最终新名（规则计算后） */
     private val _renamePlan = MutableStateFlow<Map<String, String>>(emptyMap())
 
+    // ---------- 增量转存（跳过已存在集数） ----------
+    /** 复用的已有剧文件夹 fid（null = 没有同名文件夹，按原流程新建） */
+    private val _incrementalFolderId = MutableStateFlow<String?>(null)
+    /** 集数键解析：S01E05 / E05 / 第05集 */
+    private val reSeasonEpisode = Regex("(?i)s(\\d{1,2})[\\s._-]*e(\\d{1,4})")
+    private val reEpisode = Regex("(?i)(?:^|[^a-z0-9])ep?(\\d{1,4})(?:[^0-9]|$)")
+    private val reCnEpisode = Regex("第\\s*(\\d{1,4})\\s*集")
+
     // ---------- 依赖 ----------
     private val adapters = mutableMapOf<DriveType, CloudDriveAdapter>()
     private val adapter: CloudDriveAdapter? get() = _driveType.value?.let { adapters[it] }
     private val engine = RenameEngine()
 
+    // ---------- 转存记录（历史） ----------
+    private val _records = MutableStateFlow<List<TransferRecord>>(emptyList())
+    val records: StateFlow<List<TransferRecord>> = _records.asStateFlow()
+
     init {
         _rules.value = ruleStore.loadRules()
+        _records.value = recordStore.load()
         autoLogin()
+    }
+
+    /** 「再转一次」：回填链接 + 剧名，已登录的网盘切回当时网盘，跳回主页 */
+    fun refillRecord(record: TransferRecord) {
+        _linkInput.value = record.link
+        _taskNameInput.value = record.taskName
+        runCatching { DriveType.valueOf(record.drive) }.getOrNull()?.let { type ->
+            if (_accounts.value[type] != null) selectCurrentDrive(type)
+        }
+        _screen.value = Screen.HOME
+    }
+
+    fun removeRecord(id: Long) {
+        _records.value = recordStore.remove(id)
+    }
+
+    fun clearRecords() {
+        _records.value = recordStore.clear()
+    }
+
+    /** 当前启用规则的显示名（与主页设置卡一致） */
+    private fun currentRuleName(): String {
+        val selected = _rules.value.firstOrNull { it.enabled }
+        return when (selected?.key) {
+            null -> "保持原名"
+            "\$TV_MAGIC" -> "通用剧集命名"
+            else -> selected.name
+        }
+    }
+
+    /** 从文件名抽取集数键：S01E05 / E05 / 第05集 → 归一化字符串，非剧集返回 null */
+    private fun episodeKey(name: String): String? {
+        reSeasonEpisode.find(name)?.let {
+            return "S${it.groupValues[1].toInt()}E${it.groupValues[2].toInt()}"
+        }
+        reEpisode.find(name)?.let { return "E${it.groupValues[1].toInt()}" }
+        reCnEpisode.find(name)?.let { return "E${it.groupValues[1].toInt()}" }
+        return null
+    }
+
+    /** 转存落一条历史记录（有结果即记录，含部分失败） */
+    private fun saveRecord(result: TransferResult) {
+        val record = TransferRecord(
+            id = System.currentTimeMillis(),
+            drive = result.driveType.name,
+            taskName = result.taskName,
+            link = _linkInput.value.trim(),
+            path = _targetPath.value,
+            ruleName = currentRuleName(),
+            successCount = result.successCount,
+            failCount = result.failCount,
+            total = result.items.size,
+        )
+        _records.value = recordStore.add(record)
     }
 
     /**
@@ -635,11 +709,32 @@ class AppViewModel(
                 _shareFiles.value = all
                 _selected.value = all.map { it.fid }.toSet()
                 // 2.5 若分享根是单个文件夹，把其内部文件也纳入重命名计划（转存后对其内部文件改名）
+                val folderShare = all.size == 1 && all[0].isDir
                 val renameTargets: List<DriveFile> =
-                    if (all.size == 1 && all[0].isDir) {
+                    if (folderShare) {
                         runCatching { instance.fetchShareChildren(resolved, all[0].fid).getOrThrow() }
                             .getOrElse { emptyList() }
                     } else all
+                // 2.6 增量转存：定位目标下同名剧文件夹，读取已有文件名/集数，预览时跳过已存在集
+                _incrementalFolderId.value = null
+                val folderName = _taskName.value.trim().ifBlank { all.getOrNull(0)?.name.orEmpty() }
+                val existingFiles: List<DriveFile> = runCatching {
+                    when {
+                        folderShare && folderName.isNotBlank() -> {
+                            val targetChildren = instance.listFiles(_targetFolder.value).getOrThrow()
+                            val existingFolder = targetChildren.firstOrNull { it.isDir && it.name == folderName }
+                            if (existingFolder != null) {
+                                _incrementalFolderId.value = existingFolder.fid
+                                instance.listFiles(existingFolder.fid).getOrThrow()
+                            } else emptyList()
+                        }
+                        !folderShare -> instance.listFiles(_targetFolder.value).getOrThrow()
+                        else -> emptyList()
+                    }
+                }.getOrElse { emptyList() }
+                val existingNames = existingFiles.map { it.name }.toSet()
+                val existingKeys = existingFiles.mapNotNull { episodeKey(it.name) }.toSet()
+                Log.d("TransferDebug", "INCREMENTAL folder=${_incrementalFolderId.value} existing=${existingFiles.size}")
                 // 3. 本地计算预命名
                 val prev = engine.preview(renameTargets.filter { !it.isDir }, _rules.value, _taskName.value)
                 _previews.value = prev
@@ -649,12 +744,19 @@ class AppViewModel(
                 _transferDialog.value = null
                 _previewDialog.value = PreviewDialogState(
                     items = prev.map { p ->
+                        val targetName = p.newName ?: p.originName
+                        val key = episodeKey(targetName) ?: episodeKey(p.originName)
+                        val exists = !p.filtered && (
+                            existingNames.contains(targetName) ||
+                                (key != null && existingKeys.contains(key)))
                         PreviewItem(
                             file = p.file,
                             originName = p.originName,
-                            newName = p.newName ?: p.originName,
+                            newName = targetName,
                             filtered = p.filtered,
                             hasUnresolved = p.hasUnresolved,
+                            alreadyExists = exists,
+                            included = !exists,
                         )
                     },
                 )
@@ -675,6 +777,15 @@ class AppViewModel(
         }
     }
 
+    /** 预览中切换某条是否参与转存（勾回「已存在」的集可强制重转） */
+    fun togglePreviewIncluded(fid: String) {
+        _previewDialog.update { st ->
+            st?.copy(items = st.items.map {
+                if (it.file.fid == fid) it.copy(included = !it.included) else it
+            })
+        }
+    }
+
     /** 关闭预览弹窗（不转存） */
     fun cancelPreview() {
         _previewDialog.value = null
@@ -687,13 +798,35 @@ class AppViewModel(
         val resolved = _share.value ?: return
         val all = _shareFiles.value
         val taskName = _taskName.value
+        val folderShare = all.size == 1 && all[0].isDir
+        // 只转存被勾选的条目（已存在集默认勾掉，用户可勾回强制重转）
+        val chosen = st.items.filter { !it.filtered && it.included }
+        if (chosen.isEmpty()) {
+            _previewDialog.value = null
+            _error.value = "没有需要转存的文件（已存在的集数已全部跳过）"
+            return
+        }
         // 生成计划：未过滤 且 新名与原名不同
-        _renamePlan.value = st.items
-            .filter { !it.filtered && it.newName.isNotBlank() && it.newName != it.originName }
+        _renamePlan.value = chosen
+            .filter { it.newName.isNotBlank() && it.newName.trim() != it.originName }
             .associate { it.file.fid to it.newName.trim() }
         val plan = _renamePlan.value
+        // 有同名剧文件夹 → 只把缺的集追加进该文件夹；否则走原流程（整文件夹新建）
+        val existingFolderId = _incrementalFolderId.value
+        val filesToRestore: List<DriveFile>
+        val destFolder: String
+        if (folderShare && existingFolderId != null) {
+            filesToRestore = chosen.map { it.file }
+            destFolder = existingFolderId
+        } else if (folderShare) {
+            filesToRestore = all
+            destFolder = _targetFolder.value
+        } else {
+            filesToRestore = chosen.map { it.file }
+            destFolder = _targetFolder.value
+        }
         _previewDialog.value = null
-        Log.d("TransferDebug", "CONFIRM plan=${plan.entries.take(8)}")
+        Log.d("TransferDebug", "CONFIRM plan=${plan.entries.take(8)} dest=$destFolder incremental=${existingFolderId != null}")
         viewModelScope.launch {
             _busy.value = true
             _error.value = null
@@ -704,8 +837,8 @@ class AppViewModel(
                 val manager = TransferManager(instance)
                 val r = manager.execute(
                     share = resolved,
-                    files = all,
-                    targetFolderId = _targetFolder.value,
+                    files = filesToRestore,
+                    targetFolderId = destFolder,
                     taskName = taskName,
                     renamePlan = plan,
                     onProgress = { stage, percent, msg ->
@@ -719,6 +852,8 @@ class AppViewModel(
                     message = if (r.failCount == 0) "全部完成" else "部分失败",
                     result = r,
                 )
+                // 落一条转存记录（记录页可回看 / 再转一次）
+                saveRecord(r)
             }.onFailure { e ->
                 _transferDialog.value = TransferDialogState(
                     running = false, stage = 0, percent = 0,

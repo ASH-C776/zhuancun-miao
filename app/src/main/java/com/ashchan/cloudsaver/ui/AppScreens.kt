@@ -69,6 +69,14 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.Refresh
+import com.ashchan.cloudsaver.storage.RecordStore
+import com.ashchan.cloudsaver.storage.TransferRecord
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
@@ -138,10 +146,11 @@ import com.ashchan.cloudsaver.storage.RuleStore
 class ScreenViewModelFactory(
     private val credentialStore: CredentialStore,
     private val ruleStore: RuleStore,
+    private val recordStore: RecordStore,
 ) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
         @Suppress("UNCHECKED_CAST")
-        return AppViewModel(credentialStore, ruleStore) as T
+        return AppViewModel(credentialStore, ruleStore, recordStore) as T
     }
 }
 
@@ -158,6 +167,7 @@ fun AppRoot(
     LaunchedEffect(Unit) { viewModel.checkUpdate(appVersion) }
     when (screen) {
         Screen.HOME -> HomeScreen(viewModel, themeMode, onThemeModeChange)
+        Screen.HISTORY -> HistoryScreen(viewModel)
         Screen.SETTINGS -> SettingsScreen(viewModel)
         Screen.FOLDER_PICKER -> FolderPickerScreen(viewModel)
         Screen.ABOUT -> AboutScreen(viewModel)
@@ -265,6 +275,7 @@ fun HomeScreen(
     val link by viewModel.linkInput.collectAsState()
     val taskName by viewModel.taskNameInput.collectAsState()
     val previewDialog by viewModel.previewDialog.collectAsState()
+    val records by viewModel.records.collectAsState()
 
     var showRuleDialog by remember { mutableStateOf(false) }
     var showCustomDialog by remember { mutableStateOf(false) }
@@ -283,6 +294,10 @@ fun HomeScreen(
             AppTopBar(
                 title = "转存喵 v${currentVersion()}",
                 actions = {
+                    // 转存记录入口
+                    IconButton(onClick = { viewModel.go(Screen.HISTORY) }) {
+                        Icon(Icons.Filled.List, contentDescription = "转存记录")
+                    }
                     // 主题切换：自动 → 亮 → 暗 循环，图标随模式变化
                     IconButton(onClick = { onThemeModeChange((themeMode + 1) % 3) }) {
                         Icon(
@@ -308,6 +323,53 @@ fun HomeScreen(
                 .padding(16.dp),
         ) {
             ErrorBanner(error)
+
+            // 最近一次转存记录：一键回填链接/剧名/网盘，追剧不用重新粘贴
+            val latestRecord = records.firstOrNull()
+            if (latestRecord != null) {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
+                    modifier = Modifier.fillMaxWidth().tappable { viewModel.refillRecord(latestRecord) },
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.Filled.Refresh,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "最近转存：${latestRecord.taskName.ifBlank { "未命名任务" }}",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                "${formatRecordTime(latestRecord.id)} · ${latestRecord.ruleName} · 成功 ${latestRecord.successCount}/${latestRecord.total}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            "再来一次",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+            }
 
             // 第一行：分享链接（一行，超长省略）
             OutlinedTextField(
@@ -481,6 +543,7 @@ fun HomeScreen(
         PreviewDialog(
             state = it,
             onNewNameChange = { fid, name -> viewModel.updatePreviewName(fid, name) },
+            onToggleIncluded = { fid -> viewModel.togglePreviewIncluded(fid) },
             onConfirm = { viewModel.confirmTransfer() },
             onCancel = { viewModel.cancelPreview() },
         )
@@ -2039,10 +2102,14 @@ private fun TransferDialog(state: TransferDialogState, onClose: () -> Unit) {
 private fun PreviewDialog(
     state: PreviewDialogState,
     onNewNameChange: (fid: String, newName: String) -> Unit,
+    onToggleIncluded: (fid: String) -> Unit,
     onConfirm: () -> Unit,
     onCancel: () -> Unit,
 ) {
     val renamedCount = state.items.count { !it.filtered && it.newName != it.originName }
+    val existingCount = state.items.count { it.alreadyExists }
+    val skippedCount = state.items.count { it.alreadyExists && !it.included }
+    val includedCount = state.items.count { !it.filtered && it.included }
     Dialog(
         onDismissRequest = onCancel,
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -2068,6 +2135,14 @@ private fun PreviewDialog(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(horizontal = 16.dp),
                 )
+                if (existingCount > 0) {
+                    Text(
+                        "目标剧文件夹里已存在 ${existingCount} 集，已跳过 ${skippedCount} 集（勾选可强制重转）。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
+                }
                 Spacer(Modifier.height(8.dp))
 
                 // 单列列表：每个文件一张卡片（旧名 → 新名）
@@ -2076,7 +2151,7 @@ private fun PreviewDialog(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     items(state.items, key = { it.file.fid }) { item ->
-                        PreviewRow(item, onNewNameChange)
+                        PreviewRow(item, onNewNameChange, onToggleIncluded)
                     }
                 }
 
@@ -2085,7 +2160,13 @@ private fun PreviewDialog(
                     Modifier.fillMaxWidth().padding(16.dp),
                     horizontalArrangement = Arrangement.End,
                 ) {
-                    Button(onClick = onConfirm, modifier = Modifier.fillMaxWidth()) { Text("确认转存") }
+                    Button(
+                        onClick = onConfirm,
+                        enabled = includedCount > 0,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(if (existingCount > 0) "确认转存（${includedCount} 个）" else "确认转存")
+                    }
                 }
             }
         }
@@ -2096,6 +2177,7 @@ private fun PreviewDialog(
 private fun PreviewRow(
     item: PreviewItem,
     onNewNameChange: (fid: String, newName: String) -> Unit,
+    onToggleIncluded: (fid: String) -> Unit,
 ) {
     val mono = FontFamily.Monospace
     Surface(
@@ -2104,7 +2186,31 @@ private fun PreviewRow(
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(Modifier.padding(12.dp)) {
-            if (item.filtered) {
+            if (item.alreadyExists) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            item.originName,
+                            fontFamily = mono,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            textDecoration = TextDecoration.LineThrough,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            if (item.included) "已存在 · 仍要转存" else "已存在 · 跳过",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Checkbox(
+                        checked = item.included,
+                        onCheckedChange = { onToggleIncluded(item.file.fid) },
+                    )
+                }
+            } else if (item.filtered) {
                 Text(
                     item.originName,
                     fontFamily = mono,
@@ -2164,6 +2270,171 @@ private fun PreviewRow(
                     ),
                     modifier = Modifier.fillMaxWidth(),
                 )
+            }
+        }
+    }
+}
+
+/** 记录时间戳 → "MM-dd HH:mm" */
+private fun formatRecordTime(millis: Long): String =
+    SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()).format(Date(millis))
+
+// ==================== 转存记录（任务历史） ====================
+
+@Composable
+fun HistoryScreen(viewModel: AppViewModel) {
+    val records by viewModel.records.collectAsState()
+    BackHandler { viewModel.go(Screen.HOME) }
+    var showClearConfirm by remember { mutableStateOf(false) }
+
+    Scaffold(
+        topBar = {
+            AppTopBar(
+                title = "转存记录",
+                onBack = { viewModel.go(Screen.HOME) },
+                actions = {
+                    if (records.isNotEmpty()) {
+                        TextButton(onClick = { showClearConfirm = true }) {
+                            Icon(
+                                Icons.Filled.Delete,
+                                contentDescription = "清空记录",
+                                modifier = Modifier.size(18.dp),
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text("清空", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                },
+            )
+        },
+    ) { padding ->
+        if (records.isEmpty()) {
+            // 空状态：给指引而不是白屏
+            Column(
+                modifier = Modifier.padding(padding).fillMaxSize().padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Icon(
+                    Icons.Filled.Refresh,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.outlineVariant,
+                    modifier = Modifier.size(48.dp),
+                )
+                Spacer(Modifier.height(12.dp))
+                Text("还没有转存记录", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "回主页粘贴分享链接，完成一次转存后就会出现在这里",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.padding(padding).fillMaxSize(),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                items(records, key = { it.id }) { record ->
+                    RecordCard(
+                        record = record,
+                        onRefill = { viewModel.refillRecord(record) },
+                        onDelete = { viewModel.removeRecord(record.id) },
+                    )
+                }
+            }
+        }
+    }
+
+    if (showClearConfirm) {
+        AlertDialog(
+            onDismissRequest = { showClearConfirm = false },
+            title = { Text("清空全部记录？") },
+            text = { Text("将删除全部 ${records.size} 条转存记录，不影响网盘里已转存的文件。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.clearRecords()
+                    showClearConfirm = false
+                }) { Text("清空", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearConfirm = false }) { Text("取消") }
+            },
+        )
+    }
+}
+
+/** 单条转存记录卡：剧名 + 时间/网盘 + 结果 + 再转一次 / 删除 */
+@Composable
+private fun RecordCard(
+    record: TransferRecord,
+    onRefill: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val driveName = runCatching {
+        com.ashchan.cloudsaver.core.model.DriveType.valueOf(record.drive).displayName
+    }.getOrDefault(record.drive)
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        ),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    record.taskName.ifBlank { "未命名任务" },
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                // 结果小圆点：全成功绿，部分失败红
+                Box(
+                    Modifier
+                        .size(8.dp)
+                        .background(
+                            if (record.allSuccess) SuccessGreen else UpdateDotRed,
+                            CircleShape,
+                        ),
+                )
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "${formatRecordTime(record.id)} · $driveName · ${record.path}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                "${record.ruleName} · 成功 ${record.successCount} / 共 ${record.total}" +
+                    if (record.failCount > 0) " · 失败 ${record.failCount}" else "",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (record.failCount > 0) MaterialTheme.colorScheme.error
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(6.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = onRefill) {
+                    Icon(
+                        Icons.Filled.Refresh,
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text("再转一次", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+                }
+                Spacer(Modifier.weight(1f))
+                TextButton(onClick = onDelete) {
+                    Text("删除", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
     }

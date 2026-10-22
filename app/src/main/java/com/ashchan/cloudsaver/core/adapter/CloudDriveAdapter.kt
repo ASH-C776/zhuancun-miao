@@ -37,6 +37,9 @@ interface CloudDriveAdapter {
     /** 列出我的网盘中某目录下的子文件夹（parentId 为 null 表示根目录） */
     suspend fun listFolders(parentId: String?): Result<List<DriveFile>>
 
+    /** 列出我的网盘中某目录下的全部条目（文件 + 子文件夹），用于增量转存比对 */
+    suspend fun listFiles(parentId: String?): Result<List<DriveFile>>
+
     /**
      * 转存分享内文件到目标目录。
      * [files] 为待转存文件（含 fid / fidToken）。

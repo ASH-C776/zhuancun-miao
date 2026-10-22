@@ -20,6 +20,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.ashchan.cloudsaver.storage.CredentialStore
+import com.ashchan.cloudsaver.storage.RecordStore
 import com.ashchan.cloudsaver.storage.RuleStore
 import com.ashchan.cloudsaver.ui.AppRoot
 import com.ashchan.cloudsaver.ui.AppViewModel
@@ -35,6 +36,7 @@ class MainActivity : ComponentActivity() {
         ScreenViewModelFactory(
             credentialStore = CredentialStore(applicationContext),
             ruleStore = RuleStore(applicationContext),
+            recordStore = RecordStore(applicationContext),
         )
     }
 

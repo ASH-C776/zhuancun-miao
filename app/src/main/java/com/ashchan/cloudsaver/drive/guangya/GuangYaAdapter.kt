@@ -341,6 +341,10 @@ class GuangYaAdapter(private var accessToken: String = "", private var refreshTo
         items.filter { it.isDir }
     }
 
+    override suspend fun listFiles(parentId: String?): Result<List<DriveFile>> = runCatching {
+        listDirFiles(parentId ?: "0")
+    }
+
     // ---------- 转存 ----------
     override suspend fun restoreShare(
         share: ShareInfo,

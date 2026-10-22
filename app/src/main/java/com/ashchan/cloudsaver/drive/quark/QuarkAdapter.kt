@@ -203,6 +203,10 @@ class QuarkAdapter(private var cookie: String = "") : CloudDriveAdapter {
         listDirFiles(parentId).filter { it.isDir }
     }
 
+    override suspend fun listFiles(parentId: String?): Result<List<DriveFile>> = runCatching {
+        listDirFiles(parentId)
+    }
+
     // ---------- 转存 ----------
     override suspend fun restoreShare(
         share: ShareInfo,
