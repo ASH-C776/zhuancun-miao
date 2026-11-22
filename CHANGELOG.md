@@ -23,7 +23,7 @@
 | Stage 1 | 引擎：目录深层定位（递归扫描 / 视频目录定位 / 保留原层级转存） | ✅ 1.1-1.6 全部完成 |
 | Stage 2 | 数据层：Room 三张表 + 凭证单账号化 | ✅ 已完成（2.1 / 2.2 / 2.3） |
 | Stage 3 | UI 结构重构（主页 → 任务列表） | ✅ 已完成（3.1 / 3.2 / 3.3 骨架） |
-| Stage 4 | 任务化功能（自动决策 / 快照 / 批次编排） | 🔄 代码完成（4.1 / 4.2 / 4.3），待真机端到端回归 |
+| Stage 4 | 任务化功能（自动决策 / 快照 / 批次编排） | ✅ 已完成（4.1-4.4，含真机端到端） |
 | Stage 5 | TMDB 凭证 + 更新日 / 播出时刻 | 待开始 |
 | Stage 6 | 稳定性（重试 / 幂等 / 日志） | 待开始 |
 | Stage 7 | 表现层统一 | 待开始 |
@@ -111,10 +111,34 @@
 - `MainActivity`：`TasksViewModel` factory 注入 `TaskRepository` + `CredentialStore` + `TaskRunner`
 - **单测 60 项全绿**（原 55 + `EpisodeCounterTest` 5）；`:app:compileDebugKotlin` 与 `:app:assembleDebug` 均通过，APK 11.61MB
 
-**待补（4.4 真机端到端回归）**
+**4.4 真机端到端回归（✅，2026-11-23）**
 
-- 本轮安装 APK 时手机无线调试端口已变更（`40147` → mDNS 广播 `44107`），两端均被拒绝，真机连不上，端到端未跑；需用户在手机「无线调试」页确认当前 `IP:端口` 后再验证
-- 未确认项：每个任务是否需要自动在保存路径下建「剧名」子目录（`ensureFolder` 未实现，夸克/光鸭 createDir 参数未实测）；光鸭 `pageSize=50` 翻页未遇到 >50 条真实目录
+真机（Xiaomi Civi 3，无线调试端口每次重开都会变，本轮 `192.168.31.144:40907`）上跑通，过程中修掉三个真实问题：
+
+1. **任务目录隔离（新功能）**：原先所有任务都写进保存路径（默认网盘根），多个剧会混在一层、集数统计也会把整盘视频算进一个任务。新增 `CloudDriveAdapter.ensureFolder(parentFid, name)`，夸克/光鸭各自实现（先列目录找同名 → 没有才建 → 建完再列目录确认 fid，参数按 CASX `mkdir` / `fs_create_dir` 实测字段）；`TaskRunner` 先为任务建「剧名」目录，再用它做转存目标和统计边界
+2. **光鸭分页死循环（严重 bug）**：`get_share_page_files_list` / `file/get_file_list` 原先只判断「本页不足 50 条就停」，实测某个目录翻页参数不生效（每页都回同一批 50 条），一路翻到上限，同步卡死并打出上百个重复请求。改为三重保护：`data.total` 达到即停、本页无新 fid 即停、`MAX_PAGES=40` 硬上限；`listFolders`/`listDirFids`/`listDirFiles` 合并成同一个分页实现，不再各写一遍
+3. **大目录转存超时被误判失败**：光鸭轮询 20 次（20 秒）、夸克 30 秒后直接 `throw`，而 300+ 文件/169GB 的目录远超这个时间。改为超时只记日志、继续走目录 diff 等待（与 CASX 一致），diff 也拿不到才算失败
+
+配套调整：
+- `countLocal` 由「目标目录 + 直接子目录」改为递归到 3 层：真实资源是「剧名 / 第 N 季 - 分辨率 / 集.mp4」三层，只扫两层会把盘里集数算成 0
+- 新增只读排查工具 `tools/read_tasks.py`：`adb exec-out run-as ... cat databases/*` 导出 db+wal 后直接读 tasks/snapshots/run_records，不用截图
+- 新增调试入口：`--ez debugTaskName 剧名 --es debugShareUrl 链接` 直接建任务并同步、`--ez debugRunAll true` 跑一轮全部检测（HyperOS 拒绝 `input tap/keyevent` 时的验证手段）
+- 空状态不再弹「没有启用的任务」（自动同步无任务时静默）
+
+实测数据（`run_records`）：
+
+| 场景 | 结果 |
+| --- | --- |
+| 夸克分享（19 平铺 4K 视频） | 目标目录已存在 → 跳过 18、`localEpisodes=18`、`localLastEpisode=219`，耗时 9 秒 |
+| 光鸭分享（310 文件 / 169GB，6 个季目录） | 首轮建「剧名」目录并整目录转存；次轮全部跳过 123 个文件、`localEpisodes=214` |
+| 一键全部（4 个任务串行） | 27 秒跑完，每条 `ok=1`，任务间无并发 |
+
+单测仍 **60 项全绿**；`:app:assembleDebug` 通过。
+
+**遗留待确认**
+
+- 测试期间在用户网盘里留下了 4 个测试用目录/任务（`斗破苍穹之少年归`、`斗破测试2`、`斗破测试3`、`夸克测试剧`），需要用户确认是否清理
+- `tmdbLatest` 仍为 0（卡片显示「未绑定 TMDB」），Stage 5 接入
 
 ### Stage 3 完成记录
 

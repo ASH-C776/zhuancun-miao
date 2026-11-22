@@ -23,6 +23,11 @@ class TaskRunner(
     private val credentialStore: CredentialStore,
 ) {
 
+    private companion object {
+        /** 集数统计递归层数上限（剧名 / 季 / 文件 三层足够，留一层余量） */
+        const val MAX_COUNT_DEPTH = 3
+    }
+
     suspend fun run(
         task: TaskEntity,
         trigger: String = RunRecordEntity.TRIGGER_MANUAL,
@@ -42,11 +47,16 @@ class TaskRunner(
             return Result.failure(IllegalStateException(msg))
         }
 
-        val destFid = task.saveFid.ifBlank { "0" }
+        val baseFid = task.saveFid.ifBlank { "0" }
         return try {
             val adapter = buildAdapter(drive, credential)
             val share = adapter.parseShareLink(task.shareUrl).getOrThrow()
             val resolved = adapter.resolveShareAccess(share).getOrThrow()
+
+            // 每个任务在自己的保存位置下建一个「剧名」目录：
+            // 多剧混在同一层会让集数统计把整盘视频算作一个任务，必须隔离。
+            val destFid = adapter.ensureFolder(baseFid, task.name.trim())
+                .getOrElse { baseFid }
 
             val rootId = task.seasonFid.ifBlank { task.startFid }.ifBlank { resolved.pdirFid }
             val tree = adapter.fetchShareTree(
@@ -60,7 +70,9 @@ class TaskRunner(
                 share = resolved,
                 tree = tree,
                 destRootFid = destFid,
-                taskName = task.name,
+                // destFid 已经是「剧名」目录，这里不再用任务名二次建层，
+                // 让引擎沿用分享里的真实目录名（如「第 1 季 - 1080p」）
+                taskName = "",
                 renamePlan = emptyMap(),
                 scope = scope,
             ).getOrThrow()
@@ -124,24 +136,26 @@ class TaskRunner(
         }
 
     /**
-     * 统计网盘里已有的集数：目标目录 + 其直接子目录。
-     * 平铺新集在根、旧集在下一级目录，只看一层会严重少算。
+     * 统计任务目标目录下已有的集数。
+     *
+     * 递归到 [MAX_COUNT_DEPTH] 层：真实资源常见「剧名 / 第 N 季 - 分辨率 / 集.mp4」三层，
+     * 只扫两层会把盘里集数算成 0。跳过的深度不再下钻，避免深层大目录把请求打爆。
      */
     private suspend fun countLocal(adapter: CloudDriveAdapter, destFid: String): EpisodeCounter.Result {
-        val direct = adapter.listFiles(destFid).getOrElse { return EpisodeCounter.Result(0, 0) }
         val names = mutableListOf<String>()
-        names += direct.filter { !it.isDir }.map { it.name }
-        direct.filter { it.isDir }.forEach { dir ->
-            adapter.listFiles(dir.fid).getOrNull()
-                ?.filter { !it.isDir }
-                ?.map { it.name }
-                ?.let { names += it }
+
+        suspend fun walk(fid: String, depth: Int) {
+            val items = adapter.listFiles(fid).getOrNull() ?: return
+            names += items.filter { !it.isDir }.map { it.name }
+            if (depth >= MAX_COUNT_DEPTH) return
+            items.filter { it.isDir }.forEach { walk(it.fid, depth + 1) }
         }
+
+        walk(destFid, 0)
         return EpisodeCounter.count(names)
     }
 
-    private fun buildAdapter(drive: DriveType, credential: String): CloudDriveAdapter = when (drive) {
-        DriveType.QUARK -> QuarkAdapter(credential)
+    private fun buildAdapter(drive: DriveType, credential: String): CloudDriveAdapter = when (drive) {        DriveType.QUARK -> QuarkAdapter(credential)
         DriveType.GUANGYA -> {
             // 光鸭凭证格式 "access||refresh"
             val parts = credential.split("||")

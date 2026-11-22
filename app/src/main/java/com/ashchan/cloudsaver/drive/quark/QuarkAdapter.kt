@@ -264,7 +264,8 @@ class QuarkAdapter(private var cookie: String = "") : CloudDriveAdapter {
                 delay(500)
             }
             if (status != 2) {
-                throw IllegalStateException("转存任务未完成：${lastMsg.ifBlank { "超时" }}，请稍后在网盘确认")
+                // 大目录异步任务可能超过 30 秒：不直接判失败，交给目录 diff 继续等
+                android.util.Log.w("Quark", "转存任务 $taskId 未完成，继续等待目录 diff")
             }
         }
 
@@ -299,6 +300,40 @@ class QuarkAdapter(private var cookie: String = "") : CloudDriveAdapter {
             throw IllegalStateException("重命名失败：${message(payload).ifBlank { "code=${payload.get("code")}" }}")
         }
     }
+
+    /**
+     * 确保目标目录下存在 [name] 子目录。
+     *
+     * 参数取自 CASX `QuarkAdapter.mkdir`：`POST /1/clouddrive/file`
+     * body `{pdir_fid, file_name, dir_path:"", dir_init_lock:false}`。
+     * 创建后 fid 可能在 `data.fid`，取不到就重新列目录按名字对齐（CASX 同样如此兜底）。
+     */
+    override suspend fun ensureFolder(parentFid: String, name: String): Result<String> = runCatching {
+        val parent = parentFid.ifBlank { "0" }
+        findChildDir(parent, name)?.let { return@runCatching it }
+
+        val payload = api.createDir(
+            JsonObject().apply {
+                addProperty("pdir_fid", parent)
+                addProperty("file_name", name)
+                addProperty("dir_path", "")
+                addProperty("dir_init_lock", false)
+            }
+        )
+        if (!isOk(payload)) {
+            // 可能因同名已存在而报错，再查一次；仍没有才算失败
+            findChildDir(parent, name)?.let { return@runCatching it }
+            throw IllegalStateException("创建目录失败：${message(payload).ifBlank { "code=${payload.get("code")}" }}")
+        }
+        payload.getAsJsonObject("data")?.get("fid")?.asString?.takeIf { it.isNotBlank() }
+            ?: findChildDir(parent, name)
+            ?: throw IllegalStateException("创建目录后未找到「$name」")
+    }
+
+    private suspend fun findChildDir(parentFid: String, name: String): String? =
+        listDirFiles(parentFid)
+            .firstOrNull { it.isDir && it.name == name }
+            ?.fid
 
     // ---------- 内部辅助 ----------
 

@@ -127,6 +127,28 @@ internal object GuangYaResp {
         return JsonArray()
     }
 
+    /**
+     * 列表总条数（`data.total`）。
+     *
+     * 实测教训（2026-11-23）：光鸭的 `get_share_page_files_list` / `file/get_file_list`
+     * 若只按「本页不足 50 条就停」判断，遇到 50 的整数倍目录会多翻一页；
+     * 更严重的是某些目录翻页参数不生效（每页都返回同一批 50 条），
+     * 只靠条数判断会一路翻到上限、同步卡死。必须用 total 兜住。
+     */
+    fun total(payload: JsonObject?): Int {
+        if (payload == null) return -1
+        val data = payload.get("data")
+        val obj = data?.takeIf { it.isJsonObject }?.asJsonObject ?: payload
+        for (key in listOf("total", "count", "totalCount", "total_count")) {
+            val v = obj.get(key) ?: continue
+            if (v.isJsonPrimitive) {
+                if (v.asJsonPrimitive.isNumber) return v.asInt
+                v.asString.toIntOrNull()?.let { return it }
+            }
+        }
+        return -1
+    }
+
     private fun topLevelList(obj: JsonObject): JsonArray {
         for (key in listOf("list", "items", "records", "rows", "fileList", "files")) {
             val v = obj.get(key)

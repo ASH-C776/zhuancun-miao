@@ -104,6 +104,19 @@ interface CloudDriveAdapter {
     /** 重命名单个文件 */
     suspend fun renameFile(fileId: String, newName: String): Result<Unit>
 
+    /**
+     * 确保 [parentFid] 下存在名为 [name] 的文件夹，返回该文件夹 fid（存在则直接复用，幂等）。
+     *
+     * 任务执行时用它为每个追剧任务建一个「剧名」目录，避免多个剧混在同一层、
+     * 也让集数统计有确定的边界。默认实现只查找不创建，未实现创建的适配器会失败。
+     */
+    suspend fun ensureFolder(parentFid: String, name: String): Result<String> = runCatching {
+        val exists = listFiles(parentFid).getOrThrow()
+            .firstOrNull { it.isDir && it.name == name }
+            ?: throw UnsupportedOperationException("${driveType.displayName} 不支持自动创建目录")
+        exists.fid
+    }
+
     companion object {
         /** 默认扫描到第 3 层目录（根的直接子级 = 1）。绝大多数资源不超过这个深度。 */
         const val DEFAULT_TREE_MAX_DEPTH: Int = 3

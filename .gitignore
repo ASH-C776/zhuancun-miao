@@ -8,3 +8,5 @@ build/
 .externalNativeBuild
 .cxx
 .kotlin/
+docs/dbcopy/
+docs/tmp.db

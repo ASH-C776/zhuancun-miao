@@ -77,6 +77,17 @@ class MainActivity : ComponentActivity() {
         }
         // 调试/联调用：adb ... --ez openNewTask true 直接拉起「新建任务」弹窗
         val openNewTask = intent?.getBooleanExtra("openNewTask", false) ?: false
+        // 调试/联调用：adb ... --es debugTaskName 剧名 --es debugShareUrl 链接
+        // 绕开 HyperOS 拒绝 input 事件、无法在弹窗里打字的限制，直接建任务并同步
+        val debugName = intent?.getStringExtra("debugTaskName")
+        val debugUrl = intent?.getStringExtra("debugShareUrl")
+        if (!debugName.isNullOrBlank() && !debugUrl.isNullOrBlank()) {
+            tasksViewModel.createTask(debugName, debugUrl, "", "")
+        }
+        // 调试/联调用：adb ... --ez debugRunAll true 直接跑一轮「全部检测」
+        if (intent?.getBooleanExtra("debugRunAll", false) == true) {
+            tasksViewModel.runAll()
+        }
         setContent {
             val prefs = remember { getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
             var themeMode by remember { mutableIntStateOf(prefs.getInt(KEY_THEME_MODE, THEME_AUTO)) }

@@ -133,7 +133,9 @@ class TasksViewModel(
         viewModelScope.launch {
             val tasks = repo.tasks().filter { it.enabled }
             if (tasks.isEmpty()) {
-                _toast.value = "没有启用的任务"
+                if (trigger != RunRecordEntity.TRIGGER_BACKGROUND) {
+                    _toast.value = "没有启用的任务"
+                }
                 return@launch
             }
             var ok = 0

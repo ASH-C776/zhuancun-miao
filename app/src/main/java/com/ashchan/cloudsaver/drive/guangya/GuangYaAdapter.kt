@@ -268,6 +268,7 @@ class GuangYaAdapter(private var accessToken: String = "", private var refreshTo
         runCatching {
             if (share.accessToken.isBlank()) throw IllegalStateException("缺少分享访问令牌")
             val items = mutableListOf<DriveFile>()
+            val seen = mutableSetOf<String>()
             var page = 1
             while (true) {
                 val payload = api.shareFilesList(
@@ -285,11 +286,15 @@ class GuangYaAdapter(private var accessToken: String = "", private var refreshTo
                 }
                 val batch = GuangYaResp.items(payload)
                 if (batch.size() == 0) break
+                var added = 0
                 for (el in batch) {
                     if (!el.isJsonObject) continue
                     val item = el.asJsonObject
+                    val fid = GuangYaResp.fid(item)
+                    if (!seen.add(fid)) continue
+                    added++
                     items += DriveFile(
-                        fid = GuangYaResp.fid(item),
+                        fid = fid,
                         name = GuangYaResp.name(item),
                         isDir = GuangYaResp.isDir(item),
                         size = GuangYaResp.size(item),
@@ -297,48 +302,20 @@ class GuangYaAdapter(private var accessToken: String = "", private var refreshTo
                         source = FileSource.SHARE,
                     )
                 }
+                // 分页保护：本页无新增（接口不认 page，重复返回同一批）立即停
+                if (added == 0) break
+                val total = GuangYaResp.total(payload)
+                if (total >= 0 && items.size >= total) break
                 if (batch.size() < 50) break
                 page++
-                if (page > 200) break
+                if (page > MAX_PAGES) break
             }
             items
         }
 
     // ---------- 我的文件 ----------
     override suspend fun listFolders(parentId: String?): Result<List<DriveFile>> = runCatching {
-        val items = mutableListOf<DriveFile>()
-        var page = 0
-        while (true) {
-            val payload = api.fileList(
-                JsonObject().apply {
-                    addProperty("parentId", normParentId(parentId))
-                    addProperty("page", page)
-                    addProperty("pageSize", 50)
-                    addProperty("orderBy", 0)
-                    addProperty("sortType", 0)
-                }
-            )
-            if (!GuangYaResp.isSuccess(payload)) {
-                throw IllegalStateException("获取目录列表失败：${GuangYaResp.message(payload)}")
-            }
-            val batch = GuangYaResp.items(payload)
-            if (batch.size() == 0) break
-            for (el in batch) {
-                if (!el.isJsonObject) continue
-                val item = el.asJsonObject
-                items += DriveFile(
-                    fid = GuangYaResp.fid(item),
-                    name = GuangYaResp.name(item),
-                    isDir = GuangYaResp.isDir(item),
-                    size = GuangYaResp.size(item),
-                    source = FileSource.MINE,
-                )
-            }
-            if (batch.size() < 50) break
-            page++
-            if (page > 200) break
-        }
-        items.filter { it.isDir }
+        listDirFiles(parentId ?: "0").filter { it.isDir }
     }
 
     override suspend fun listFiles(parentId: String?): Result<List<DriveFile>> = runCatching {
@@ -390,7 +367,9 @@ class GuangYaAdapter(private var accessToken: String = "", private var refreshTo
                 delay(1000)
             }
             if (failed) throw IllegalStateException("转存任务失败：${failMsg.ifBlank { "未知错误" }}")
-            if (!done) throw IllegalStateException("转存任务超时，请稍后在网盘中检查")
+            // 大目录（几百集 / 上百 GB）转存任务可能远超 60 秒，此时不直接判失败：
+            // 交给下面的 diff 继续等待，diff 仍拿不到才算失败（CASX 同样不因轮询超时中断）
+            if (!done) android.util.Log.w("GuangYa", "转存任务 $taskId 轮询超时，继续等待目录 diff")
         }
 
         // 4. 目录 diff：按转存前文件名顺序对齐新 fid
@@ -437,32 +416,50 @@ class GuangYaAdapter(private var accessToken: String = "", private var refreshTo
         }
     }
 
+    /**
+     * 确保目标目录下存在 [name] 子目录。
+     *
+     * 参数取自 CASX `GuangyaClient.fs_create_dir`：`POST nd.bizuserres.s/v1/file/create_dir`
+     * body `{dirName, parentId}`（parentId 空串表示根）。创建后 fid 位置不固定，
+     * 拿不到就重新列目录按名字对齐（与 CASX mkdir 的兜底一致）。
+     */
+    override suspend fun ensureFolder(parentFid: String, name: String): Result<String> = runCatching {
+        findChildDir(parentFid, name)?.let { return@runCatching it }
+
+        val payload = api.createDir(
+            JsonObject().apply {
+                addProperty("dirName", name)
+                addProperty("parentId", normParentId(parentFid))
+            }
+        )
+        if (!GuangYaResp.isSuccess(payload)) {
+            findChildDir(parentFid, name)?.let { return@runCatching it }
+            throw IllegalStateException("创建目录失败：${GuangYaResp.message(payload).ifBlank { "未知错误" }}")
+        }
+        extractCreatedFid(payload) ?: findChildDir(parentFid, name)
+            ?: throw IllegalStateException("创建目录后未找到「$name」")
+    }
+
+    private suspend fun findChildDir(parentFid: String?, name: String): String? =
+        listDirFiles(parentFid ?: "0")
+            .firstOrNull { it.isDir && it.name == name }
+            ?.fid
+
+    /** create_dir 返回的 fid 可能在 data.fid / data.id / data.fileId，逐个试 */
+    private fun extractCreatedFid(payload: JsonObject): String? {
+        val data = payload.get("data")
+        val obj = data?.takeIf { it.isJsonObject }?.asJsonObject ?: return null
+        for (key in listOf("fid", "id", "fileId", "file_id")) {
+            obj.get(key)?.takeIf { it.isJsonPrimitive }?.asString
+                ?.takeIf { it.isNotBlank() }?.let { return it }
+        }
+        return null
+    }
+
     // ---------- 内部辅助 ----------
 
-    private suspend fun listDirFids(parentId: String): Set<String> {
-        val items = mutableListOf<String>()
-        var page = 0
-        while (true) {
-            val payload = api.fileList(
-                JsonObject().apply {
-                    addProperty("parentId", normParentId(parentId))
-                    addProperty("page", page)
-                    addProperty("pageSize", 50)
-                    addProperty("orderBy", 0)
-                    addProperty("sortType", 0)
-                }
-            )
-            if (!GuangYaResp.isSuccess(payload)) break
-            val batch = GuangYaResp.items(payload)
-            if (batch.size() == 0) break
-            for (el in batch) {
-                if (el.isJsonObject) items += GuangYaResp.fid(el.asJsonObject)
-            }
-            if (batch.size() < 50) break
-            page++
-        }
-        return items.toSet()
-    }
+    private suspend fun listDirFids(parentId: String): Set<String> =
+        listDirFiles(parentId).map { it.fid }.toSet()
 
     /** 目录 diff：返回转存后新增的文件（fid + 原名），按传入数量对齐 */
     private suspend fun diffSavedFiles(parentId: String, beforeFids: Set<String>, expectedCount: Int): List<DriveFile> {
@@ -475,8 +472,17 @@ class GuangYaAdapter(private var accessToken: String = "", private var refreshTo
         throw IllegalStateException("转存任务完成但未定位到新文件，请在网盘确认后手动重命名")
     }
 
+    /**
+     * 列出「我的网盘」某目录下全部条目（内部唯一分页实现）。
+     *
+     * 分页三重保护（2026-11-23 实测踩坑）：
+     * 1. `data.total` 达到即停，避免 50 整数倍目录多翻一页；
+     * 2. 本页没有新 fid 即停，避免接口不认 page 时死循环翻页；
+     * 3. [MAX_PAGES] 硬上限兜底。
+     */
     private suspend fun listDirFiles(parentId: String): List<DriveFile> {
         val items = mutableListOf<DriveFile>()
+        val seen = mutableSetOf<String>()
         var page = 0
         while (true) {
             val payload = api.fileList(
@@ -491,18 +497,26 @@ class GuangYaAdapter(private var accessToken: String = "", private var refreshTo
             if (!GuangYaResp.isSuccess(payload)) break
             val batch = GuangYaResp.items(payload)
             if (batch.size() == 0) break
+            var added = 0
             for (el in batch) {
                 if (!el.isJsonObject) continue
                 val item = el.asJsonObject
+                val fid = GuangYaResp.fid(item)
+                if (!seen.add(fid)) continue
+                added++
                 items += DriveFile(
-                    fid = GuangYaResp.fid(item),
+                    fid = fid,
                     name = GuangYaResp.name(item),
                     isDir = GuangYaResp.isDir(item),
                     source = FileSource.SAVED,
                 )
             }
+            if (added == 0) break
+            val total = GuangYaResp.total(payload)
+            if (total >= 0 && items.size >= total) break
             if (batch.size() < 50) break
             page++
+            if (page > MAX_PAGES) break
         }
         return items
     }
@@ -539,8 +553,10 @@ class GuangYaAdapter(private var accessToken: String = "", private var refreshTo
         private const val USER_AGENT =
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36"
         private const val CLIENT_ID = "aMe-8VSlkrbQXpUR"
-        private const val MAX_TASK_POLLS = 20
-        private const val MAX_DIFF_RETRIES = 15
+        private const val MAX_TASK_POLLS = 60
+        private const val MAX_DIFF_RETRIES = 30
+        /** 分页硬上限：170 个 50 条页足够覆盖任何正常目录，防接口分页失效时打爆请求 */
+        private const val MAX_PAGES = 40
 
         private fun splitCredential(credential: String): Pair<String, String> {
             val parts = credential.split("||", limit = 2)
