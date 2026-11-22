@@ -108,6 +108,7 @@ class TaskRepository(private val db: AppDatabase) {
         runDao.insert(
             RunRecordEntity(
                 taskId = task.id,
+                taskName = task.name,
                 trigger = trigger,
                 startedAt = startedAt,
                 finishedAt = now,

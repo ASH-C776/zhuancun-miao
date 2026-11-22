@@ -171,8 +171,12 @@ fun AppRoot(
         Screen.TASKS -> com.ashchan.cloudsaver.ui.tasks.TaskListScreen(
             viewModel = tasksViewModel,
             onOpenSettings = { viewModel.go(Screen.SETTINGS) },
-            onOpenHistory = { viewModel.go(Screen.HISTORY) },
+            onOpenHistory = { viewModel.go(Screen.RUNLOG) },
             startWithNewTaskDialog = openNewTaskOnLaunch,
+        )
+        Screen.RUNLOG -> com.ashchan.cloudsaver.ui.tasks.RunLogScreen(
+            viewModel = tasksViewModel,
+            onBack = { viewModel.go(Screen.TASKS) },
         )
         Screen.HOME -> HomeScreen(viewModel, themeMode, onThemeModeChange)
         Screen.HISTORY -> HistoryScreen(viewModel)

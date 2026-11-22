@@ -13,6 +13,9 @@ import com.ashchan.cloudsaver.drive.guangya.GuangYaAdapter
 import com.ashchan.cloudsaver.drive.quark.QuarkAdapter
 import com.ashchan.cloudsaver.storage.CredentialStore
 import com.ashchan.cloudsaver.storage.TmdbStore
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * 单次任务执行编排：登录态 → 解析分享 → 扫描树 → 按范围同步 → 统计集数 → 落快照。
@@ -31,6 +34,36 @@ class TaskRunner(
     private companion object {
         /** 集数统计递归层数上限（剧名 / 季 / 文件 三层足够，留一层余量） */
         const val MAX_COUNT_DEPTH = 3
+
+        /**
+         * 全局互斥：同一台设备上无论从哪个入口（单条 / 一键全部 / 打开 App 自动 / 将来的后台定时）触发，
+         * 任何时刻只有一条执行链在跑。转存本身靠目录 diff 幂等，但并发会让
+         * 「列目录 → 建目录 → 比对」同时发生，出现重复建同名目录、集数统计串味。
+         */
+        private val runLock = Mutex()
+
+        /** 网络步骤失败后重试一次，间隔 1.2 秒（网盘接口偶发 5xx / 连接重置） */
+        private const val RETRY_DELAY_MS = 1200L
+    }
+
+    /**
+     * 关键网络步骤：失败重试一次。
+     *
+     * 只重试**只读**步骤（解析分享 / 拿访问令牌 / 拉目录树 / 建目录）。
+     * 真正的转存动作不在这里重试 —— 它自带目录 diff（已存在就跳过），
+     * 重复执行天然安全，没必要在超时上再加一层重试把等待拉长。
+     */
+    private suspend fun <T> retryOnce(step: String, block: suspend () -> Result<T>): Result<T> {
+        val first = block()
+        if (first.isSuccess) return first
+        val err = first.exceptionOrNull()
+        android.util.Log.w("TaskRunner", "$step 首次失败，重试一次：${err?.message}")
+        delay(RETRY_DELAY_MS)
+        val second = block()
+        if (second.isFailure) {
+            android.util.Log.e("TaskRunner", "$step 重试仍失败：${second.exceptionOrNull()?.message}")
+        }
+        return second
     }
 
     suspend fun run(
@@ -54,60 +87,7 @@ class TaskRunner(
 
         val baseFid = task.saveFid.ifBlank { "0" }
         return try {
-            val adapter = buildAdapter(drive, credential)
-            val share = adapter.parseShareLink(task.shareUrl).getOrThrow()
-            val resolved = adapter.resolveShareAccess(share).getOrThrow()
-
-            // 每个任务在自己的保存位置下建一个「剧名」目录：
-            // 多剧混在同一层会让集数统计把整盘视频算作一个任务，必须隔离。
-            val destFid = adapter.ensureFolder(baseFid, task.name.trim())
-                .getOrElse { baseFid }
-
-            val rootId = task.seasonFid.ifBlank { task.startFid }.ifBlank { resolved.pdirFid }
-            val tree = adapter.fetchShareTree(
-                share = resolved,
-                rootId = rootId.takeIf { it != "0" },
-                maxDepth = TreeSyncEngine.DEFAULT_MAX_DEPTH,
-            ).getOrThrow()
-
-            val scope = resolveScope(task, tree)
-            val report = TreeSyncEngine(adapter).sync(
-                share = resolved,
-                tree = tree,
-                destRootFid = destFid,
-                // destFid 已经是「剧名」目录，这里不再用任务名二次建层，
-                // 让引擎沿用分享里的真实目录名（如「第 1 季 - 1080p」）
-                taskName = "",
-                renamePlan = emptyMap(),
-                scope = scope,
-            ).getOrThrow()
-
-            // 光鸭的 access_token 会在刷新后轮换，必须回写，否则下次登录失效
-            if (adapter is GuangYaAdapter) {
-                credentialStore.saveCredential(DriveType.GUANGYA, adapter.currentCredential())
-            }
-
-            val counted = countLocal(adapter, destFid)
-            val tmdb = resolveTmdb(task)
-
-            // 更新日按 TMDB 自动推断：只在「任务设成自动」且还没手动设过更新日时写入，
-            // 不覆盖用户手动点选的星期，避免下次打开 App 被悄改。
-            if (task.updateMode == TaskEntity.UPDATE_MODE_TMDB && task.weekdays.isBlank()) {
-                tmdb.weekday?.let { day ->
-                    repo.update(task.copy(weekdays = Weekdays.format(setOf(day))))
-                }
-            }
-
-            repo.finishRun(
-                task = task,
-                trigger = trigger,
-                startedAt = startedAt,
-                report = report,
-                localEpisodes = counted.episodes,
-                localLastEpisode = counted.lastEpisode,
-                tmdbLatest = tmdb.latestEpisode,
-            )
-            Result.success(report)
+            runLock.withLock { executeLocked(task, trigger, startedAt, drive, credential, baseFid) }
         } catch (e: Throwable) {
             repo.finishRun(
                 task = task,
@@ -121,6 +101,74 @@ class TaskRunner(
             )
             Result.failure(e)
         }
+    }
+
+    /** [run] 的实际主体，调用时已持有 [runLock] */
+    private suspend fun executeLocked(
+        task: TaskEntity,
+        trigger: String,
+        startedAt: Long,
+        drive: DriveType,
+        credential: String,
+        baseFid: String,
+    ): Result<TreeSyncEngine.Report> {
+        val adapter = buildAdapter(drive, credential)
+        val share = retryOnce("解析分享链接") { adapter.parseShareLink(task.shareUrl) }.getOrThrow()
+        val resolved = retryOnce("获取分享访问令牌") { adapter.resolveShareAccess(share) }.getOrThrow()
+
+        // 每个任务在自己的保存位置下建一个「剧名」目录：
+        // 多剧混在同一层会让集数统计把整盘视频算作一个任务，必须隔离。
+        val destFid = retryOnce("创建任务目录") {
+            adapter.ensureFolder(baseFid, task.name.trim())
+        }.getOrElse { baseFid }
+
+        val rootId = task.seasonFid.ifBlank { task.startFid }.ifBlank { resolved.pdirFid }
+        val tree = retryOnce("拉取分享目录树") {
+            adapter.fetchShareTree(
+                share = resolved,
+                rootId = rootId.takeIf { it != "0" },
+                maxDepth = TreeSyncEngine.DEFAULT_MAX_DEPTH,
+            )
+        }.getOrThrow()
+
+        val scope = resolveScope(task, tree)
+        val report = TreeSyncEngine(adapter).sync(
+            share = resolved,
+            tree = tree,
+            destRootFid = destFid,
+            // destFid 已经是「剧名」目录，这里不再用任务名二次建层，
+            // 让引擎沿用分享里的真实目录名（如「第 1 季 - 1080p」）
+            taskName = "",
+            renamePlan = emptyMap(),
+            scope = scope,
+        ).getOrThrow()
+
+        // 光鸭的 access_token 会在刷新后轮换，必须回写，否则下次登录失效
+        if (adapter is GuangYaAdapter) {
+            credentialStore.saveCredential(DriveType.GUANGYA, adapter.currentCredential())
+        }
+
+        val counted = countLocal(adapter, destFid)
+        val tmdb = resolveTmdb(task)
+
+        // 更新日按 TMDB 自动推断：只在「任务设成自动」且还没手动设过更新日时写入，
+        // 不覆盖用户手动点选的星期，避免下次打开 App 被悄改。
+        if (task.updateMode == TaskEntity.UPDATE_MODE_TMDB && task.weekdays.isBlank()) {
+            tmdb.weekday?.let { day ->
+                repo.update(task.copy(weekdays = Weekdays.format(setOf(day))))
+            }
+        }
+
+        repo.finishRun(
+            task = task,
+            trigger = trigger,
+            startedAt = startedAt,
+            report = report,
+            localEpisodes = counted.episodes,
+            localLastEpisode = counted.lastEpisode,
+            tmdbLatest = tmdb.latestEpisode,
+        )
+        return Result.success(report)
     }
 
     /** 串行执行多个任务（「一键全部」与「打开 App 自动同步」共用） */

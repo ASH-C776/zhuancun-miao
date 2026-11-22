@@ -11,6 +11,8 @@ import androidx.room.PrimaryKey
 data class RunRecordEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val taskId: Long,
+    /** 任务名快照：任务删掉/改名后，历史记录仍能看出是哪部剧 */
+    val taskName: String = "",
     /** 手动单条 / 一键全部 / 后台定时 */
     val trigger: String = TRIGGER_MANUAL,
     val startedAt: Long = System.currentTimeMillis(),

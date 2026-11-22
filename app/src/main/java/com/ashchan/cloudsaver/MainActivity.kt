@@ -65,6 +65,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 全局未捕获异常落盘（崩溃后可在文件里查堆栈，纯单机没有服务端日志）
+        com.ashchan.cloudsaver.core.AppLog.install(this)
         // 沉浸式：状态栏与底部导航条（小白条）完全透明，内容铺到系统栏底下；
         // 显式传透明 scrim，避免默认的导航栏白色对比度遮罩（底栏发白的带子）。
         // 注意强制亮/暗主题时，SideEffect 里会按当前主题重新设置状态栏图标风格。
@@ -93,6 +95,10 @@ class MainActivity : ComponentActivity() {
         // 调试/联调用：adb ... --ez debugRunAll true 直接跑一轮「全部检测」
         if (intent?.getBooleanExtra("debugRunAll", false) == true) {
             tasksViewModel.runAll()
+        }
+        // 调试/联调用：adb ... --ez openRunLog true 直接进「运行日志」页
+        if (intent?.getBooleanExtra("openRunLog", false) == true) {
+            viewModel.go(com.ashchan.cloudsaver.ui.Screen.RUNLOG)
         }
         // 调试/联调用：adb ... --es debugTmdbPing KEY [--es debugTmdbBase 地址] 只做一次 TMDB 探活
         intent?.getStringExtra("debugTmdbPing")?.takeIf { it.isNotBlank() }?.let { key ->

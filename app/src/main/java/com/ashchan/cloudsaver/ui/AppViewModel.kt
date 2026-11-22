@@ -29,7 +29,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /** 页面导航状态 */
-enum class Screen { TASKS, HOME, HISTORY, SETTINGS, FOLDER_PICKER, ABOUT, DONATE }
+enum class Screen { TASKS, RUNLOG, HOME, HISTORY, SETTINGS, FOLDER_PICKER, ABOUT, DONATE }
 
 /** 项目仓库（更新检测与跳转均基于此） */
 const val REPO_URL = "https://github.com/ASH-C776/zhuancun-miao"

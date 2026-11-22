@@ -19,8 +19,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
@@ -111,7 +111,7 @@ fun TaskListScreen(
                 title = { Text("转存喵", fontWeight = FontWeight.SemiBold) },
                 actions = {
                     IconButton(onClick = onOpenHistory) {
-                        Icon(Icons.Filled.DateRange, contentDescription = "记录")
+                        Icon(Icons.Filled.List, contentDescription = "运行日志")
                     }
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Filled.Settings, contentDescription = "设置")
