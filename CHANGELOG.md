@@ -20,7 +20,7 @@
 | 阶段 | 内容 | 状态 |
 | --- | --- | --- |
 | Stage 0 | 基线准备 | ✅ 已完成（0.1 / 0.2） |
-| Stage 1 | 引擎：目录深层定位（递归扫描 / 视频目录定位 / 保留原层级转存） | 🟡 1.1 / 1.4 / 1.5 / 1.6 完成，1.2 / 1.3 待真链接验证 |
+| Stage 1 | 引擎：目录深层定位（递归扫描 / 视频目录定位 / 保留原层级转存） | 🟢 1.1 / 1.3 / 1.4 / 1.5 / 1.6 完成，1.2 待夸克真链接验证 |
 | Stage 2 | 数据层：Room 三张表 + 凭证单账号化 | 待开始 |
 | Stage 3 | UI 结构重构（主页 → 任务列表） | 待开始 |
 | Stage 4 | 任务化功能（自动决策 / 快照 / 批次编排） | 待开始 |
@@ -54,3 +54,19 @@
 - 产出 `Report(restoredDirs / restoredFiles / renamedItems / skippedFiles / failures)`，Stage 4 直接写入任务快照
 - 新增 `TreeSyncEngineTest.kt` 7 个单元测试（内存假网盘模拟真实目录）：单目录整转存 + 顶层改名 + 深层改名、目标已有目录只补缺失集、三层结构整转存、三层结构递归下钻补第 N 集、深度超限不下钻、散文件按名跳过、`selectUnits` 边界
 - 累计单测 15 项全绿（`ShareNodeTest` 8 + `TreeSyncEngineTest` 7）
+
+**1.3 光鸭递归真链接验证（✅）**
+
+实测样本：`https://www.guangyapan.com/s/1962143988912746595_aeWw8Ru726g3wcPx`（斗破苍穹 2017，310 个文件 / 169GB）
+真实结构：根 →「斗破苍穹 (2017)」→ 7 个「第 N 季 - 分辨率 - 编码」目录 + 10 个海报/nfo → 每季 14 个 mp4
+
+- 验证结论：`fetchShareChildren(share, parentId)` 逐层下钻 **完全可用**，三层都能正常返回
+- 锁定字段口径（与 CASX 一致，但有两处必须注意）：
+  - fid = `fileId`，文件名 = `fileName`，大小 = `fileSize`，父目录 = `parentId`
+  - **目录判定只能靠 `resType=2`**：文件的 `dirType` 同样恒为 1，靠 `dirType` 会把所有文件误判成目录；现有 `GuangYaResp.isDir` 已按 `resType` 兜底，正确
+  - accessToken 在 `data.accessToken`（**驼峰**），现有 `dataToken` 已兼容
+- 新增 `tools/gy_share_probe.ps1`：无需登录，直接按 shareId 拉摘要 / 令牌 / 任意层目录，用于复现验证
+- 新增 `GuangYaRespTest.kt` 8 个测试，全部使用上述**真实响应 JSON** 做回归（目录/季目录/剧集/海报/nfo 判定、token 驼峰提取、list 提取、参数错误判失败、摘要判成功）
+- 累计单测 23 项全绿（ShareNode 8 + TreeSyncEngine 7 + GuangYaResp 8）
+- ⚠️ 实测暴露的**产品级问题**（待 Stage 4 决策）：真实资源常是"整剧多季合集"，一次转存会是 310 文件 / 169GB；同一季还存在 1080p / 2160p 多版本。任务模型必须支持"锁定某季 + 某清晰度"，否则"一键全部转存"会拉满整个剧集
+- 分页：17 条 / 14 条均单页返回，`pageSize=50` 的翻页路径尚未遇到 > 50 条的真实目录（`第 0 季`最可能），留待后续抓大目录验证
