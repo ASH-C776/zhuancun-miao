@@ -21,7 +21,7 @@
 | --- | --- | --- |
 | Stage 0 | 基线准备 | ✅ 已完成（0.1 / 0.2） |
 | Stage 1 | 引擎：目录深层定位（递归扫描 / 视频目录定位 / 保留原层级转存） | 🟢 1.1 / 1.3 / 1.4 / 1.5 / 1.6 完成，1.2 待夸克真链接验证 |
-| Stage 2 | 数据层：Room 三张表 + 凭证单账号化 | 待开始 |
+| Stage 2 | 数据层：Room 三张表 + 凭证单账号化 | ✅ 已完成（2.1 / 2.2 / 2.3） |
 | Stage 3 | UI 结构重构（主页 → 任务列表） | 待开始 |
 | Stage 4 | 任务化功能（自动决策 / 快照 / 批次编排） | 待开始 |
 | Stage 5 | TMDB 凭证 + 更新日 / 播出时刻 | 待开始 |
@@ -70,3 +70,26 @@
 - 累计单测 23 项全绿（ShareNode 8 + TreeSyncEngine 7 + GuangYaResp 8）
 - ⚠️ 实测暴露的**产品级问题**（待 Stage 4 决策）：真实资源常是"整剧多季合集"，一次转存会是 310 文件 / 169GB；同一季还存在 1080p / 2160p 多版本。任务模型必须支持"锁定某季 + 某清晰度"，否则"一键全部转存"会拉满整个剧集
 - 分页：17 条 / 14 条均单页返回，`pageSize=50` 的翻页路径尚未遇到 > 50 条的真实目录（`第 0 季`最可能），留待后续抓大目录验证
+
+### Stage 2 完成记录
+
+**2.1 Room 接入（✅）**
+
+- 根 `build.gradle.kts` 加 KSP `2.0.21-1.0.28`（与 Kotlin 2.0.21 严格对齐），app 加 `ksp("androidx.room:room-compiler:2.6.1")` + `room-runtime` + `room-ktx`
+- 新增 `AppDatabase`（`zhuancunmiao.db`，version 1，`exportSchema=false`），后续加字段走 Migration，不重建库（任务数据是用户手攒的）
+
+**2.2 三张表（✅）**
+
+- `TaskEntity`（tasks）：剧名、driveType、shareUrl/shareId/passcode、saveFid（目标文件夹）、**seasonFid + seasonName（目标季）**、tmdbId/tmdbMediaType、updateMode（tmdb/manual）、weekdays（"1,3,5"）、airTime、enabled
+- `SnapshotEntity`（snapshots，主键 taskId）：localEpisodes / localLastEpisode / tmdbLatest / missing / status / lastSyncAt / lastMessage —— 卡片 5 项信息的唯一数据源
+- `RunRecordEntity`（run_records）：trigger（manual / all / background）、耗时、四项计数、ok、message，保留最近 200 条
+- 按口径**不做账号表**：任务不带 `accountName`，执行时按 `driveType` 取唯一凭证
+- 清晰度不设字段：用户建任务时直接在分享里选中那一季的目录（1080p / 2160p 各是一个季目录）
+
+**2.3 仓库层 + 快照口径（✅）**
+
+- `Weekdays`：星期集合解析/格式化 + 卡片文案（每日更新 / 周六、周日 / 未设更新日）+ 工作日与每天预设
+- `SnapshotCalc`：`missing()` / `status()` / `build()` 纯函数，未绑 TMDB 时为 UNKNOWN 不误报；网盘有超前集也不会算出负缺集
+- `TaskRepository`：`observeCards()` 把任务与快照合并成卡片流（无快照给默认值，UI 不用判空）、`finishRun()` 一次落库（成功写快照，失败保留旧集数只更新说明与时间，避免卡片突然变空）
+- 新增单测：`WeekdaysTest` 5 项 + `SnapshotCalcTest` 4 项
+- 累计单测 **32 项全绿**（ShareNode 8 + TreeSync 7 + GuangYaResp 8 + Weekdays 5 + SnapshotCalc 4）
