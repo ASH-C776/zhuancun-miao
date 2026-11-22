@@ -35,12 +35,23 @@ class TreeSyncEngine(
     }
 
     /**
+     * 转存范围。
+     *
+     * 真实资源有两种形态，必须由任务显式选一种：
+     * - [SUBTREE]：整棵子树，保留原有层级（「剧名/第 1 季/14 集」这类）
+     * - [DIRECT_ONLY]：只转这棵树根的直接视频文件，不新建剧名文件夹、不进子目录
+     *   （夸克常见「剧名/219-4K.mp4、218_4K.mkv…」平铺，下一层还挂着「1-200」等大目录）
+     */
+    enum class Scope { SUBTREE, DIRECT_ONLY }
+
+    /**
      * 执行一次目录级同步。
      *
      * @param tree 已扫描好的分享目录树（[CloudDriveAdapter.fetchShareTree] 产出）
      * @param destRootFid 目标文件夹 fid（"0" = 根目录）
-     * @param taskName 任务名（剧名）；单目录分享时用它作为顶层目录名
+     * @param taskName 任务名（剧名）；单目录分享且 SUBTREE 时用它作为顶层目录名
      * @param renamePlan 分享文件 fid -> 新文件名
+     * @param scope 转存范围，默认按原项目逻辑保留层级
      */
     suspend fun sync(
         share: ShareInfo,
@@ -48,11 +59,15 @@ class TreeSyncEngine(
         destRootFid: String,
         taskName: String = "",
         renamePlan: Map<String, String> = emptyMap(),
+        scope: Scope = Scope.SUBTREE,
         maxDepth: Int = DEFAULT_MAX_DEPTH,
         onProgress: (stage: Int, percent: Int, message: String) -> Unit = { _, _, _ -> },
     ): Result<Report> = runCatching {
         val session = Session(adapter, share, renamePlan, maxDepth.coerceAtMost(MAX_DEPTH), onProgress)
-        session.run(tree, destRootFid, taskName)
+        when (scope) {
+            Scope.SUBTREE -> session.run(tree, destRootFid, taskName)
+            Scope.DIRECT_ONLY -> session.runDirect(tree, destRootFid)
+        }
         session.report()
     }
 
@@ -101,6 +116,14 @@ class TreeSyncEngine(
         private val destCache = mutableMapOf<String, List<DriveFile>>()
 
         fun report() = Report(restoredDirs, restoredFiles, renamedItems, skippedFiles, failures.toList())
+
+        /** 只转树根的直接视频文件，不建文件夹、不下钻（对应平铺型分享） */
+        suspend fun runDirect(tree: ShareNode, destRootFid: String) {
+            val videos = tree.children.filter { it.isVideo }
+            if (videos.isEmpty()) throw IllegalStateException("该目录下没有可转存的视频文件")
+            onProgress(0, 0, "正在处理 ${videos.size} 个视频文件")
+            syncFiles(videos, destRootFid)
+        }
 
         suspend fun run(tree: ShareNode, destRootFid: String, taskName: String) {
             val units = selectUnits(tree)

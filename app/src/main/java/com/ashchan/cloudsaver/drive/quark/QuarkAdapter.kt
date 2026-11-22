@@ -24,7 +24,6 @@ import java.util.concurrent.TimeUnit
  *       新 fid 优先取任务响应 save_as.save_as_top_fids，缺失则目录 diff。
  */
 class QuarkAdapter(private var cookie: String = "") : CloudDriveAdapter {
-
     override val driveType: DriveType = DriveType.QUARK
 
     private val gson = Gson()
@@ -179,15 +178,7 @@ class QuarkAdapter(private var cookie: String = "") : CloudDriveAdapter {
                 if (batch.size() == 0) break
                 for (el in batch) {
                     if (!el.isJsonObject) continue
-                    val item = el.asJsonObject
-                    items += DriveFile(
-                        fid = item.get("fid")?.asString ?: continue,
-                        name = item.get("file_name")?.asString ?: continue,
-                        isDir = item.get("dir")?.asBoolean ?: false,
-                        size = item.get("size")?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asLong ?: 0L,
-                        fidToken = item.get("fid_token")?.asString,
-                        source = FileSource.SHARE,
-                    )
+                    parseShareItem(el.asJsonObject)?.let { items += it }
                 }
                 val total = data.getAsJsonObject("metadata")?.get("_total")
                     ?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asInt ?: 0
@@ -425,4 +416,28 @@ class QuarkAdapter(private var cookie: String = "") : CloudDriveAdapter {
             return mapOf("kps" to kps, "sign" to sign, "vcode" to vcode)
         }
     }
+}
+
+/**
+ * 解析分享列表里的单个条目。
+ *
+ * 字段教训（2026-11-22 实测 `/share/sharepage/detail`）：
+ * - 旧字段 `fid_token` 已不下发，新字段是 **`share_fid_token`**。
+ *   只读 `fid_token` 会拿到 null，转存时 `fid_token_list` 变空串数组，深层转存可能失败。
+ * - 目录判定用 `dir`（布尔），不依赖 `file_type`。
+ */
+internal fun parseShareItem(item: JsonObject): DriveFile? {
+    val fid = item.get("fid")?.asString?.takeIf { it.isNotBlank() } ?: return null
+    val name = item.get("file_name")?.asString?.takeIf { it.isNotBlank() } ?: return null
+    val token = item.get("share_fid_token")?.asString?.takeIf { it.isNotBlank() }
+        ?: item.get("fid_token")?.asString?.takeIf { it.isNotBlank() }
+    return DriveFile(
+        fid = fid,
+        name = name,
+        isDir = item.get("dir")?.takeIf { it.isJsonPrimitive }?.asBoolean ?: false,
+        size = item.get("size")
+            ?.takeIf { it.isJsonPrimitive && it.asJsonPrimitive.isNumber }?.asLong ?: 0L,
+        fidToken = token,
+        source = FileSource.SHARE,
+    )
 }

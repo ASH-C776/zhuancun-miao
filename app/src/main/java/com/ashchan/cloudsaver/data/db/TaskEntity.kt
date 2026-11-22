@@ -33,6 +33,12 @@ data class TaskEntity(
     val seasonName: String = "",
     /** 分享内扫描起点 fid，空 = 分享根；实际执行时优先用 seasonFid */
     val startFid: String = "",
+    /**
+     * 转存范围：
+     * - SUBTREE：整棵子树保留层级（「剧名/第 1 季/14 集」）
+     * - DIRECT_ONLY：只转该目录下平铺的视频（「剧名/219-4K.mp4」这类，不进下一层大目录）
+     */
+    val scopeMode: String = SCOPE_SUBTREE,
     /** TMDB id（剧为 tv，电影为 movie） */
     val tmdbId: Long? = null,
     val tmdbMediaType: String = "tv",
@@ -49,5 +55,8 @@ data class TaskEntity(
     companion object {
         const val UPDATE_MODE_TMDB: String = "tmdb"
         const val UPDATE_MODE_MANUAL: String = "manual"
+
+        const val SCOPE_SUBTREE: String = "SUBTREE"
+        const val SCOPE_DIRECT_ONLY: String = "DIRECT_ONLY"
     }
 }

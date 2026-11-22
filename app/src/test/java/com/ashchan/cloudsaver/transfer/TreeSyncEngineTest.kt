@@ -287,6 +287,60 @@ class TreeSyncEngineTest {
         assertTrue(empty.isEmpty)
     }
 
+    @Test
+    fun `DIRECT_ONLY 只转平铺视频 不进子目录`() = runBlocking {
+        val adapter = FakeDriveAdapter(
+            mapOf(
+                null to listOf(
+                    adapterFile("s_219", "219-4K.mp4"),
+                    adapterFile("s_218", "218_4K.mkv"),
+                )
+            )
+        )
+        // 手工建树：树根 = 「斗 P穹4」这一层，直接子级是平铺视频 + 两个大目录
+        val tree = ShareNode(
+            file = adapterDir("d9", "斗 P穹4"),
+            depth = 0,
+            children = listOf(
+                ShareNode(adapterFile("s_219", "219-4K.mp4"), depth = 1),
+                ShareNode(adapterFile("s_218", "218_4K.mkv"), depth = 1),
+                ShareNode(adapterDir("d_prev", "之前季番"), depth = 1),
+                ShareNode(adapterDir("d_1200", "1-200"), depth = 1),
+            ),
+        )
+        adapter.mine["0"] = mutableListOf(adapter.newDir("m_show", "斗 P穹4"))
+
+        val report = TreeSyncEngine(adapter).sync(
+            share = shareInfo(),
+            tree = tree,
+            destRootFid = "m_show",
+            taskName = "斗 P穹4",
+            scope = TreeSyncEngine.Scope.DIRECT_ONLY,
+        ).getOrThrow()
+
+        assertEquals(2, report.restoredFiles)
+        assertEquals(0, report.restoredDirs)          // 不新建文件夹
+        assertEquals(2, adapter.restoreShareCalls)     // 只有 2 个视频各发一次，子目录没碰
+        assertEquals(2, adapter.mine["m_show"]!!.size)
+        assertTrue(report.ok)
+    }
+
+    @Test
+    fun `DIRECT_ONLY 目录下没视频时报错`() = runBlocking {
+        val adapter = FakeDriveAdapter(mapOf(null to emptyList()))
+        val tree = ShareNode(
+            file = adapterDir("d", "空目录"),
+            children = listOf(ShareNode(adapterDir("d_sub", "子目录"), depth = 1)),
+            depth = 0,
+        )
+        val r = TreeSyncEngine(adapter).sync(
+            share = shareInfo(), tree = tree, destRootFid = "0",
+            scope = TreeSyncEngine.Scope.DIRECT_ONLY,
+        )
+        assertTrue(r.isFailure)
+        assertTrue(r.exceptionOrNull()?.message?.contains("没有可转存") == true)
+    }
+
     // ---------- 小工具 ----------
 
     private fun adapterDir(fid: String, name: String) = DriveFile(fid = fid, name = name, isDir = true)
