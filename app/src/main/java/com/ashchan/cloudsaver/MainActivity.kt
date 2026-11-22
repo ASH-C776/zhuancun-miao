@@ -26,6 +26,7 @@ import com.ashchan.cloudsaver.data.db.AppDatabase
 import com.ashchan.cloudsaver.storage.CredentialStore
 import com.ashchan.cloudsaver.storage.RecordStore
 import com.ashchan.cloudsaver.storage.RuleStore
+import com.ashchan.cloudsaver.transfer.TaskRunner
 import com.ashchan.cloudsaver.ui.AppRoot
 import com.ashchan.cloudsaver.ui.AppViewModel
 import com.ashchan.cloudsaver.ui.CloudSaverTheme
@@ -48,8 +49,11 @@ class MainActivity : ComponentActivity() {
     private val tasksViewModel: TasksViewModel by viewModels {
         object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
-            override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                TasksViewModel(TaskRepository(AppDatabase.get(applicationContext))) as T
+            override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                val repo = TaskRepository(AppDatabase.get(applicationContext))
+                val credentials = CredentialStore(applicationContext)
+                return TasksViewModel(repo, TaskRunner(repo, credentials)) as T
+            }
         }
     }
 

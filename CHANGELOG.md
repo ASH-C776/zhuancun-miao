@@ -23,7 +23,7 @@
 | Stage 1 | 引擎：目录深层定位（递归扫描 / 视频目录定位 / 保留原层级转存） | ✅ 1.1-1.6 全部完成 |
 | Stage 2 | 数据层：Room 三张表 + 凭证单账号化 | ✅ 已完成（2.1 / 2.2 / 2.3） |
 | Stage 3 | UI 结构重构（主页 → 任务列表） | ✅ 已完成（3.1 / 3.2 / 3.3 骨架） |
-| Stage 4 | 任务化功能（自动决策 / 快照 / 批次编排） | 待开始 |
+| Stage 4 | 任务化功能（自动决策 / 快照 / 批次编排） | 🔄 代码完成（4.1 / 4.2 / 4.3），待真机端到端回归 |
 | Stage 5 | TMDB 凭证 + 更新日 / 播出时刻 | 待开始 |
 | Stage 6 | 稳定性（重试 / 幂等 / 日志） | 待开始 |
 | Stage 7 | 表现层统一 | 待开始 |
@@ -86,6 +86,35 @@
 - 新增 `EpisodeParser`：集号从文件名解析，覆盖两种真实命名 —— `219-4K.mp4`（开头数字）与 `S01E01 - 第 1 集`（季集式 + 中文），并明确排除 `1080p` / `2160p` 分辨率误判；`seasonOf()` 取季号
 - 新增清单 `tools/quark_share_probe.ps1`：匿名拉任意层分享目录，用于复现
 - 累计单测 **45 项全绿**（ShareNode 8 + TreeSync 9 + GuangYaResp 8 + QuarkShareItem 4 + EpisodeParser 7 + Weekdays 5 + SnapshotCalc 4）
+
+### Stage 4 完成记录（代码部分）
+
+**4.1 集数统计 `EpisodeCounter`（✅）**
+
+- 从文件名列表算「已存集数 + 最大集号」：`EpisodeParser` 逐条解析，按集号去重（同集多清晰度算 1 集）
+- 剔除干扰项：海报/封面图、`*.nfo`、`*.zip`/`*.rar`、`sample`/`trailer`/`预告`/`花絮`、`1080p`/`2160p` 之类的纯分辨率文件名
+- 输出 `Result(episodes, lastEpisode)`，`episodes` 用于「盘里共 N 集」，`lastEpisode` 用于卡片 `E168` 与缺集计算
+- 新增 `EpisodeCounterTest` 5 项（空目录、去重、跳非视频、跳 sample/trailer、混合命名）
+
+**4.2 执行编排 `TaskRunner`（✅）**
+
+- `run(task, trigger)` 单任务流水线：按 `task.driveType` 取唯一凭证（未登录直接失败，不抛异常）→ 解析分享（含提取码）→ 递归扫分享树 → `ScopeAdvisor` 决定范围 → `TreeSyncEngine.sync` 转存 → 统计目标目录集数 → `repo.finishRun` 落快照与运行记录
+- `runAll(tasks, trigger, onEach)` 串行遍历，**不并发**（避免网盘风控与 token 竞争），每个任务回调进度
+- 光鸭执行后把轮换过的 access/refresh token 回写 `CredentialStore`（`currentCredential()`）
+- 失败时不覆盖上次集数，只写失败原因，卡片不会突然变空
+- `tmdbLatest` 暂传 0，卡片显示「未绑定 TMDB」，Stage 5 接 TMDB 后填入真实集数
+
+**4.3 ViewModel / UI / 注入打通（✅）**
+
+- `TasksViewModel`：`createTask` 保存成功后**立即执行一轮**（新建即见结果）；`runTask` / `runAll(trigger)` / `syncOnStartOnce()`；`running`（当前在跑的任务 id 集合）、`progress`（"2/5 正在检测 XXX"）、`toast`
+- `TaskListScreen`：`LaunchedEffect` 触发打开 App 自动同步一轮（每 ViewModel 生命周期一次）；「全部检测」在运行中变转圈 +「同步中」并禁用；单卡「检测转存」运行中同样转圈禁用；列表上方显示批次进度文案
+- `MainActivity`：`TasksViewModel` factory 注入 `TaskRepository` + `CredentialStore` + `TaskRunner`
+- **单测 60 项全绿**（原 55 + `EpisodeCounterTest` 5）；`:app:compileDebugKotlin` 与 `:app:assembleDebug` 均通过，APK 11.61MB
+
+**待补（4.4 真机端到端回归）**
+
+- 本轮安装 APK 时手机无线调试端口已变更（`40147` → mDNS 广播 `44107`），两端均被拒绝，真机连不上，端到端未跑；需用户在手机「无线调试」页确认当前 `IP:端口` 后再验证
+- 未确认项：每个任务是否需要自动在保存路径下建「剧名」子目录（`ensureFolder` 未实现，夸克/光鸭 createDir 参数未实测）；光鸭 `pageSize=50` 翻页未遇到 >50 条真实目录
 
 ### Stage 3 完成记录
 

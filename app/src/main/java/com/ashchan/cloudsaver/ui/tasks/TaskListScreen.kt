@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FilterChip
@@ -82,9 +83,14 @@ fun TaskListScreen(
     val cards by viewModel.cards.collectAsStateWithLifecycle()
     val toast by viewModel.toast.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
+    val running by viewModel.running.collectAsStateWithLifecycle()
+    val progress by viewModel.progress.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var showNewDialog by remember { mutableStateOf(startWithNewTaskDialog) }
     var pendingDelete by remember { mutableStateOf<TaskEntity?>(null) }
+
+    // 打开 App 自动同步一轮（每个 ViewModel 生命周期一次）
+    LaunchedEffect(Unit) { viewModel.syncOnStartOnce() }
 
     LaunchedEffect(toast) {
         toast?.let {
@@ -143,11 +149,35 @@ fun TaskListScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     Spacer(Modifier.weight(1f))
-                    OutlinedButton(onClick = { viewModel.runAll() }) {
-                        Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("全部检测")
+                    OutlinedButton(
+                        onClick = { viewModel.runAll() },
+                        enabled = running.isEmpty(),
+                    ) {
+                        if (running.isEmpty()) {
+                            Icon(
+                                Icons.Filled.Refresh,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text("全部检测")
+                        } else {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text("同步中")
+                        }
                     }
+                }
+                progress?.let {
+                    Text(
+                        text = it,
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
                 }
             }
 
@@ -162,6 +192,7 @@ fun TaskListScreen(
                     items(cards, key = { it.task.id }) { card ->
                         TaskRow(
                             card = card,
+                            isRunning = card.task.id in running,
                             onRun = { viewModel.runTask(card.task) },
                             onDelete = { pendingDelete = card.task },
                             onToggle = { viewModel.toggleEnabled(card.task) },
@@ -205,6 +236,7 @@ fun TaskListScreen(
 @Composable
 private fun TaskRow(
     card: TaskCard,
+    isRunning: Boolean,
     onRun: () -> Unit,
     onDelete: () -> Unit,
     onToggle: () -> Unit,
@@ -312,7 +344,18 @@ private fun TaskRow(
                     Text(if (task.enabled) "暂停" else "启用")
                 }
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = onRun) { Text("检测转存") }
+                TextButton(onClick = onRun, enabled = !isRunning) {
+                    if (isRunning) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(14.dp),
+                            strokeWidth = 2.dp,
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text("同步中")
+                    } else {
+                        Text("检测转存")
+                    }
+                }
                 IconButton(onClick = onDelete) {
                     Icon(
                         Icons.Filled.Delete,
