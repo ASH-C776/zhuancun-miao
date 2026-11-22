@@ -990,6 +990,10 @@ fun SettingsScreen(viewModel: AppViewModel) {
                 }
             }
 
+            // TMDB（可选）：追剧任务靠它算「最新集」与更新日
+            Spacer(Modifier.height(24.dp))
+            TmdbCredentialSection()
+
             // 底部：关于 / 打赏作者
             Spacer(Modifier.height(28.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)

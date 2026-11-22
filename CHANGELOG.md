@@ -24,7 +24,7 @@
 | Stage 2 | 数据层：Room 三张表 + 凭证单账号化 | ✅ 已完成（2.1 / 2.2 / 2.3） |
 | Stage 3 | UI 结构重构（主页 → 任务列表） | ✅ 已完成（3.1 / 3.2 / 3.3 骨架） |
 | Stage 4 | 任务化功能（自动决策 / 快照 / 批次编排） | ✅ 已完成（4.1-4.4，含真机端到端） |
-| Stage 5 | TMDB 凭证 + 更新日 / 播出时刻 | 待开始 |
+| Stage 5 | TMDB 凭证 + 更新日 / 播出时刻 | ✅ 已完成（5.1-5.4，含真机 UI 验证） |
 | Stage 6 | 稳定性（重试 / 幂等 / 日志） | 待开始 |
 | Stage 7 | 表现层统一 | 待开始 |
 | Stage 8 | 发布 | 待开始 |
@@ -189,3 +189,43 @@
 - `TaskRepository`：`observeCards()` 把任务与快照合并成卡片流（无快照给默认值，UI 不用判空）、`finishRun()` 一次落库（成功写快照，失败保留旧集数只更新说明与时间，避免卡片突然变空）
 - 新增单测：`WeekdaysTest` 5 项 + `SnapshotCalcTest` 4 项
 - 累计单测 **32 项全绿**（ShareNode 8 + TreeSync 7 + GuangYaResp 8 + Weekdays 5 + SnapshotCalc 4）
+
+### Stage 5 完成记录
+
+**5.1 TMDB 客户端（✅）**
+
+- 新增 `core/tmdb/TmdbClient.kt`：OkHttp 直连，**凭证自动判别** —— 含 ≥2 个点视为 v4 Read Access Token 走 `Authorization: Bearer`，否则当 v3 api_key 走 `?api_key=`
+- `fetchTv(id)` 取 `last_episode_to_air` / `next_episode_to_air` / `number_of_seasons`；`TmdbTvInfo.latestEpisodeNumber(season)` 绑了目标季就取该季集数，否则取整部剧最新集
+- `weekdayHint()`：优先用 `next_episode_to_air.air_date`（下一集还没播说明就是它的星期），没有则退回 `last_episode_to_air.air_date`
+- `weekdayOf(isoDate)` 用 `GregorianCalendar` 且**必须 `isLenient=false`**：宽松模式会把 `2026-13-45` 滚成一个合法日期，静默算错星期；改为先做年月日范围校验再解析
+- `ping()` 用 tv 1399（权游）探活，供设置页「保存并测试」使用
+
+**5.2 凭证存储 + 设置页（✅）**
+
+- 新增 `storage/TmdbStore.kt`：EncryptedSharedPreferences（文件名 `cloudsaver_tmdb`），与网盘凭证同级别加密
+- 新增 `ui/TmdbSettings.kt`：设置页「TMDB（可选）」区块，一个输入框（Key/Token 二合一）+ 接口地址 + 「保存并测试」+「清除」；测试成功才落盘，失败显示红字原因
+- 挂进 `AppScreens.kt` 的 `SettingsScreen`（同包，只加一行调用，不动原 2441 行文件）
+
+**5.3 更新日推断 + 播出时刻（✅）**
+
+- `data/SeasonParser.kt`：从季目录名解析季号 —— `第 2 季 - 2160p HDR` / `Season 3` / `S02` / 纯数字 / 中文数字（第二季、第十季、第二十一季）都认，且不会把 `1080p` 误当季号
+- `TaskRunner` 注入 `TmdbStore`，`resolveTmdb()` 全程 try 兜底：TMDB 挂了、Key 错、网断，一律回 0/null，**不影响转存本身**
+- `updateMode == tmdb` 且用户没手设过星期时，把推断结果回写 `weekdays`（手动设过的不覆盖）
+- 卡片第三行：手动星期 + 有效期角标；绑了 ID 但还没推断出来时显示「TMDB 自动待推断」
+- 新建弹窗加「播出时刻（可选）」输入框，字段透传到 `TaskEntity.airTime`（仅记录，提醒/调度属二期 P2）
+
+**5.4 网络实测 + 接口地址（✅ 真机）**
+
+- **国内直连不通，PC 与手机双端实测一致**：PC `api.themoviedb.org` 15 秒超时；手机日志 `TmdbDebug: ok=false value=Failed to connect to api.themoviedb.org/199.96.59.61:443`（DNS 解析成功但 TCP 建不起来）
+- 因此**在 TMDB 区块加了「接口地址」输入框**（默认官方域名，可改镜像 / 自建反代），`TmdbClient` 构造参数 `baseUrl`，`TmdbStore.loadBaseUrl()` 统一读取
+- 新增 `tools/tmdb-proxy-worker.js`：一段可直接粘进 Cloudflare Worker 的 TMDB 反代（只放行 `/3/*`、只透传鉴权头、不落日志）。用户用自己的域名/Worker 部署后把地址填进设置页即可
+- 新增调试入口 `--es debugTmdbPing KEY --es debugTmdbBase 地址`：启动即打一条 `TmdbDebug` 日志，不用点 UI 就能验网络（HyperOS 拒注入事件时的验证手段）
+- 真机截图 `docs/s5c.png`：4 个任务卡片、`E216 → E—`、灰字「未绑定 TMDB」、第三行「TMDB 自动待推断 · 光鸭 · 11/23 07:30」、顶部「同步 1/4」进度文案全部生效
+- 新增单测 `SeasonParserTest` 6 项 + `TmdbParseTest` 8 项（含 `2026-13-45` 这类非法日期不得通过），**累计 74 项全绿（12 个 suite）**；`:app:assembleDebug` 通过
+
+**遗留待确认**
+
+- **TMDB 端到端未跑通**：用户还没提供真实 Key，且国内需先解决接口地址（自建反代）。填好后卡片应从「未绑定 TMDB」变为真实集数
+- 「播出时刻」只存不用，没有任何提醒逻辑（后台定时是二期 P2，走 AlarmManager/WorkManager）
+- 卡片集数口径：「盘里 214 集」与「最新 E216」并存，来自 `SxxEyy` 与「第 N 集」两套编号混算，是否统一编号待确认
+- 真机上 4 条测试任务（`斗破苍穹之少年归`、`斗破测试2`、`斗破测试3`、`夸克测试剧`）与用户网盘里对应目录仍待确认是否清理

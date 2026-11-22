@@ -21,11 +21,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
 import com.ashchan.cloudsaver.data.TaskRepository
 import com.ashchan.cloudsaver.data.db.AppDatabase
 import com.ashchan.cloudsaver.storage.CredentialStore
 import com.ashchan.cloudsaver.storage.RecordStore
 import com.ashchan.cloudsaver.storage.RuleStore
+import com.ashchan.cloudsaver.storage.TmdbStore
 import com.ashchan.cloudsaver.transfer.TaskRunner
 import com.ashchan.cloudsaver.ui.AppRoot
 import com.ashchan.cloudsaver.ui.AppViewModel
@@ -35,6 +37,7 @@ import com.ashchan.cloudsaver.ui.THEME_AUTO
 import com.ashchan.cloudsaver.ui.THEME_DARK
 import com.ashchan.cloudsaver.ui.THEME_LIGHT
 import com.ashchan.cloudsaver.ui.tasks.TasksViewModel
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
 
@@ -52,7 +55,10 @@ class MainActivity : ComponentActivity() {
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 val repo = TaskRepository(AppDatabase.get(applicationContext))
                 val credentials = CredentialStore(applicationContext)
-                return TasksViewModel(repo, TaskRunner(repo, credentials)) as T
+                return TasksViewModel(
+                    repo,
+                    TaskRunner(repo, credentials, TmdbStore(applicationContext)),
+                ) as T
             }
         }
     }
@@ -87,6 +93,17 @@ class MainActivity : ComponentActivity() {
         // 调试/联调用：adb ... --ez debugRunAll true 直接跑一轮「全部检测」
         if (intent?.getBooleanExtra("debugRunAll", false) == true) {
             tasksViewModel.runAll()
+        }
+        // 调试/联调用：adb ... --es debugTmdbPing KEY [--es debugTmdbBase 地址] 只做一次 TMDB 探活
+        intent?.getStringExtra("debugTmdbPing")?.takeIf { it.isNotBlank() }?.let { key ->
+            val base = intent?.getStringExtra("debugTmdbBase") ?: "https://api.themoviedb.org"
+            lifecycleScope.launch {
+                val r = com.ashchan.cloudsaver.core.tmdb.TmdbClient(key, base).ping()
+                android.util.Log.i(
+                    "TmdbDebug",
+                    "base=$base ok=${r.isSuccess} value=${r.getOrNull() ?: r.exceptionOrNull()?.message}"
+                )
+            }
         }
         setContent {
             val prefs = remember { getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }

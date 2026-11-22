@@ -206,8 +206,8 @@ fun TaskListScreen(
     if (showNewDialog) {
         NewTaskDialog(
             onDismiss = { showNewDialog = false },
-            onSave = { name, link, weekdays, tmdbId ->
-                viewModel.createTask(name, link, weekdays, tmdbId)
+            onSave = { name, link, weekdays, tmdbId, airTime ->
+                viewModel.createTask(name, link, weekdays, tmdbId, airTime = airTime)
                 showNewDialog = false
             },
         )
@@ -308,7 +308,7 @@ private fun TaskRow(
             // 第三行：更新日 · 网盘 · 时间
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = Weekdays.label(task.weekdays),
+                    text = updateLabel(task),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -436,11 +436,12 @@ private fun EmptyTasks(modifier: Modifier = Modifier, onAdd: () -> Unit) {
 @Composable
 private fun NewTaskDialog(
     onDismiss: () -> Unit,
-    onSave: (name: String, link: String, weekdays: String, tmdbId: String) -> Unit,
+    onSave: (name: String, link: String, weekdays: String, tmdbId: String, airTime: String) -> Unit,
 ) {
     var name by remember { mutableStateOf("") }
     var link by remember { mutableStateOf("") }
     var tmdbId by remember { mutableStateOf("") }
+    var airTime by remember { mutableStateOf("") }
     var selected by remember { mutableStateOf(setOf<Int>()) }
 
     AlertDialog(
@@ -506,6 +507,15 @@ private fun NewTaskDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
 
+                OutlinedTextField(
+                    value = airTime,
+                    onValueChange = { airTime = it },
+                    label = { Text("播出时刻（可选）") },
+                    placeholder = { Text("例如 18:00，只用于提醒，暂不影响同步") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+
                 Text(
                     text = "保存后会先自动扫描一次，确认盘里已有多少集。",
                     style = MaterialTheme.typography.bodySmall,
@@ -516,7 +526,7 @@ private fun NewTaskDialog(
         confirmButton = {
             TextButton(
                 onClick = {
-                    onSave(name, link, Weekdays.format(selected), tmdbId)
+                    onSave(name, link, Weekdays.format(selected), tmdbId, airTime)
                 },
                 enabled = name.isNotBlank() && link.isNotBlank(),
             ) { Text("保存") }
@@ -530,6 +540,14 @@ private fun NewTaskDialog(
 // ---------------- 小工具 ----------------
 
 private fun episodeText(ep: Int): String = if (ep > 0) "E$ep" else "E—"
+
+/** 更新日文案：手动设的星期 + 来源标记（TMDB 自动推断的会注明，方便用户区分） */
+private fun updateLabel(task: TaskEntity): String {
+    val label = Weekdays.label(task.weekdays)
+    if (task.updateMode != TaskEntity.UPDATE_MODE_TMDB) return label
+    val auto = if (task.weekdays.isBlank()) "TMDB 自动待推断" else "TMDB 自动"
+    return if (task.weekdays.isBlank()) auto else "$label · $auto"
+}
 
 private fun missingText(snap: SnapshotEntity): String = when (snap.status) {
     SnapshotEntity.STATUS_BEHIND -> "缺 ${snap.missing} 集"

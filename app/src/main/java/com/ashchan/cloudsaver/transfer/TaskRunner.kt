@@ -2,13 +2,17 @@ package com.ashchan.cloudsaver.transfer
 
 import com.ashchan.cloudsaver.core.adapter.CloudDriveAdapter
 import com.ashchan.cloudsaver.core.model.DriveType
+import com.ashchan.cloudsaver.core.tmdb.TmdbClient
 import com.ashchan.cloudsaver.data.EpisodeCounter
+import com.ashchan.cloudsaver.data.SeasonParser
 import com.ashchan.cloudsaver.data.TaskRepository
+import com.ashchan.cloudsaver.data.Weekdays
 import com.ashchan.cloudsaver.data.db.RunRecordEntity
 import com.ashchan.cloudsaver.data.db.TaskEntity
 import com.ashchan.cloudsaver.drive.guangya.GuangYaAdapter
 import com.ashchan.cloudsaver.drive.quark.QuarkAdapter
 import com.ashchan.cloudsaver.storage.CredentialStore
+import com.ashchan.cloudsaver.storage.TmdbStore
 
 /**
  * 单次任务执行编排：登录态 → 解析分享 → 扫描树 → 按范围同步 → 统计集数 → 落快照。
@@ -21,6 +25,7 @@ import com.ashchan.cloudsaver.storage.CredentialStore
 class TaskRunner(
     private val repo: TaskRepository,
     private val credentialStore: CredentialStore,
+    private val tmdbStore: TmdbStore? = null,
 ) {
 
     private companion object {
@@ -83,6 +88,16 @@ class TaskRunner(
             }
 
             val counted = countLocal(adapter, destFid)
+            val tmdb = resolveTmdb(task)
+
+            // 更新日按 TMDB 自动推断：只在「任务设成自动」且还没手动设过更新日时写入，
+            // 不覆盖用户手动点选的星期，避免下次打开 App 被悄改。
+            if (task.updateMode == TaskEntity.UPDATE_MODE_TMDB && task.weekdays.isBlank()) {
+                tmdb.weekday?.let { day ->
+                    repo.update(task.copy(weekdays = Weekdays.format(setOf(day))))
+                }
+            }
+
             repo.finishRun(
                 task = task,
                 trigger = trigger,
@@ -90,8 +105,7 @@ class TaskRunner(
                 report = report,
                 localEpisodes = counted.episodes,
                 localLastEpisode = counted.lastEpisode,
-                // TMDB 最新集在 Stage 5 接入，先留 0（卡片会显示「未绑定 TMDB」）
-                tmdbLatest = 0,
+                tmdbLatest = tmdb.latestEpisode,
             )
             Result.success(report)
         } catch (e: Throwable) {
@@ -153,6 +167,30 @@ class TaskRunner(
 
         walk(destFid, 0)
         return EpisodeCounter.count(names)
+    }
+
+    /** TMDB 解析结果（失败一律回 0/null，不影响转存主流程） */
+    private data class TmdbLatest(val latestEpisode: Int, val weekday: Int?)
+
+    /**
+     * 查 TMDB：最新集号 + 推断更新日。
+     *
+     * 口径：
+     * - 没绑 TMDB ID 或没填凭证 → 直接返回 0（卡片显示「未绑定 TMDB」）
+     * - 任务指定了季（季名里能解析出季号）→ 该季最新集号；否则整部剧最新集号
+     * - 任何网络/解析异常都吞掉，只当没绑定，绝不让 TMDB 挂掉整个同步
+     */
+    private suspend fun resolveTmdb(task: TaskEntity): TmdbLatest {
+        val tvId = task.tmdbId ?: return TmdbLatest(0, null)
+        val credential = tmdbStore?.loadCredential()?.takeIf { it.isNotBlank() }
+            ?: return TmdbLatest(0, null)
+        val info = TmdbClient(credential, tmdbStore.loadBaseUrl()).fetchTv(tvId).getOrNull()
+            ?: return TmdbLatest(0, null)
+        val season = SeasonParser.parse(task.seasonName)
+        return TmdbLatest(
+            latestEpisode = info.latestEpisodeNumber(season),
+            weekday = info.weekdayHint(),
+        )
     }
 
     private fun buildAdapter(drive: DriveType, credential: String): CloudDriveAdapter = when (drive) {        DriveType.QUARK -> QuarkAdapter(credential)

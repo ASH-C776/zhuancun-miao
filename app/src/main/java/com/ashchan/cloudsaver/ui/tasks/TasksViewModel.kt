@@ -69,6 +69,7 @@ class TasksViewModel(
         link: String,
         weekdays: String,
         tmdbIdText: String,
+        airTime: String = "",
         saveFid: String = "0",
         savePathLabel: String = "网盘根目录",
     ) {
@@ -91,6 +92,7 @@ class TasksViewModel(
                         savePathLabel = savePathLabel,
                         weekdays = Weekdays.format(Weekdays.parse(weekdays)),
                         tmdbId = tmdbIdText.trim().toLongOrNull(),
+                        airTime = airTime.trim(),
                         updateMode = if (weekdays.isBlank()) {
                             TaskEntity.UPDATE_MODE_TMDB
                         } else {
