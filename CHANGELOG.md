@@ -110,6 +110,9 @@
 - 新页面全部写在 `ui/tasks/` 独立文件，**不复用也不改动 2441 行的 AppScreens.kt**，只在其 `AppRoot` 里加了一个分支；旧的粘贴式转存页暂时保留在 `Screen.HOME`，Stage 4 接通执行后下线
 - 「全部检测」「检测转存」目前是占位提示，执行编排在 Stage 4 接入
 - 累计单测 **55 项全绿**；`:app:assembleDebug` 通过
+- **真机验证（Xiaomi Civi 3 / HyperOS）**：无线调试 `adb pair` + `connect 192.168.31.144:40147` 安装成功；空状态与新建任务弹窗均已截图确认
+- 修 UI 问题两处：7 个更新日按钮在窄 Dialog 里被裁掉（周六个字看不到）→ 改为两行（1-4 / 5-7）；空状态文案按句拆行，避免「链接，」断在行尾
+- 新增调试入口：`adb shell am start -n com.ashchan.cloudsaver/.MainActivity --ez openNewTask true` 可直接拉起新建弹窗（HyperOS 拒绝 `input tap` 注入事件时的验证手段，也为将来「外部分享直达新建」留口子）
 
 ### Stage 2 完成记录
 

@@ -161,6 +161,7 @@ fun AppRoot(
     tasksViewModel: com.ashchan.cloudsaver.ui.tasks.TasksViewModel,
     themeMode: Int = THEME_AUTO,
     onThemeModeChange: (Int) -> Unit = {},
+    openNewTaskOnLaunch: Boolean = false,
 ) {
     val screen by viewModel.screen.collectAsState()
     // 启动时后台检测一次 GitHub Releases 是否有新版本（有则红点提示）
@@ -171,6 +172,7 @@ fun AppRoot(
             viewModel = tasksViewModel,
             onOpenSettings = { viewModel.go(Screen.SETTINGS) },
             onOpenHistory = { viewModel.go(Screen.HISTORY) },
+            startWithNewTaskDialog = openNewTaskOnLaunch,
         )
         Screen.HOME -> HomeScreen(viewModel, themeMode, onThemeModeChange)
         Screen.HISTORY -> HistoryScreen(viewModel)

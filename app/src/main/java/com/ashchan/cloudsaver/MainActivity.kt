@@ -71,6 +71,8 @@ class MainActivity : ComponentActivity() {
         if (!sharedText.isNullOrBlank()) {
             viewModel.pendingExternalLink = sharedText
         }
+        // 调试/联调用：adb ... --ez openNewTask true 直接拉起「新建任务」弹窗
+        val openNewTask = intent?.getBooleanExtra("openNewTask", false) ?: false
         setContent {
             val prefs = remember { getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE) }
             var themeMode by remember { mutableIntStateOf(prefs.getInt(KEY_THEME_MODE, THEME_AUTO)) }
@@ -97,6 +99,7 @@ class MainActivity : ComponentActivity() {
                         viewModel = viewModel,
                         tasksViewModel = tasksViewModel,
                         themeMode = themeMode,
+                        openNewTaskOnLaunch = openNewTask,
                         onThemeModeChange = { mode ->
                             themeMode = mode
                             prefs.edit().putInt(KEY_THEME_MODE, mode).apply()

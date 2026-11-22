@@ -77,12 +77,13 @@ fun TaskListScreen(
     viewModel: TasksViewModel,
     onOpenSettings: () -> Unit,
     onOpenHistory: () -> Unit,
+    startWithNewTaskDialog: Boolean = false,
 ) {
     val cards by viewModel.cards.collectAsStateWithLifecycle()
     val toast by viewModel.toast.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
-    var showNewDialog by remember { mutableStateOf(false) }
+    var showNewDialog by remember { mutableStateOf(startWithNewTaskDialog) }
     var pendingDelete by remember { mutableStateOf<TaskEntity?>(null) }
 
     LaunchedEffect(toast) {
@@ -373,7 +374,12 @@ private fun EmptyTasks(modifier: Modifier = Modifier, onAdd: () -> Unit) {
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            text = "点「新建任务」粘贴夸克或光鸭分享链接，\n之后打开 App 就会自动检测并补齐集数。",
+            text = "点「新建任务」粘贴夸克或光鸭分享链接，",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            text = "之后打开 App 就会自动检测并补齐集数。",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -422,20 +428,23 @@ private fun NewTaskDialog(
                     text = "更新日",
                     style = MaterialTheme.typography.bodyMedium,
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    (1..7).forEach { day ->
-                        FilterChip(
-                            selected = day in selected,
-                            onClick = {
-                                selected = if (day in selected) selected - day else selected + day
-                            },
-                            label = {
-                                Text(
-                                    text = Weekdays.nameOf(day).removePrefix("周"),
-                                    style = MaterialTheme.typography.labelSmall,
-                                )
-                            },
-                        )
+                // 7 个按钮分两行排，窄屏 Dialog 里一行放不下会裁掉周六周日
+                listOf(1..4, 5..7).forEach { range ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        range.forEach { day ->
+                            FilterChip(
+                                selected = day in selected,
+                                onClick = {
+                                    selected = if (day in selected) selected - day else selected + day
+                                },
+                                label = {
+                                    Text(
+                                        text = Weekdays.nameOf(day).removePrefix("周"),
+                                        style = MaterialTheme.typography.labelSmall,
+                                    )
+                                },
+                            )
+                        }
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
