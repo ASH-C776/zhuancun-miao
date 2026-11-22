@@ -92,4 +92,7 @@ dependencies {
 
     // 调试 UI 预览
     debugImplementation("androidx.compose.ui:ui-tooling")
+
+    // 单元测试（纯 JVM 逻辑：目录树、自然序、改名规则）
+    testImplementation("junit:junit:4.13.2")
 }

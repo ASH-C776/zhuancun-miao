@@ -20,7 +20,7 @@
 | 阶段 | 内容 | 状态 |
 | --- | --- | --- |
 | Stage 0 | 基线准备 | ✅ 已完成（0.1 / 0.2） |
-| Stage 1 | 引擎：目录深层定位（递归扫描 / 视频目录定位 / 扁平化转存） | 待开始 |
+| Stage 1 | 引擎：目录深层定位（递归扫描 / 视频目录定位 / 保留原层级转存） | 🔄 进行中（1.1 ✅） |
 | Stage 2 | 数据层：Room 三张表 + 凭证单账号化 | 待开始 |
 | Stage 3 | UI 结构重构（主页 → 任务列表） | 待开始 |
 | Stage 4 | 任务化功能（自动决策 / 快照 / 批次编排） | 待开始 |
@@ -28,3 +28,15 @@
 | Stage 6 | 稳定性（重试 / 幂等 / 日志） | 待开始 |
 | Stage 7 | 表现层统一 | 待开始 |
 | Stage 8 | 发布 | 待开始 |
+
+### Stage 1 完成记录
+
+**1.1 目录树模型（✅）**
+
+- 新增 `core/model/ShareNode.kt`：分享目录树节点（file / children / depth），提供 `isVideo`、`directVideoCount`、`videoCount`、`flattenFiles()`、`findVideoDirs(minVideos=2)`、`maxDepth()`
+- `VideoTypes`：mkv/mp4/ts/avi/rmvb/rm/mov/wmv/flv/m4v/webm/mpg/mpeg/iso；`isNoise` 识别 sample/trailer/预告/花絮/彩蛋/幕后，避免预告片被当成正片
+- `NaturalOrder`：数字段按数值比较，`EP2` 排在 `EP10` 前；中文集数「第2集 / 第10集」同样生效
+- `CloudDriveAdapter` 新增 `fetchShareTree(share, rootId, maxDepth)` **默认实现**：节点缓存避免重复请求、`visited` 防环、深度上限 3（硬上限 5）、子节点自然序；两个网盘适配器无需各写一套递归，直接复用现成 `fetchShareChildren`
+- **转存粒度按原项目口径**：不扁平化，保留分享原有层级；`findVideoDirs` 只按**直接子级**判定（≥2 个视频才算剧集目录），上层容器目录不会被误判
+- 新增 `app/src/test/.../ShareNodeTest.kt` 8 个单元测试：三层树构建、深度限制、剧集目录判定、单文件分享兜底、自然序（英文 + 中文）、`flattenFiles`、成环不死循环 —— `:app:testDebugUnitTest` 全绿
+- 构建：`app/build.gradle.kts` 增加 `testImplementation("junit:junit:4.13.2")`（项目此前无任何测试依赖）
