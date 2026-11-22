@@ -29,7 +29,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /** 页面导航状态 */
-enum class Screen { HOME, HISTORY, SETTINGS, FOLDER_PICKER, ABOUT, DONATE }
+enum class Screen { TASKS, HOME, HISTORY, SETTINGS, FOLDER_PICKER, ABOUT, DONATE }
 
 /** 项目仓库（更新检测与跳转均基于此） */
 const val REPO_URL = "https://github.com/ASH-C776/zhuancun-miao"
@@ -95,7 +95,7 @@ class AppViewModel(
     fun setLinkInput(v: String) { _linkInput.value = v }
     fun setTaskNameInput(v: String) { _taskNameInput.value = v }
 
-    private val _screen = MutableStateFlow(Screen.HOME)
+    private val _screen = MutableStateFlow(Screen.TASKS)
     val screen: StateFlow<Screen> = _screen.asStateFlow()
 
     // 各网盘已登录账号（仅放登录成功的）

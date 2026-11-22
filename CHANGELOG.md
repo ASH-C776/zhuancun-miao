@@ -22,7 +22,7 @@
 | Stage 0 | 基线准备 | ✅ 已完成（0.1 / 0.2） |
 | Stage 1 | 引擎：目录深层定位（递归扫描 / 视频目录定位 / 保留原层级转存） | ✅ 1.1-1.6 全部完成 |
 | Stage 2 | 数据层：Room 三张表 + 凭证单账号化 | ✅ 已完成（2.1 / 2.2 / 2.3） |
-| Stage 3 | UI 结构重构（主页 → 任务列表） | 待开始 |
+| Stage 3 | UI 结构重构（主页 → 任务列表） | ✅ 已完成（3.1 / 3.2 / 3.3 骨架） |
 | Stage 4 | 任务化功能（自动决策 / 快照 / 批次编排） | 待开始 |
 | Stage 5 | TMDB 凭证 + 更新日 / 播出时刻 | 待开始 |
 | Stage 6 | 稳定性（重试 / 幂等 / 日志） | 待开始 |
@@ -86,6 +86,30 @@
 - 新增 `EpisodeParser`：集号从文件名解析，覆盖两种真实命名 —— `219-4K.mp4`（开头数字）与 `S01E01 - 第 1 集`（季集式 + 中文），并明确排除 `1080p` / `2160p` 分辨率误判；`seasonOf()` 取季号
 - 新增清单 `tools/quark_share_probe.ps1`：匿名拉任意层分享目录，用于复现
 - 累计单测 **45 项全绿**（ShareNode 8 + TreeSync 9 + GuangYaResp 8 + QuarkShareItem 4 + EpisodeParser 7 + Weekdays 5 + SnapshotCalc 4）
+
+### Stage 3 完成记录
+
+**3.1 主页换成任务列表（✅）**
+
+- 新增 `ui/tasks/TaskListScreen.kt`：顶部「转存喵」+ 记录/设置入口，列表上方「N 个任务 / 全部检测」，右下 FAB「新建任务」，空状态引导
+- 卡片按手机尺寸精简为 5 项信息：剧名、`E168 → E170`（盘里最大集 → TMDB 最新集）、状态徽标（已是最新 / 缺 N 集 / 未同步）、细进度条、`周六、周日 · 光鸭 · 11/21 22:02` 灰字
+- 卡片底部只留三个动作：暂停/启用、检测转存、删除（删除有二次确认，文案说明网盘文件不受影响）
+- 数据来自 `TaskRepository.observeCards()`，无快照时给默认值，UI 不判空
+
+**3.2 新建任务弹窗（✅）**
+
+- 字段：剧名、分享链接（多行 + 提取码文案）、更新日 7 个可点选按钮 + 「每天 / 工作日 1-5 / 清空」快捷、TMDB ID（可选）
+- 链接解析**全本地**：`TaskDraftParser` 按域名判断夸克/光鸭，复用两个适配器已有正则取 shareId 与提取码，不发请求
+- 保存即落 Room（`TaskEntity`），并提示「已添加」；同名/多任务的校验留到 Stage 4
+- 新增 `TaskDraftParserTest` 6 项（夸克、带提取码、光鸭、不支持平台、空链接、类型判断）
+
+**3.3 导航与拆文件（✅）**
+
+- `Screen` 枚举新增 `TASKS` 并作为启动首页；`AppRoot` 增加 `tasksViewModel` 参数与 `TASKS` 分支
+- `MainActivity` 注入 `TasksViewModel(TaskRepository(AppDatabase.get(...)))`，独立 factory，不污染原 `AppViewModel`
+- 新页面全部写在 `ui/tasks/` 独立文件，**不复用也不改动 2441 行的 AppScreens.kt**，只在其 `AppRoot` 里加了一个分支；旧的粘贴式转存页暂时保留在 `Screen.HOME`，Stage 4 接通执行后下线
+- 「全部检测」「检测转存」目前是占位提示，执行编排在 Stage 4 接入
+- 累计单测 **55 项全绿**；`:app:assembleDebug` 通过
 
 ### Stage 2 完成记录
 

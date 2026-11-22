@@ -158,6 +158,7 @@ class ScreenViewModelFactory(
 @Composable
 fun AppRoot(
     viewModel: AppViewModel,
+    tasksViewModel: com.ashchan.cloudsaver.ui.tasks.TasksViewModel,
     themeMode: Int = THEME_AUTO,
     onThemeModeChange: (Int) -> Unit = {},
 ) {
@@ -166,6 +167,11 @@ fun AppRoot(
     val appVersion = currentVersion()
     LaunchedEffect(Unit) { viewModel.checkUpdate(appVersion) }
     when (screen) {
+        Screen.TASKS -> com.ashchan.cloudsaver.ui.tasks.TaskListScreen(
+            viewModel = tasksViewModel,
+            onOpenSettings = { viewModel.go(Screen.SETTINGS) },
+            onOpenHistory = { viewModel.go(Screen.HISTORY) },
+        )
         Screen.HOME -> HomeScreen(viewModel, themeMode, onThemeModeChange)
         Screen.HISTORY -> HistoryScreen(viewModel)
         Screen.SETTINGS -> SettingsScreen(viewModel)

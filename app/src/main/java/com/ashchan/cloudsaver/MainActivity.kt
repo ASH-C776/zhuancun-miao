@@ -19,6 +19,10 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import com.ashchan.cloudsaver.data.TaskRepository
+import com.ashchan.cloudsaver.data.db.AppDatabase
 import com.ashchan.cloudsaver.storage.CredentialStore
 import com.ashchan.cloudsaver.storage.RecordStore
 import com.ashchan.cloudsaver.storage.RuleStore
@@ -29,6 +33,7 @@ import com.ashchan.cloudsaver.ui.ScreenViewModelFactory
 import com.ashchan.cloudsaver.ui.THEME_AUTO
 import com.ashchan.cloudsaver.ui.THEME_DARK
 import com.ashchan.cloudsaver.ui.THEME_LIGHT
+import com.ashchan.cloudsaver.ui.tasks.TasksViewModel
 
 class MainActivity : ComponentActivity() {
 
@@ -38,6 +43,14 @@ class MainActivity : ComponentActivity() {
             ruleStore = RuleStore(applicationContext),
             recordStore = RecordStore(applicationContext),
         )
+    }
+
+    private val tasksViewModel: TasksViewModel by viewModels {
+        object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                TasksViewModel(TaskRepository(AppDatabase.get(applicationContext))) as T
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -82,6 +95,7 @@ class MainActivity : ComponentActivity() {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     AppRoot(
                         viewModel = viewModel,
+                        tasksViewModel = tasksViewModel,
                         themeMode = themeMode,
                         onThemeModeChange = { mode ->
                             themeMode = mode
