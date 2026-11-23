@@ -114,8 +114,14 @@ class TreeSyncEngine(
     }
 
     companion object {
-        /** 与接口的树扫描默认深度保持一致：根的直接子级 = 1。 */
-        const val DEFAULT_MAX_DEPTH: Int = 3
+        /**
+         * 分享树默认扫描层数（根的直接子级 = 1）。
+         *
+         * 原来是 3，真实资源里经常不够：光鸭常见的「剧名 / 第 3 季 / 2160p / 视频」就已经到第 4 层，
+         * 深度卡在 3 会判成「分享里没有视频」。放到 5（= 接口允许上限），
+         * 只多几条列表请求，换来不会漏掉深层视频。
+         */
+        const val DEFAULT_MAX_DEPTH: Int = 5
         const val MAX_DEPTH: Int = 5
 
         /** 一次转存请求最多带多少个文件（太多容易被判超时/限流） */
@@ -207,11 +213,37 @@ class TreeSyncEngine(
         suspend fun runFlat(tree: ShareNode, destRootFid: String, seasonNo: Int) {
             val videos = mutableListOf<ShareNode>()
             collectVideos(tree, videos, seasonNo, depth = 0)
-            if (videos.isEmpty()) throw IllegalStateException("分享中没有找到可转存的视频文件")
+            if (videos.isEmpty()) throw IllegalStateException(noVideoMessage(tree, seasonNo))
             videoTotal = videos.size
             onProgress(0, 0, "比对文件")
             syncFiles(videos, destRootFid)
         }
+
+        /**
+         * 找不到视频时把「实际看到了什么」写出来，不然只有一句「没有可转存的视频文件」，
+         * 分不清是分享是空的、深度不够、还是文件扩展名不认。
+         */
+        private fun noVideoMessage(tree: ShareNode, seasonNo: Int): String {
+            val top = tree.children.take(6).joinToString("、") { child ->
+                if (child.isDir) "${child.name}/" else child.name
+            }
+            val dirs = countDirs(tree, 0)
+            val note = buildString {
+                append("分享中没有找到可转存的视频文件")
+                append("（根下 ${tree.children.size} 项")
+                if (top.isNotBlank()) append("：").append(top)
+                if (tree.children.size > 6) append("…")
+                append("；共 ${dirs} 个目录，最深 ${minOf(maxDepth, tree.maxDepth())} 层")
+                if (seasonNo > 0) append("，只取了第 $seasonNo 季")
+                append("）")
+            }
+            return note
+        }
+
+        private fun countDirs(node: ShareNode, depth: Int): Int =
+            node.children.sumOf { child ->
+                if (child.isDir) 1 + countDirs(child, depth + 1) else 0
+            }
 
         /**
          * 递归收集视频文件。
