@@ -1,7 +1,11 @@
 package com.ashchan.cloudsaver.ui.tasks
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -22,7 +26,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.List
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
@@ -30,14 +33,14 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -81,6 +84,7 @@ fun TaskListScreen(
     onOpenSettings: () -> Unit,
     onOpenHistory: () -> Unit,
     onOpenNewTask: () -> Unit = {},
+    onOpenEdit: (TaskEntity) -> Unit = {},
     startWithNewTaskDialog: Boolean = false,
 ) {
     val cards by viewModel.cards.collectAsStateWithLifecycle()
@@ -129,11 +133,9 @@ fun TaskListScreen(
             )
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = onOpenNewTask,
-                icon = { Icon(Icons.Filled.Add, contentDescription = null) },
-                text = { Text("新建任务") },
-            )
+            FloatingActionButton(onClick = onOpenNewTask) {
+                Icon(Icons.Filled.Add, contentDescription = "新增任务")
+            }
         },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
@@ -146,34 +148,24 @@ fun TaskListScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.End,
                 ) {
-                    Text(
-                        text = "${cards.size} 个任务",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Spacer(Modifier.weight(1f))
-                    OutlinedButton(
+                    IconButton(
                         onClick = { viewModel.runAll() },
                         enabled = running.isEmpty(),
                     ) {
                         if (running.isEmpty()) {
                             Icon(
                                 Icons.Filled.Refresh,
-                                contentDescription = null,
-                                modifier = Modifier.size(16.dp),
+                                contentDescription = "全部检测",
                             )
-                            Spacer(Modifier.width(6.dp))
-                            Text("全部检测")
                         } else {
                             CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
+                                modifier = Modifier.size(18.dp),
                                 strokeWidth = 2.dp,
                             )
-                            Spacer(Modifier.width(6.dp))
-                            Text("同步中")
                         }
                     }
                 }
@@ -200,8 +192,8 @@ fun TaskListScreen(
                             card = card,
                             isRunning = card.task.id in running,
                             onRun = { viewModel.runTask(card.task) },
-                            onDelete = { pendingDelete = card.task },
-                            onToggle = { viewModel.toggleEnabled(card.task) },
+                            onEdit = { onOpenEdit(card.task) },
+                            onRequestDelete = { pendingDelete = card.task },
                         )
                     }
                 }
@@ -229,19 +221,23 @@ fun TaskListScreen(
 
 // ---------------- 卡片 ----------------
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TaskRow(
     card: TaskCard,
     isRunning: Boolean,
     onRun: () -> Unit,
-    onDelete: () -> Unit,
-    onToggle: () -> Unit,
+    onEdit: () -> Unit,
+    onRequestDelete: () -> Unit,
 ) {
     val task = card.task
     val snap = card.snapshot
 
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            // 点主体进编辑；长按弹删除确认（删除不可撤销，故意藏长按里）
+            .combinedClickable(onClick = onEdit, onLongClick = onRequestDelete),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -347,33 +343,31 @@ private fun TaskRow(
             )
 
             Row(verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onToggle) {
-                    Text(if (task.enabled) "暂停" else "启用")
-                }
-                Spacer(Modifier.weight(1f))
-                TextButton(onClick = onRun, enabled = !isRunning) {
-                    if (isRunning) {
+                if (!isRunning) {
+                    IconButton(onClick = onRun) {
+                        Icon(
+                            Icons.Filled.Refresh,
+                            contentDescription = "检测转存",
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                } else {
+                    Box(
+                        modifier = Modifier.size(48.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
                         CircularProgressIndicator(
-                            modifier = Modifier.size(14.dp),
+                            modifier = Modifier.size(18.dp),
                             strokeWidth = 2.dp,
                         )
-                        Spacer(Modifier.width(6.dp))
-                        Text("同步中")
-                    } else {
-                        Icon(
-                            Icons.Default.PlayArrow,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(Modifier.width(2.dp))
-                        Text("检测转存")
                     }
                 }
-                IconButton(onClick = onDelete) {
-                    Icon(
-                        Icons.Filled.Delete,
-                        contentDescription = "删除",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                Spacer(Modifier.weight(1f))
+                if (!task.enabled) {
+                    Text(
+                        text = "已暂停",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
                     )
                 }
             }
@@ -493,4 +487,6 @@ private fun syncText(millis: Long): String {
     val fmt = SimpleDateFormat("MM/dd HH:mm", Locale.getDefault())
     return fmt.format(Date(millis))
 }
+
+
 

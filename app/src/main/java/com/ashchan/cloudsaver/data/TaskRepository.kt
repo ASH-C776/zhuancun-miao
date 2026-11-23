@@ -74,6 +74,8 @@ class TaskRepository(private val db: AppDatabase) {
         localLastEpisode: Int,
         tmdbLatest: Int,
         errorMessage: String = "",
+        /** false = 「运行一次」的试跑：只写运行日志，不动任务快照 */
+        saveSnapshot: Boolean = true,
     ) {
         val now = System.currentTimeMillis()
         val ok = report?.ok == true
@@ -83,7 +85,9 @@ class TaskRepository(private val db: AppDatabase) {
             else -> ""
         }
 
-        if (report != null && ok) {
+        if (!saveSnapshot) {
+            // 试跑只记日志，卡片保持不动
+        } else if (report != null && ok) {
             saveSnapshot(
                 SnapshotCalc.build(
                     taskId = task.id,

@@ -172,13 +172,27 @@ fun AppRoot(
             viewModel = tasksViewModel,
             onOpenSettings = { viewModel.go(Screen.SETTINGS) },
             onOpenHistory = { viewModel.go(Screen.RUNLOG) },
-            onOpenNewTask = { viewModel.go(Screen.NEW_TASK) },
+            onOpenNewTask = {
+                tasksViewModel.clearEdit()
+                viewModel.go(Screen.NEW_TASK)
+            },
+            onOpenEdit = { task ->
+                tasksViewModel.startEdit(task)
+                viewModel.go(Screen.NEW_TASK)
+            },
             startWithNewTaskDialog = openNewTaskOnLaunch,
         )
-        Screen.NEW_TASK -> com.ashchan.cloudsaver.ui.tasks.NewTaskScreen(
-            viewModel = tasksViewModel,
-            onDone = { viewModel.go(Screen.TASKS) },
-        )
+        Screen.NEW_TASK -> {
+            val editingTask by tasksViewModel.editing.collectAsState()
+            com.ashchan.cloudsaver.ui.tasks.NewTaskScreen(
+                viewModel = tasksViewModel,
+                onDone = {
+                    tasksViewModel.clearEdit()
+                    viewModel.go(Screen.TASKS)
+                },
+                editingTask = editingTask,
+            )
+        }
         Screen.RUNLOG -> com.ashchan.cloudsaver.ui.tasks.RunLogScreen(
             viewModel = tasksViewModel,
             onBack = { viewModel.go(Screen.TASKS) },
@@ -2485,3 +2499,4 @@ private fun RecordCard(
         }
     }
 }
+

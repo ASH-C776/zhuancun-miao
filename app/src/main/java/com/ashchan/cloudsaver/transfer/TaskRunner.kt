@@ -74,6 +74,8 @@ class TaskRunner(
     suspend fun run(
         task: TaskEntity,
         trigger: String = RunRecordEntity.TRIGGER_MANUAL,
+        /** false = 试跑（「运行一次」）：照常转存，但不动任务快照，只写运行日志 */
+        saveSnapshot: Boolean = true,
     ): Result<TreeSyncEngine.Report> {
         val startedAt = System.currentTimeMillis()
         val drive = DriveType.fromName(task.driveType)
@@ -92,7 +94,7 @@ class TaskRunner(
 
         val baseFid = task.saveFid.ifBlank { "0" }
         return try {
-            runLock.withLock { executeLocked(task, trigger, startedAt, drive, credential, baseFid) }
+            runLock.withLock { executeLocked(task, trigger, startedAt, drive, credential, baseFid, saveSnapshot) }
         } catch (e: Throwable) {
             repo.finishRun(
                 task = task,
@@ -116,6 +118,7 @@ class TaskRunner(
         drive: DriveType,
         credential: String,
         baseFid: String,
+        saveSnapshot: Boolean,
     ): Result<TreeSyncEngine.Report> {
         val adapter = buildAdapter(drive, credential)
         val share = retryOnce("解析分享链接") { adapter.parseShareLink(task.shareUrl) }.getOrThrow()
@@ -180,6 +183,7 @@ class TaskRunner(
             localEpisodes = counted.episodes,
             localLastEpisode = counted.lastEpisode,
             tmdbLatest = tmdb.latestEpisode,
+            saveSnapshot = saveSnapshot,
         )
         return Result.success(report)
     }
@@ -310,3 +314,5 @@ class TaskRunner(
     private fun buildAdapter(drive: DriveType, credential: String): CloudDriveAdapter =
         CloudAdapterFactory.create(drive, credential)
 }
+
+

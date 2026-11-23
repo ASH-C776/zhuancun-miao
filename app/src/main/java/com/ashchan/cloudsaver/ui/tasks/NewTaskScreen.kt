@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -55,57 +56,68 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import com.ashchan.cloudsaver.core.model.DriveFile
 import com.ashchan.cloudsaver.core.model.DriveType
 import com.ashchan.cloudsaver.core.tmdb.TmdbSearchItem
 import com.ashchan.cloudsaver.data.TaskDraftParser
 import com.ashchan.cloudsaver.data.Weekdays
+import com.ashchan.cloudsaver.data.db.TaskEntity
 import kotlinx.coroutines.launch
 import java.util.Locale
 
 /**
- * 新建追剧任务（全屏页）。
+ * 新增 / 编辑任务（同一个全屏页，编辑时预填已有任务）。
  *
- * 为什么从弹窗改成整页：字段多（含目录浏览、TMDB 搜索），窄屏 AlertDialog 里既放不下也滚不顺，
- * 而且「保存路径 / TMDB 搜索」都要二级弹层，弹窗套弹窗在手机上很难用。
- *
- * 文案策略：能省的都省，输入框说明只放 `placeholder`，不单独占 `label` 行，也不写解释性副标题。
+ * 文案策略：能省的都省，输入框说明只放 `placeholder`，不单独占 `label` 行。
+ * 顶栏两个动作：保存（落库）/ 运行（不保存，只把当前内容转存一次）。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NewTaskScreen(
     viewModel: TasksViewModel,
     onDone: () -> Unit,
+    editingTask: TaskEntity? = null,
 ) {
     val scope = rememberCoroutineScope()
+    val editing = editingTask != null
 
-    var name by remember { mutableStateOf("") }
-    var link by remember { mutableStateOf("") }
-    var drive by remember { mutableStateOf<DriveType?>(null) }
-    // 用户手动点过网盘 chip 之后，就不再让链接识别覆盖它
-    var drivePickedByUser by remember { mutableStateOf(false) }
-    var saveFid by remember { mutableStateOf("0") }
-    var savePathLabel by remember { mutableStateOf("网盘根目录") }
-    var seasonNo by remember { mutableStateOf(0) }
-    var folderWithTmdbId by remember { mutableStateOf(false) }
-    var ruleKey by remember { mutableStateOf("") }
-    var tmdbId by remember { mutableStateOf("") }
+    var name by remember { mutableStateOf(editingTask?.name ?: "") }
+    var link by remember { mutableStateOf(editingTask?.shareUrl ?: "") }
+    var drive by remember {
+        mutableStateOf(editingTask?.let { DriveType.fromName(it.driveType) })
+    }
+    var drivePickedByUser by remember { mutableStateOf(editingTask != null) }
+    var saveFid by remember { mutableStateOf(editingTask?.saveFid ?: "0") }
+    var savePathLabel by remember {
+        mutableStateOf(editingTask?.savePathLabel?.ifBlank { "网盘根目录" } ?: "网盘根目录")
+    }
+    var seasonNo by remember { mutableStateOf(editingTask?.seasonNo ?: 0) }
+    var folderWithTmdbId by remember { mutableStateOf(editingTask?.folderWithTmdbId ?: false) }
+    var ruleKey by remember { mutableStateOf(editingTask?.ruleKey ?: "") }
+    var tmdbId by remember { mutableStateOf(editingTask?.tmdbId?.toString() ?: "") }
     var tmdbTitle by remember { mutableStateOf("") }
-    var airTime by remember { mutableStateOf("") }
-    var weekdays by remember { mutableStateOf(emptySet<Int>()) }
+    var airTime by remember { mutableStateOf(editingTask?.airTime ?: "") }
+    var weekdays by remember {
+        mutableStateOf(editingTask?.let { Weekdays.parse(it.weekdays) } ?: emptySet())
+    }
+    // 用户手动点过星期后，就不再让 TMDB 的播出日覆盖
+    var weekdaysManual by remember { mutableStateOf(!editingTask?.weekdays.isNullOrBlank()) }
 
     var showPathPicker by remember { mutableStateOf(false) }
     var showTmdbSearch by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
     var showTmdbHint by remember { mutableStateOf(false) }
-
+    var showCustomSeason by remember { mutableStateOf(false) }
+    var seasonInput by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
 
-    // 命名规则只留两项：不改名 / 通用视频命名；后者在设置页被禁用时不出现
+    // 命名规则只留「默认 / 通用命名」两项，后者被禁用则不出现
     val magic = remember { viewModel.renameRules().firstOrNull { it.key == "\$TV_MAGIC" && it.enabled } }
+    val canUseTmdbFolder = magic != null && ruleKey == magic.key && tmdbId.isNotBlank()
 
-    // 链接变化时自动识别网盘（用户手动选过则不覆盖）
     LaunchedEffect(link) {
         if (drivePickedByUser) return@LaunchedEffect
         if (link.isBlank()) return@LaunchedEffect
@@ -114,44 +126,80 @@ fun NewTaskScreen(
 
     BackHandler { onDone() }
 
+    fun submit(mode: SubmitMode) {
+        val title = name.trim()
+        val url = link.trim()
+        when {
+            title.isBlank() -> error = "请填写任务名称"
+            url.isBlank() -> error = "请粘贴分享链接"
+            TaskDraftParser.inspect(url).isFailure ->
+                error = "链接无法识别，仅支持夸克 / 光鸭分享链接"
+            else -> {
+                val effectiveFolder = folderWithTmdbId && canUseTmdbFolder
+                when {
+                    mode == SubmitMode.RUN -> viewModel.runDraft(
+                        name = title,
+                        link = url,
+                        weekdays = Weekdays.format(weekdays),
+                        tmdbIdText = tmdbId,
+                        airTime = airTime,
+                        saveFid = saveFid,
+                        savePathLabel = savePathLabel,
+                        ruleKey = ruleKey,
+                        seasonNo = seasonNo,
+                        folderWithTmdbId = effectiveFolder,
+                        driveOverride = drive,
+                    )
+
+                    editing -> viewModel.saveEdit(
+                        name = title,
+                        link = url,
+                        weekdays = Weekdays.format(weekdays),
+                        tmdbIdText = tmdbId,
+                        airTime = airTime,
+                        saveFid = saveFid,
+                        savePathLabel = savePathLabel,
+                        ruleKey = ruleKey,
+                        seasonNo = seasonNo,
+                        folderWithTmdbId = effectiveFolder,
+                        driveOverride = drive,
+                    )
+
+                    else -> viewModel.createTask(
+                        name = title,
+                        link = url,
+                        weekdays = Weekdays.format(weekdays),
+                        tmdbIdText = tmdbId,
+                        airTime = airTime,
+                        saveFid = saveFid,
+                        savePathLabel = savePathLabel,
+                        ruleKey = ruleKey,
+                        seasonNo = seasonNo,
+                        folderWithTmdbId = effectiveFolder,
+                        driveOverride = drive,
+                    )
+                }
+                if (mode == SubmitMode.SAVE) onDone()
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("新建追剧任务", fontWeight = FontWeight.SemiBold) },
+                title = { Text(if (editing) "编辑任务" else "新增任务", fontWeight = FontWeight.SemiBold) },
                 navigationIcon = {
                     IconButton(onClick = onDone) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "返回")
                     }
                 },
                 actions = {
-                    TextButton(
-                        onClick = {
-                            val title = name.trim()
-                            val url = link.trim()
-                            when {
-                                title.isBlank() -> error = "请填写任务名称"
-                                url.isBlank() -> error = "请粘贴分享链接"
-                                TaskDraftParser.inspect(url).isFailure ->
-                                    error = "链接无法识别，仅支持夸克 / 光鸭分享链接"
-                                else -> {
-                                    viewModel.createTask(
-                                        name = title,
-                                        link = url,
-                                        weekdays = Weekdays.format(weekdays),
-                                        tmdbIdText = tmdbId,
-                                        airTime = airTime,
-                                        saveFid = saveFid,
-                                        savePathLabel = savePathLabel,
-                                        ruleKey = ruleKey,
-                                        seasonNo = seasonNo,
-                                        folderWithTmdbId = folderWithTmdbId,
-                                        driveOverride = drive,
-                                    )
-                                    onDone()
-                                }
-                            }
-                        },
-                    ) { Text("保存", fontWeight = FontWeight.SemiBold) }
+                    TextButton(onClick = { submit(SubmitMode.SAVE) }) {
+                        Text("保存", fontWeight = FontWeight.SemiBold)
+                    }
+                    IconButton(onClick = { submit(SubmitMode.RUN) }) {
+                        Icon(Icons.Default.PlayArrow, contentDescription = "运行一次")
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
@@ -190,7 +238,7 @@ fun NewTaskScreen(
             if (tmdbId.isNotBlank()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = "已绑定：${tmdbTitle.ifBlank { tmdbId }}",
+                        text = "已绑定：${tmdbTitle.ifBlank { "tmdb-$tmdbId" }}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary,
                         maxLines = 1,
@@ -199,6 +247,7 @@ fun NewTaskScreen(
                     TextButton(onClick = {
                         tmdbId = ""
                         tmdbTitle = ""
+                        folderWithTmdbId = false
                     }) { Text("取消绑定") }
                 }
             }
@@ -248,36 +297,43 @@ fun NewTaskScreen(
             SectionLabel("季度")
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 SmallChoice("不选", seasonNo == 0, Modifier.weight(1f)) { seasonNo = 0 }
-                (1..4).forEach { n ->
+                (1..3).forEach { n ->
                     SmallChoice("第$n 季", seasonNo == n, Modifier.weight(1f)) { seasonNo = n }
+                }
+                SmallChoice(
+                    text = if (seasonNo > 3) "第${seasonNo}季" else "自定义",
+                    selected = seasonNo > 3,
+                    modifier = Modifier.weight(1f),
+                ) {
+                    seasonInput = if (seasonNo > 3) seasonNo.toString() else ""
+                    showCustomSeason = true
                 }
             }
 
-            // 命名规则
+            // 命名规则：默认 / 通用命名（每项占一行）
             SectionLabel("命名规则")
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 FilterChip(
                     selected = ruleKey.isBlank(),
-                    onClick = { ruleKey = "" },
-                    label = { Text("不改名", style = MaterialTheme.typography.labelMedium) },
+                    onClick = {
+                        ruleKey = ""
+                        folderWithTmdbId = false
+                    },
+                    label = { Text("默认", style = MaterialTheme.typography.labelMedium) },
                 )
                 if (magic != null) {
                     FilterChip(
                         selected = ruleKey == magic.key,
                         onClick = { ruleKey = magic.key },
-                        label = { Text(magic.name, style = MaterialTheme.typography.labelMedium) },
+                        label = { Text("通用命名", style = MaterialTheme.typography.labelMedium) },
                     )
                 }
-            }
-            // 目录命名开关：勾了就是「剧名 tmdb-123」（单独一行，文字不换行）
-            Row {
+                // 只有选了「通用命名」、且绑定了 TMDB 才能用：文件夹名变成 剧名 + tmdb-ID
                 FilterChip(
                     selected = folderWithTmdbId,
                     onClick = { folderWithTmdbId = !folderWithTmdbId },
-                    enabled = tmdbId.isNotBlank(),
-                    label = {
-                        Text("文件夹加 TMDB ID", style = MaterialTheme.typography.labelMedium)
-                    },
+                    enabled = canUseTmdbFolder,
+                    label = { Text("tmdb id", style = MaterialTheme.typography.labelMedium) },
                 )
             }
 
@@ -302,6 +358,7 @@ fun NewTaskScreen(
                                 },
                             )
                             .clickableRow {
+                                weekdaysManual = true
                                 weekdays = if (on) weekdays - day else weekdays + day
                             },
                         contentAlignment = Alignment.Center,
@@ -375,6 +432,37 @@ fun NewTaskScreen(
                 tmdbId = item.id.toString()
                 tmdbTitle = item.title()
                 showTmdbSearch = false
+                // 选完剧就按 TMDB 的播出星期点亮更新日；用户手动点过就不覆盖
+                scope.launch {
+                    val day = viewModel.tmdbWeekday(item.id)
+                    if (day != null && !weekdaysManual) weekdays = setOf(day)
+                }
+            },
+        )
+    }
+
+    if (showCustomSeason) {
+        AlertDialog(
+            onDismissRequest = { showCustomSeason = false },
+            title = { Text("季度") },
+            text = {
+                OutlinedTextField(
+                    value = seasonInput,
+                    onValueChange = { seasonInput = it.filter { c -> c.isDigit() } },
+                    placeholder = { Text("季度数") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    seasonInput.toIntOrNull()?.takeIf { it > 0 }?.let { seasonNo = it }
+                    showCustomSeason = false
+                }) { Text("确定") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCustomSeason = false }) { Text("取消") }
             },
         )
     }
@@ -402,6 +490,8 @@ fun NewTaskScreen(
         )
     }
 }
+
+private enum class SubmitMode { SAVE, RUN }
 
 // ---------------- 子块 ----------------
 
@@ -438,6 +528,41 @@ private fun SettingRow(
             Spacer(Modifier.width(10.dp))
             Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
         }
+    }
+}
+
+/** 等宽小选项（季度/星期这种一排多个），避免 chip 挤成竖排文字 */
+@Composable
+private fun SmallChoice(
+    text: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier
+            .height(38.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(
+                if (selected) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    MaterialTheme.colorScheme.surfaceContainerLow
+                },
+            )
+            .clickableRow(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelMedium,
+            color = if (selected) {
+                MaterialTheme.colorScheme.onPrimaryContainer
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            maxLines = 1,
+        )
     }
 }
 
@@ -650,41 +775,6 @@ private fun TmdbSearchDialog(
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
     )
-}
-
-/** 等宽小选项（季度/星期这种一排多个），避免 chip 挤成竖排文字 */
-@Composable
-private fun SmallChoice(
-    text: String,
-    selected: Boolean,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-) {
-    Box(
-        modifier
-            .height(38.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(
-                if (selected) {
-                    MaterialTheme.colorScheme.primaryContainer
-                } else {
-                    MaterialTheme.colorScheme.surfaceContainerLow
-                },
-            )
-            .clickableRow(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text,
-            style = MaterialTheme.typography.labelMedium,
-            color = if (selected) {
-                MaterialTheme.colorScheme.onPrimaryContainer
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-            maxLines = 1,
-        )
-    }
 }
 
 /** 行级点击（带 enabled 控制），避免每处都写 .clickable + interactionSource */

@@ -134,6 +134,127 @@ class TasksViewModel(
     /** 新建页下拉用的命名规则（已禁用的也列出来，UI 上置灰说明） */
     fun renameRules(): List<RenameRule> = ruleStore?.loadRules() ?: emptyList()
 
+    /** 当前正在编辑的任务（null = 新建模式） */
+    val editing = MutableStateFlow<TaskEntity?>(null)
+
+    fun startEdit(task: TaskEntity) {
+        editing.value = task
+    }
+
+    fun clearEdit() {
+        editing.value = null
+    }
+
+    /**
+     * 保存编辑：只落库，不自动同步（用户自己点刷新才会跑）。
+     * 链接被改过时重新解析 shareId/passcode；链接没改则保留原值。
+     */
+    fun saveEdit(
+        name: String,
+        link: String,
+        weekdays: String,
+        tmdbIdText: String,
+        airTime: String,
+        saveFid: String,
+        savePathLabel: String,
+        ruleKey: String,
+        seasonNo: Int,
+        folderWithTmdbId: Boolean,
+        driveOverride: DriveType?,
+    ) {
+        val base = editing.value ?: return
+        val title = name.trim()
+        if (title.isBlank()) {
+            _error.value = "请填写任务名称"
+            return
+        }
+        TaskDraftParser.inspect(link)
+            .onFailure { _error.value = it.message ?: "链接无法识别" }
+            .onSuccess { inspect ->
+                val drive = driveOverride ?: inspect.driveType
+                viewModelScope.launch {
+                    repo.update(
+                        base.copy(
+                            name = title,
+                            driveType = drive.name,
+                            shareUrl = link.trim(),
+                            shareId = inspect.shareId,
+                            passcode = inspect.passcode,
+                            saveFid = saveFid,
+                            savePathLabel = savePathLabel,
+                            weekdays = Weekdays.format(Weekdays.parse(weekdays)),
+                            tmdbId = tmdbIdText.trim().toLongOrNull(),
+                            airTime = airTime.trim(),
+                            ruleKey = ruleKey,
+                            seasonNo = seasonNo,
+                            folderWithTmdbId = folderWithTmdbId,
+                            updateMode = if (weekdays.isBlank()) {
+                                TaskEntity.UPDATE_MODE_TMDB
+                            } else {
+                                TaskEntity.UPDATE_MODE_MANUAL
+                            },
+                        )
+                    )
+                    _toast.value = "已保存"
+                    clearEdit()
+                }
+            }
+    }
+
+    /**
+     * 「运行一次」：拿当前表单内容直接转存一轮，**不保存任务**。
+     * 仍写一条运行日志，方便回看这次试跑结果；任务卡片上的快照不动。
+     */
+    fun runDraft(
+        name: String,
+        link: String,
+        weekdays: String,
+        tmdbIdText: String,
+        airTime: String,
+        saveFid: String,
+        savePathLabel: String,
+        ruleKey: String,
+        seasonNo: Int,
+        folderWithTmdbId: Boolean,
+        driveOverride: DriveType?,
+    ) {
+        val title = name.trim()
+        if (title.isBlank()) {
+            _error.value = "请填写任务名称"
+            return
+        }
+        TaskDraftParser.inspect(link)
+            .onFailure { _error.value = it.message ?: "链接无法识别" }
+            .onSuccess { inspect ->
+                val drive = driveOverride ?: inspect.driveType
+                viewModelScope.launch {
+                    val draft = TaskEntity(
+                        id = editing.value?.id ?: 0,
+                        name = title,
+                        driveType = drive.name,
+                        shareUrl = link.trim(),
+                        shareId = inspect.shareId,
+                        passcode = inspect.passcode,
+                        saveFid = saveFid,
+                        savePathLabel = savePathLabel,
+                        weekdays = Weekdays.format(Weekdays.parse(weekdays)),
+                        tmdbId = tmdbIdText.trim().toLongOrNull(),
+                        airTime = airTime.trim(),
+                        ruleKey = ruleKey,
+                        seasonNo = seasonNo,
+                        folderWithTmdbId = folderWithTmdbId,
+                    )
+                    _toast.value = "正在跑一次「$title」…"
+                    val result = runner.run(draft, RunRecordEntity.TRIGGER_MANUAL, saveSnapshot = false)
+                    _toast.value = if (result.getOrNull()?.ok == true) {
+                        "「$title」运行完成"
+                    } else {
+                        "「$title」运行失败"
+                    }
+                }
+            }
+    }
+
     /** 某个网盘是否已登录（新建页用来提示「先去设置里登录」） */
     fun isLoggedIn(drive: DriveType): Boolean =
         credentials?.loadCredential(drive)?.isNotBlank() == true
@@ -150,8 +271,14 @@ class TasksViewModel(
             .sortedWith(compareBy(NaturalOrder) { it.name })
     }
 
-    /** TMDB 搜索（新建页选剧用）。未配置凭证时直接给出可读原因 */
-    suspend fun searchTv(query: String): Result<List<TmdbSearchItem>> {
+    /** 取某部剧的播出星期（1..7），用于选完剧后自动点亮更新日 */
+    suspend fun tmdbWeekday(tvId: Long): Int? = runCatching {
+        val store = tmdbStore ?: return null
+        val credential = store.loadCredential()?.takeIf { it.isNotBlank() } ?: return null
+        TmdbClient(credential, store.loadBaseUrl()).fetchTv(tvId).getOrNull()?.weekdayHint()
+    }.getOrNull()
+
+    /** TMDB 搜索（新建页选剧用）。未配置凭证时直接给出可读原因 */    suspend fun searchTv(query: String): Result<List<TmdbSearchItem>> {
         val store = tmdbStore ?: return Result.failure(IllegalStateException("TMDB 不可用"))
         val credential = store.loadCredential()?.takeIf { it.isNotBlank() }
             ?: return Result.failure(IllegalStateException("还没配置 TMDB，请先到设置页填写凭证"))

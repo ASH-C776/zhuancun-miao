@@ -385,3 +385,56 @@
 - `:app:assembleDebug` 通过，单测 74 项仍全绿（`searchTv` 解析未加单测，需要网络，靠真机验证）
 - 真机（Xiaomi Civi 3 / USB）安装后：`am start --ez openNewTask true` 直达新页，截图 `docs/newtask-full.png`
 - 数据库 v4 迁移未在真机上单独校验（本轮装机时 App 已从 v3 库启动成功，无 migration 报错）
+
+## Stage 10 · 修同步死循环与 TMDB 解析崩溃（2026-11-23）
+
+- **同步一直转圈 / 集数不对**：`syncFiles` 原来按「分享原名」比对，改名后本地文件名与原名不一致，被判定为「一集都没转过」，于是整批重下再改名，撞上光鸭 `code:160 文件名已存在`。改为按**目标文件名**比对：已存在跳过，原名存在则就地改名，只转真正缺失的集
+- **TMDB 绑定失败**：已完结剧 `next_episode_to_air` 为 `null`，旧代码 `JsonNull as JsonObject` 直接崩。`TmdbClient` 加 `obj(key)` 容错，`resolveTmdb` 失败时写日志（tag `TmdbResolve`）
+- 网络结论纠正：`api.tmdb.org` 国内可直连（DNS 正常），`api.themoviedb.org` 被污染才连不上；App 默认地址用前者，不需要反代
+- 真机验收：卡片「鉴定 · 已是最新 · E48 → E48 · 周五 · TMDB 自动」，日志 `TmdbResolve: tv=259785 season=null latest=48 weekday=5`
+
+## Stage 11 · 季度选项 + 转存扁平化（2026-11-23）
+
+- 新增季度选择：不选 = `剧名/视频平铺`；第 N 季 = `剧名/Season N/视频平铺`
+- 转存不再把分享方文件夹名带进网盘：`TreeSyncEngine.syncFlat` 递归收集视频、按季过滤（`collectVideos`）
+- 转存粒度改批量 `restoreChunk`（每批 8 个），48 集从「逐文件 8 秒/个」降到 3–9 秒一轮
+- `TaskEntity.seasonNo` + 数据库 4 → 5（`MIGRATION_4_5`）；单测 `TreeSyncEngineTest` 断言随批量改动更新
+
+## Stage 12 · 关闭启动自动同步 + 文件夹带 TMDB ID（2026-11-23）
+
+- **不再启动即同步**：删掉 `autoSynced` / `syncOnStartOnce` 与首页 `LaunchedEffect`，全部改手动
+- 手动入口：卡片「检测转存」按钮 + 顶部「全部检测」
+- 命名规则加「文件夹加 TMDB ID」：文件夹名 `剧名 tmdb-<id>`（`TaskEntity.folderWithTmdbId` + 数据库 5 → 6，`TaskRunner.taskNameOf()`）
+- 未绑 TMDB 时该开关置灰
+
+## Stage 13 · 极简 + 手动化（列表与新建页重做，2026-11-23）
+
+**列表页（`TaskListScreen.kt`）**
+
+- 顶部「全部检测」文字按钮改成**刷新图标**（`IconButton(Refresh)`），文案「N 个任务」一并去掉
+- 卡片「检测转存」文字按钮改成**刷新图标**，位置挪到左下角原暂停按钮处（左手拇指可达），运行中在同一位置转圈
+- **删掉暂停按钮**（没有自动刷新后无意义），暂停态改为卡片右侧一行灰字提示
+- **长按卡片 = 删除**：`combinedClickable(onClick = 编辑, onLongClick = 删除)`，弹确认对话框后才真删
+- 点卡片主体 → 进编辑页（与新建同一页，字段预填）
+- 「新增任务」按钮改成**纯加号 FAB**，无文字
+
+**新建 / 编辑页（`NewTaskScreen.kt`）**
+
+- 标题：新增时「新增任务」（去掉「追剧」），编辑时「编辑任务」
+- 右上两个动作：`保存`（落库，不同步）+ 播放图标`运行一次`（不保存任务、只按当前填的内容转存一次，仍写运行日志）
+- 季度：不选 / 第1季 / 第2季 / 第3季 / **自定义**；点自定义弹数字输入（placeholder「季度数」），输入 N 即下级文件夹 `Season N`
+- 命名规则三项竖排、每项一行：`默认`、`通用命名`、`tmdb id`
+  - `tmdb id` 仅在选中「通用命名」且已绑 TMDB 时可点（文件夹名 = `剧名 tmdb-ID`）
+  - 选「默认」会自动清掉 `tmdb id`
+- 选了 TMDB 剧集后，**更新日自动点亮**（`viewModel.tmdbWeekday(tvId)` → `TmdbTvInfo.weekdayHint()`；用户手动点过更新日则不再覆盖）
+
+**配套改动**
+
+- `TasksViewModel`：`editing`（当前编辑任务）、`startEdit/clearEdit`、`saveEdit(...)`、`runDraft(...)`（`saveSnapshot = false`）、`tmdbWeekday(tvId)`
+- `TaskRunner.run(task, trigger, saveSnapshot = true)`、`TaskRepository.finishRun(..., saveSnapshot)`：false 时只写运行记录、不动卡片快照
+- `AppScreens.kt`：`TASKS` 传 `onOpenEdit`，`NEW_TASK` 用 `editing` 决定预填与标题
+
+**验收**
+
+- `:app:compileDebugKotlin` / `:app:assembleDebug` / `:app:testDebugUnitTest` 均通过（74 项单测全绿）
+- 未装机验证：本机 adb 当前无设备（USB 未插、无线 `192.168.31.144:5555` 连不上），真机截图与「运行一次」实际日志待接上手机后补
