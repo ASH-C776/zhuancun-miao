@@ -248,7 +248,7 @@ private fun TaskRow(
 
             Spacer(Modifier.height(6.dp))
 
-            // 第二行：盘里集数 → 最新集
+            // 第二行：盘里集数 → 最新集；右侧放上次同步时间（时间独占右端，永远不被压缩）
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = episodeText(snap.localLastEpisode),
@@ -267,9 +267,10 @@ private fun TaskRow(
                 )
                 Spacer(Modifier.weight(1f))
                 Text(
-                    text = missingText(snap),
+                    text = syncText(snap.lastSyncAt),
                     style = MaterialTheme.typography.bodySmall,
-                    color = statusColor(snap),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
                 )
             }
 
@@ -333,21 +334,13 @@ private fun TaskRow(
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // 左段可能变长（如「周五 · TMDB 自动 · 光鸭」），过长只挤压自己，时间始终完整显示
+                    // 左段可能变长（如「周二 · 光鸭 · 自动」），过长只压缩自己（时间已挪到上一行右端）
                     Text(
                         text = if (task.enabled) metaLeft(task) else "${metaLeft(task)} · 已暂停",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                    Dot()
-                    Text(
-                        text = syncText(snap.lastSyncAt),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
                     )
                 }
             }
@@ -442,21 +435,19 @@ private fun EmptyTasks(modifier: Modifier = Modifier, onAdd: () -> Unit) {
 
 private fun episodeText(ep: Int): String = if (ep > 0) "E$ep" else "E—"
 
-/** 更新日文案：手动设的星期 + 来源标记（TMDB 自动推断的会注明，方便用户区分） */
-private fun updateLabel(task: TaskEntity): String {
-    val label = Weekdays.label(task.weekdays)
-    if (task.updateMode != TaskEntity.UPDATE_MODE_TMDB) return label
-    val auto = if (task.weekdays.isBlank()) "TMDB 自动待推断" else "TMDB 自动"
-    return if (task.weekdays.isBlank()) auto else "$label · $auto"
+/** 卡片底行：「周几 · 网盘 · 自动 / 待推断 / 未绑定 TMDB」，时间已挪到上一行右端 */
+private fun metaLeft(task: TaskEntity): String {
+    val parts = mutableListOf(
+        Weekdays.label(task.weekdays),
+        driveLabel(task.driveType),
+    )
+    if (task.tmdbId == null) {
+        parts += "未绑定 TMDB"
+    } else if (task.updateMode == TaskEntity.UPDATE_MODE_TMDB) {
+        parts += if (task.weekdays.isBlank()) "待推断" else "自动"
+    }
+    return parts.joinToString(" · ")
 }
-
-private fun missingText(snap: SnapshotEntity): String = when (snap.status) {
-    SnapshotEntity.STATUS_BEHIND -> "缺 ${snap.missing} 集"
-    SnapshotEntity.STATUS_UP_TO_DATE -> ""
-    else -> "未绑定 TMDB"
-}
-
-private fun metaLeft(task: TaskEntity): String = "${updateLabel(task)} · ${driveLabel(task.driveType)}"
 
 private fun driveLabel(driveType: String): String = when (driveType) {
     "QUARK" -> "夸克"
@@ -469,6 +460,5 @@ private fun syncText(millis: Long): String {
     val fmt = SimpleDateFormat("MM/dd HH:mm", Locale.getDefault())
     return fmt.format(Date(millis))
 }
-
 
 
