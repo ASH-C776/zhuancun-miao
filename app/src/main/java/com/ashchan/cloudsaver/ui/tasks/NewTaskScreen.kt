@@ -77,6 +77,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.TextRange
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -331,6 +332,8 @@ fun NewTaskScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            // 任务名称 + 分享链接属于同一块，给它一个「任务」分区标题，与下面「保存位置」等分区同一层级
+            SectionLabel("任务")
             // 任务名称：左边输入，右边一个独立方块按钮（放大镜）——与下面链接行的按钮同一条竖线
             Row(verticalAlignment = Alignment.CenterVertically) {
                 CompactStringField(
@@ -445,7 +448,14 @@ fun NewTaskScreen(
             // 保存位置：网盘 + 目录合成一行，点进去从网盘根开始逐层下钻
             SectionLabel("保存位置")
             SettingRow(
-                icon = { Icon(Icons.Default.Home, null, tint = MaterialTheme.colorScheme.primary) },
+                icon = {
+                    Icon(
+                        Icons.Default.Home,
+                        null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                },
                 title = buildString {
                     val type = drive
                     if (type == null) {
@@ -544,7 +554,7 @@ fun NewTaskScreen(
                     Box(
                         Modifier
                             .weight(1f)
-                            .height(40.dp)
+                            .height(ROW_HEIGHT)
                             .clip(RoundedCornerShape(12.dp))
                             .background(
                                 if (on) {
@@ -576,7 +586,14 @@ fun NewTaskScreen(
             // 播出时刻
             SectionLabel("播出时刻")
             SettingRow(
-                icon = { Icon(Icons.Default.DateRange, null, tint = MaterialTheme.colorScheme.primary) },
+                icon = {
+                    Icon(
+                        Icons.Default.DateRange,
+                        null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                },
                 title = airTime.ifBlank { "未设置" },
                 onClick = { showTimePicker = true },
             )
@@ -868,7 +885,7 @@ private fun SquareActionButton(
     }
 }
 
-/** 一行可点的设置项，用来省掉输入框的 label 行 */
+/** 一行可点的设置项，用来省掉输入框的 label 行；高度与输入框统一 48dp */
 @Composable
 private fun SettingRow(
     icon: @Composable () -> Unit,
@@ -878,19 +895,26 @@ private fun SettingRow(
     Box(
         Modifier
             .fillMaxWidth()
+            .height(ROW_HEIGHT)
             .clip(RoundedCornerShape(12.dp))
             .background(MaterialTheme.colorScheme.surfaceContainerLow)
             .clickableRow(onClick = onClick)
     ) {
         Row(
             Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 12.dp),
+                .fillMaxSize()
+                .padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             icon()
             Spacer(Modifier.width(12.dp))
-            Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+            Text(
+                title,
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -906,8 +930,8 @@ private fun SmallChoice(
 ) {
     Box(
         modifier
-            // 规范：可点元素最小 48dp 热区；圆角统一 12
-            .heightIn(min = 48.dp)
+            // 规范：可点元素最小 48dp 热区；圆角统一 12；高度与输入框 / 设置行一致
+            .height(ROW_HEIGHT)
             .clip(RoundedCornerShape(12.dp))
             .background(
                 when {
