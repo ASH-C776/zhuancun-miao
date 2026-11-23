@@ -507,3 +507,8 @@
 - TMDB 凭证脱敏：保存并验证通过后输入框变只读，显示「前 9 位 + 星号」，与设置页 Refresh Token / Cookie 同一口径（星号最多 12 个，不泄露原长度）；点「清除」后可重新填写
 - 去掉 TMDB 区块的小字说明：「填 API Key 或 Read Access Token…」「官方 api.themoviedb.org 在国内被 DNS 污染…」supportingText、label 后缀「（默认 api.tmdb.org，国内可直连）」全部删除，label 简化为「API Key」「接口地址」
 - 新增调试入口 `--ez openSettings true` 直接进设置页（截图验收用）
+### Stage 16.1 · 分享链接框改为单行（2026-11-23）
+
+- 链接输入框从 `minLines=2 / maxLines=3` 改成 `singleLine = true`，高度与「任务名称」一致，不再占三行
+- 超长链接只显示前段：用 `TextFieldValue` 控光标位置，失焦时 selection 归 0，所以编辑页打开时露出的永远是开头（`https://www.guangyapan.com/s/19…`），不会像默认那样把末尾甩出来
+- 新增调试入口 `--es editTaskName 剧名`：按任务名直接进编辑页，验证编辑态 UI 不再受「无法注入点击」限制

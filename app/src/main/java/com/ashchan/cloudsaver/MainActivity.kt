@@ -109,6 +109,12 @@ class MainActivity : ComponentActivity() {
         if (intent?.getBooleanExtra("openSettings", false) == true) {
             viewModel.go(com.ashchan.cloudsaver.ui.Screen.SETTINGS)
         }
+        // 调试/联调用：adb ... --es editTaskName 剧名 直接进该任务的编辑页
+        intent?.getStringExtra("editTaskName")?.takeIf { it.isNotBlank() }?.let { n ->
+            tasksViewModel.editByName(n) {
+                viewModel.go(com.ashchan.cloudsaver.ui.Screen.NEW_TASK)
+            }
+        }
         // 调试/联调用：adb ... --es debugTmdbPing KEY [--es debugTmdbBase 地址] 只做一次 TMDB 探活
         intent?.getStringExtra("debugTmdbPing")?.takeIf { it.isNotBlank() }?.let { key ->
             val base = intent?.getStringExtra("debugTmdbBase") ?: "https://api.themoviedb.org"

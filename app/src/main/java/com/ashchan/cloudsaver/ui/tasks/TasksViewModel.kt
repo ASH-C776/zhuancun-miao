@@ -156,6 +156,16 @@ class TasksViewModel(
         editing.value = null
     }
 
+    /** 调试用：按任务名直接进编辑页（绕开无法注入点击的限制），找到才回调 */
+    fun editByName(name: String, onFound: (TaskEntity) -> Unit) {
+        viewModelScope.launch {
+            val task = runCatching { repo.tasks() }.getOrNull()
+                ?.firstOrNull { it.name == name } ?: return@launch
+            startEdit(task)
+            onFound(task)
+        }
+    }
+
     /**
      * 保存编辑：只落库，不自动同步（用户自己点刷新才会跑）。
      * 链接被改过时重新解析 shareId/passcode；链接没改则保留原值。

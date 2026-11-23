@@ -56,8 +56,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.TextRange
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -89,6 +92,8 @@ fun NewTaskScreen(
 
     var name by remember { mutableStateOf(editingTask?.name ?: "") }
     var link by remember { mutableStateOf(editingTask?.shareUrl ?: "") }
+    // 链接框单行显示，用光标位置控制「露哪一段」：失焦回到开头，长链接只显示前面
+    var linkSelection by remember { mutableStateOf(TextRange(0)) }
     var drive by remember {
         mutableStateOf(editingTask?.let { DriveType.fromName(it.driveType) })
     }
@@ -261,16 +266,20 @@ fun NewTaskScreen(
                 }
             }
 
+            // 分享链接：固定一行高，链接再长也只露前面，末尾顺着输入框裁掉/横滚
             OutlinedTextField(
-                value = link,
+                value = TextFieldValue(link, selection = linkSelection),
                 onValueChange = {
-                    link = it
+                    link = it.text
+                    linkSelection = it.selection
                     error = null
                 },
                 placeholder = { Text("分享链接") },
-                minLines = 2,
-                maxLines = 3,
-                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    // 失焦后光标回到开头，这样长链接默认显示的是前段，而不是尾部
+                    .onFocusChanged { if (!it.isFocused) linkSelection = TextRange(0) },
             )
 
             // 保存位置：网盘 + 目录合成一行，点进去从网盘根开始逐层下钻
