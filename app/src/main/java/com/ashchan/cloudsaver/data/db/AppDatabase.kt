@@ -13,7 +13,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  */
 @Database(
     entities = [TaskEntity::class, SnapshotEntity::class, RunRecordEntity::class],
-    version = 6,
+    version = 7,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -95,6 +95,21 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v7：snapshots 加 `tmdbTotal`（TMDB 的总集数）。
+         *
+         * 卡片要区分「追平当前最新集」和「整部剧收齐了」：只有总集数到手，
+         * 才能判断 30 集全齐 → 显示「转存完」，用户据此自己决定删不删任务。
+         * 老快照默认 0 = 未知，不改判断口径。
+         */
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE snapshots ADD COLUMN tmdbTotal INTEGER NOT NULL DEFAULT 0"
+                )
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -107,6 +122,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_3_4,
                     MIGRATION_4_5,
                     MIGRATION_5_6,
+                    MIGRATION_6_7,
                 ).build().also { instance = it }
             }
     }

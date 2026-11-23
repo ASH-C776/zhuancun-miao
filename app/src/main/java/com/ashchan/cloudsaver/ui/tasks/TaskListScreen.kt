@@ -276,9 +276,11 @@ private fun TaskRow(
 
             Spacer(Modifier.height(8.dp))
 
-            // 进度：盘里 / 最新
-            val fraction = if (snap.tmdbLatest > 0) {
-                (snap.localLastEpisode.toFloat() / snap.tmdbLatest).coerceIn(0f, 1f)
+            // 进度：盘里集数 / 目标集数（有总集数就按全集算，否则退回按最新集算）
+            val denominator = if (snap.tmdbTotal > 0) snap.tmdbTotal else snap.tmdbLatest
+            val numerator = if (snap.tmdbTotal > 0) snap.localEpisodes else snap.localLastEpisode
+            val fraction = if (denominator > 0) {
+                (numerator.toFloat() / denominator).coerceIn(0f, 1f)
             } else 0f
             LinearProgressIndicator(
                 progress = { fraction },
@@ -371,7 +373,9 @@ private object TaskColors {
 @Composable
 private fun StatusBadge(snap: SnapshotEntity) {
     val (text, color) = when (snap.status) {
-        SnapshotEntity.STATUS_UP_TO_DATE -> "已是最新" to TaskColors.ok()
+        // 全集都到齐：这部剧没得补了，用户看到这个标识自己决定删不删任务
+        SnapshotEntity.STATUS_FINISHED -> "转存完" to TaskColors.ok()
+        SnapshotEntity.STATUS_UP_TO_DATE -> "最新了" to TaskColors.ok()
         SnapshotEntity.STATUS_BEHIND -> "缺 ${snap.missing} 集" to TaskColors.behind()
         else -> "未同步" to TaskColors.unknown()
     }
@@ -399,6 +403,7 @@ private fun Dot() {
 
 @Composable
 private fun statusColor(snap: SnapshotEntity): Color = when (snap.status) {
+    SnapshotEntity.STATUS_FINISHED,
     SnapshotEntity.STATUS_UP_TO_DATE -> TaskColors.ok()
     SnapshotEntity.STATUS_BEHIND -> TaskColors.behind()
     else -> MaterialTheme.colorScheme.outline

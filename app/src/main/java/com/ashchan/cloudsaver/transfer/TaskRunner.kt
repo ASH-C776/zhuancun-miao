@@ -81,7 +81,7 @@ class TaskRunner(
         val drive = DriveType.fromName(task.driveType)
         if (drive == null) {
             val msg = "未知的网盘类型：${task.driveType}"
-            repo.finishRun(task, trigger, startedAt, null, 0, 0, 0, msg)
+            repo.finishRun(task, trigger, startedAt, null, 0, 0, 0, 0, msg)
             return Result.failure(IllegalArgumentException(msg))
         }
 
@@ -91,7 +91,7 @@ class TaskRunner(
                 // 转存前先「等价于点一次设置页登录」：掉线时自动恢复，别等用户回来手点
                 val adapter = DriveSession.ensure(drive, credentialStore).getOrElse { err ->
                     val msg = err.message ?: "登录已失效"
-                    repo.finishRun(task, trigger, startedAt, null, 0, 0, 0, msg)
+                    repo.finishRun(task, trigger, startedAt, null, 0, 0, 0, 0, msg)
                     return@withLock Result.failure<TreeSyncEngine.Report>(err)
                 }
                 try {
@@ -196,6 +196,7 @@ class TaskRunner(
             localEpisodes = counted.episodes,
             localLastEpisode = counted.lastEpisode,
             tmdbLatest = tmdb.latestEpisode,
+            tmdbTotal = tmdb.totalEpisodes,
             saveSnapshot = saveSnapshot,
         )
         return Result.success(report)
@@ -248,7 +249,7 @@ class TaskRunner(
     }
 
     /** TMDB 解析结果（失败一律回 0/null，不影响转存主流程） */
-    private data class TmdbLatest(val latestEpisode: Int, val weekdays: List<Int>)
+    private data class TmdbLatest(val latestEpisode: Int, val weekdays: List<Int>, val totalEpisodes: Int = 0)
 
     /**
      * 生成改名映射（分享文件 fid → 转存时要用的新文件名）。
@@ -303,13 +304,18 @@ class TaskRunner(
         val season = SeasonParser.parse(task.seasonName)
         // 更新日走原项目同一套「多天加权投票」（会多拉一次该季集表）
         val weekdays = client.inferWeekdays(tvId, info)
+        // 目标总集数：指定季度取该季集数；没指定季就用「最新集所在那一季」的集数
+        // （TMDB 的 episode_number 是季内编号，拿全剧总数去比会永远对不上）
+        val countSeason = season ?: info.lastEpisode?.season?.takeIf { it > 0 }
+        val total = client.totalEpisodes(tvId, countSeason, info)
         return TmdbLatest(
             latestEpisode = info.latestEpisodeNumber(season),
             weekdays = weekdays,
+            totalEpisodes = total,
         ).also {
             android.util.Log.i(
                 "TmdbResolve",
-                "tv=$tvId season=$season latest=${it.latestEpisode} weekdays=${it.weekdays}",
+                "tv=$tvId season=$season latest=${it.latestEpisode} total=${it.totalEpisodes} weekdays=${it.weekdays}",
             )
         }
     }

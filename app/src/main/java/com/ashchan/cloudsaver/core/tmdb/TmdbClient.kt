@@ -48,6 +48,8 @@ class TmdbClient(
             lastEpisode = parseEpisode(body.obj("last_episode_to_air")),
             nextEpisode = parseEpisode(body.obj("next_episode_to_air")),
             numberOfSeasons = body.get("number_of_seasons")?.asInt ?: 0,
+            /** 全剧总集数（含未播的已排期集），用于判断「整部剧是不是收齐了」 */
+            totalEpisodes = body.get("number_of_episodes")?.takeIf { it.isJsonPrimitive }?.asInt ?: 0,
         )
     }
 
@@ -56,6 +58,23 @@ class TmdbClient(
         val body = get("/3/tv/$tvId/season/$season", language)
         val arr = body.getAsJsonArray("episodes") ?: return@runCatching emptyList()
         arr.mapNotNull { el -> el.takeIf { it.isJsonObject }?.let { parseEpisode(it.asJsonObject, season) } }
+    }
+
+    /**
+     * 目标集数：任务指定了季度就取该季的集数，否则取全剧总集数。
+     *
+     * 「转存完」判断的分母。取该季集数是因为网盘按季各存一份，
+     * 只追第 2 季的任务拿全剧总数去比，永远不会齐。
+     */
+    suspend fun totalEpisodes(tvId: Long, season: Int?, info: TmdbTvInfo? = null, language: String = "zh-CN"): Int {
+        if (season != null && season > 0) {
+            val list = fetchSeason(tvId, season, language).getOrNull().orEmpty()
+            // 按集号去重计数，避免 TMDB 偶发的重复集号（特辑）把分母放大
+            val distinct = list.mapNotNull { it.episode.takeIf { n -> n > 0 } }.toSortedSet().size
+            if (distinct > 0) return distinct
+        }
+        val tv = info ?: fetchTv(tvId, language).getOrNull()
+        return tv?.totalEpisodes ?: 0
     }
 
     /**
@@ -203,6 +222,8 @@ data class TmdbTvInfo(
     val lastEpisode: TmdbEpisode?,
     val nextEpisode: TmdbEpisode?,
     val numberOfSeasons: Int,
+    /** 全剧总集数（TMDB `number_of_episodes`，含已排期未播的） */
+    val totalEpisodes: Int = 0,
 ) {
     /**
      * 判定「最新集号」的口径：

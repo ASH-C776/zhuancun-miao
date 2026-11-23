@@ -539,3 +539,25 @@
 - 行 2 原来右端的「缺 N 集 / 未绑定 TMDB」文案删除（与右上角状态徽标重复），信息不再重复占位
 
 真机截图：`docs/home18.png`
+### Stage 17 · 卡片标识改为「转存完 / 最新了 / 缺 N 集」（2026-11-24）
+
+**需求口径（两个目标、一条优先级）**
+
+1. 盘里集数 >= TMDB **总集数** → 「转存完」：整部剧收齐了，没得补，用户看到这个标识自己决定删不删任务
+2. 否则 盘里集数 >= TMDB **当前最新已播集** → 「最新了」：眼下不缺，等下次更新
+3. 否则 → 「缺 N 集」，N = 最新已播集 - 盘里集数
+
+**实现**
+
+- `TmdbClient`：`fetchTv` 多解析 `number_of_episodes` → `TmdbTvInfo.totalEpisodes`；新增 `totalEpisodes(tvId, season, info)`：指定季度取该季集号去重数量，否则取「最新集所在那一季」的集数（TMDB 的 `episode_number` 是季内编号，用全剧总数比会永远对不上）
+- `TaskRunner.resolveTmdb` 回 `TmdbLatest(latestEpisode, weekdays, totalEpisodes)`，日志多打印 `total=`
+- `SnapshotEntity` 新增 `tmdbTotal` 字段 + `STATUS_FINISHED` 常量；库版本 6 → 7（`MIGRATION_6_7` 只加一列，老快照默认 0）
+- `SnapshotCalc` 三态判断与缺集数改写为「按去重集号数量」比较：中间缺一集、最大号已到总数也不算收齐；盘里超前（重复/特辑）仍算「最新了」，不报负数
+- 卡片：徽标 `转存完 / 最新了 / 缺 N 集 / 未同步`；进度条分母改用总集数（无总数时退回最新集）
+- 任务状态一律不动：不自动停用、不弹窗，完全由用户看标识决定
+
+**验证**
+
+- 单测 `SnapshotCalcTest` 重写为 7 例（缺 1 集、追平、到达总数、超前、未绑定、只有总数、整条快照），84 项全绿
+- 真机 `debugRunAll` 日志：`tv=307106 latest=12 total=12`、`tv=259785 latest=48 total=48`
+- 真机截图 `docs/home20.png`：两卡均显示「转存完」（12/12、48/48 都到齐）

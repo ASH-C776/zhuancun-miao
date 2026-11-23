@@ -16,9 +16,11 @@ data class SnapshotEntity(
     val localLastEpisode: Int = 0,
     /** TMDB 最新已播集号；未绑定 TMDB 时为 0 */
     val tmdbLatest: Int = 0,
-    /** 缺集数 = tmdbLatest - localLastEpisode，负数归零 */
+    /** 缺集数 = tmdbLatest - localEpisodes，负数归零 */
     val missing: Int = 0,
-    /** UP_TO_DATE / BEHIND / UNKNOWN */
+    /** TMDB 的总集数（指定了季度就取该季集数，否则全剧）；0 = 未知 */
+    val tmdbTotal: Int = 0,
+    /** UP_TO_DATE / BEHIND / FINISHED / UNKNOWN */
     val status: String = STATUS_UNKNOWN,
     /** 快照时间（卡片「11/21 22:02」的来源） */
     val lastSyncAt: Long = 0,
@@ -35,6 +37,8 @@ data class SnapshotEntity(
     companion object {
         const val STATUS_UP_TO_DATE: String = "UP_TO_DATE"
         const val STATUS_BEHIND: String = "BEHIND"
+        /** 全集都到齐了（总集数已满）：这部剧没得补，用户可自行删任务 */
+        const val STATUS_FINISHED: String = "FINISHED"
         const val STATUS_UNKNOWN: String = "UNKNOWN"
     }
 }

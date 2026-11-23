@@ -76,6 +76,7 @@ class TaskRepository(private val db: AppDatabase) {
         localEpisodes: Int,
         localLastEpisode: Int,
         tmdbLatest: Int,
+        tmdbTotal: Int = 0,
         errorMessage: String = "",
         /** false = 「运行一次」的试跑：只写运行日志，不动任务快照 */
         saveSnapshot: Boolean = true,
@@ -97,6 +98,7 @@ class TaskRepository(private val db: AppDatabase) {
                     localEpisodes = localEpisodes,
                     localLastEpisode = localLastEpisode,
                     tmdbLatest = tmdbLatest,
+                    tmdbTotal = tmdbTotal,
                     now = now,
                     message = msg,
                 ).copy(lastOk = true)
