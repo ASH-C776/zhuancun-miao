@@ -65,12 +65,39 @@ class TmdbClient(
             ?: throw IllegalStateException("TMDB 返回内容异常")
     }
 
+    /**
+     * 按剧名搜索（新建任务时选剧用）。
+     *
+     * `/3/search/tv` 的返回按相关度排序，同名的中/英/日文标题会混在一起，
+     * 这里把「名称、原始名称、首播年份、季数、简介前 60 字」一并给出去，
+     * 让用户自己按年份区分（翻拍剧同名的很常见）。
+     */
+    suspend fun searchTv(query: String, language: String = "zh-CN"): Result<List<TmdbSearchItem>> = runCatching {
+        val q = query.trim()
+        if (q.isBlank()) throw IllegalArgumentException("请输入剧名")
+        val body = get("/3/search/tv", language, extra = "&query=${enc(q)}")
+        val arr = body.getAsJsonArray("results") ?: return@runCatching emptyList()
+        arr.mapNotNull { el ->
+            el.takeIf { it.isJsonObject }?.asJsonObject?.let { obj ->
+                val id = obj.get("id")?.takeIf { it.isJsonPrimitive }?.asLong ?: return@mapNotNull null
+                TmdbSearchItem(
+                    id = id,
+                    name = obj.get("name")?.asString.orEmpty(),
+                    originalName = obj.get("original_name")?.asString.orEmpty(),
+                    firstAirDate = obj.get("first_air_date")?.asString.orEmpty(),
+                    seasons = obj.get("number_of_seasons")?.takeIf { it.isJsonPrimitive }?.asInt ?: 0,
+                    overview = obj.get("overview")?.asString.orEmpty(),
+                )
+            }
+        }.take(20)
+    }
+
     // ---------------- 内部 --------------
 
-    private suspend fun get(path: String, language: String): JsonObject = kotlinx.coroutines.withContext(
+    private suspend fun get(path: String, language: String, extra: String = ""): JsonObject = kotlinx.coroutines.withContext(
         kotlinx.coroutines.Dispatchers.IO
     ) {
-        val url = StringBuilder("$root$path?language=${enc(language)}")
+        val url = StringBuilder("$root$path?language=${enc(language)}$extra")
         val builder = Request.Builder().url(url.toString()).get()
         if (isBearer) {
             builder.header("Authorization", "Bearer ${credential.trim()}")
@@ -108,9 +135,24 @@ class TmdbClient(
     private fun enc(s: String): String = URLEncoder.encode(s, "UTF-8")
 }
 
+/** 搜索结果里的一条剧（新建任务时给用户挑） */
+data class TmdbSearchItem(
+    val id: Long,
+    val name: String,
+    val originalName: String,
+    val firstAirDate: String,
+    val seasons: Int,
+    val overview: String,
+) {
+    /** 首播年份，取不到就是空串 */
+    val year: String get() = firstAirDate.take(4).takeIf { it.length == 4 } ?: ""
+
+    /** 列表主标题：中文名 + 年份，方便区分同名翻拍 */
+    fun title(): String = if (year.isNotBlank()) "$name ($year)" else name
+}
+
 /** 一条集信息（season/episode/播出日期 yyyy-MM-dd） */
-data class TmdbEpisode(
-    val season: Int,
+data class TmdbEpisode(    val season: Int,
     val episode: Int,
     val airDate: String?,
 )

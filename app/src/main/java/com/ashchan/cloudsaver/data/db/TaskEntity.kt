@@ -48,6 +48,15 @@ data class TaskEntity(
     val weekdays: String = "",
     /** 播出时刻 HH:mm，可选；填了才进精确唤醒计划 */
     val airTime: String = "",
+    /**
+     * 命名规则 key（来自 [com.ashchan.cloudsaver.storage.RuleStore]）。
+     * - 空串 = 不改名（保持分享里的原文件名）
+     * - 其它 = 执行时只用这一条规则算改名映射
+     *
+     * 之所以按任务存单条规则而不是全局开关：同一部剧在不同盘里命名风格经常不同，
+     * 一部用「SxxExx」、另一部要「剧名.SxxEyy」，全局开关做不到。
+     */
+    val ruleKey: String = "",
     val enabled: Boolean = true,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),

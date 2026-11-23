@@ -2,12 +2,22 @@ package com.ashchan.cloudsaver.ui.tasks
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.ashchan.cloudsaver.core.adapter.CloudAdapterFactory
+import com.ashchan.cloudsaver.core.model.DriveFile
+import com.ashchan.cloudsaver.core.model.DriveType
+import com.ashchan.cloudsaver.core.model.NaturalOrder
+import com.ashchan.cloudsaver.core.model.RenameRule
+import com.ashchan.cloudsaver.core.tmdb.TmdbClient
+import com.ashchan.cloudsaver.core.tmdb.TmdbSearchItem
 import com.ashchan.cloudsaver.data.TaskCard
 import com.ashchan.cloudsaver.data.TaskDraftParser
 import com.ashchan.cloudsaver.data.TaskRepository
 import com.ashchan.cloudsaver.data.Weekdays
 import com.ashchan.cloudsaver.data.db.RunRecordEntity
 import com.ashchan.cloudsaver.data.db.TaskEntity
+import com.ashchan.cloudsaver.storage.CredentialStore
+import com.ashchan.cloudsaver.storage.RuleStore
+import com.ashchan.cloudsaver.storage.TmdbStore
 import com.ashchan.cloudsaver.transfer.TaskRunner
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -28,6 +38,9 @@ import kotlinx.coroutines.launch
 class TasksViewModel(
     private val repo: TaskRepository,
     private val runner: TaskRunner,
+    private val credentials: CredentialStore? = null,
+    private val ruleStore: RuleStore? = null,
+    private val tmdbStore: TmdbStore? = null,
 ) : ViewModel() {
 
     val cards: StateFlow<List<TaskCard>> = repo.observeCards()
@@ -60,9 +73,10 @@ class TasksViewModel(
         _toast.value = null
     }
 
-    /**
-     * 新建任务。链接解析全部本地完成，不联网；保存后立刻跑一次，
-     * 把「盘里已有多少集」先填上（对应弹窗里那句提示）。
+    /** 新建任务。
+     *
+     * 链接解析全部本地完成，不联网；网盘类型允许被用户手选覆盖（分享链接本身有时看不出平台）。
+     * 保存后立刻跑一次，把「盘里已有多少集」先填上。
      */
     fun createTask(
         name: String,
@@ -72,19 +86,22 @@ class TasksViewModel(
         airTime: String = "",
         saveFid: String = "0",
         savePathLabel: String = "网盘根目录",
+        ruleKey: String = "",
+        driveOverride: DriveType? = null,
     ) {
         val title = name.trim()
         if (title.isBlank()) {
-            _error.value = "请填写剧名"
+            _error.value = "请填写任务名称"
             return
         }
         TaskDraftParser.inspect(link)
             .onFailure { _error.value = it.message ?: "链接无法识别" }
             .onSuccess { inspect ->
+                val drive = driveOverride ?: inspect.driveType
                 viewModelScope.launch {
                     val task = TaskEntity(
                         name = title,
-                        driveType = inspect.driveType.name,
+                        driveType = drive.name,
                         shareUrl = link.trim(),
                         shareId = inspect.shareId,
                         passcode = inspect.passcode,
@@ -93,6 +110,7 @@ class TasksViewModel(
                         weekdays = Weekdays.format(Weekdays.parse(weekdays)),
                         tmdbId = tmdbIdText.trim().toLongOrNull(),
                         airTime = airTime.trim(),
+                        ruleKey = ruleKey,
                         updateMode = if (weekdays.isBlank()) {
                             TaskEntity.UPDATE_MODE_TMDB
                         } else {
@@ -109,6 +127,36 @@ class TasksViewModel(
                 }
             }
     }
+
+    /** 新建页下拉用的命名规则（已禁用的也列出来，UI 上置灰说明） */
+    fun renameRules(): List<RenameRule> = ruleStore?.loadRules() ?: emptyList()
+
+    /** 某个网盘是否已登录（新建页用来提示「先去设置里登录」） */
+    fun isLoggedIn(drive: DriveType): Boolean =
+        credentials?.loadCredential(drive)?.isNotBlank() == true
+
+    /**
+     * 列出某个网盘下的一级目录（新建页选保存路径用）。
+     * 结果按名称自然序，过滤掉非目录项。
+     */
+    suspend fun listDirs(drive: DriveType, parentFid: String): Result<List<DriveFile>> = runCatching {
+        val credential = credentials?.loadCredential(drive)?.takeIf { it.isNotBlank() }
+            ?: throw IllegalStateException("请先在设置里登录${drive.displayName}")
+        val adapter = CloudAdapterFactory.create(drive, credential)
+        adapter.listFolders(parentFid.ifBlank { "0" }).getOrThrow()
+            .sortedWith(compareBy(NaturalOrder) { it.name })
+    }
+
+    /** TMDB 搜索（新建页选剧用）。未配置凭证时直接给出可读原因 */
+    suspend fun searchTv(query: String): Result<List<TmdbSearchItem>> {
+        val store = tmdbStore ?: return Result.failure(IllegalStateException("TMDB 不可用"))
+        val credential = store.loadCredential()?.takeIf { it.isNotBlank() }
+            ?: return Result.failure(IllegalStateException("还没配置 TMDB，请先到设置页填写凭证"))
+        return TmdbClient(credential, store.loadBaseUrl()).searchTv(query)
+    }
+
+    /** 是否已配 TMDB 凭证（UI 决定搜索按钮是否可点） */
+    fun hasTmdb(): Boolean = tmdbStore?.loadCredential()?.isNotBlank() == true
 
     fun deleteTask(id: Long) {
         viewModelScope.launch {

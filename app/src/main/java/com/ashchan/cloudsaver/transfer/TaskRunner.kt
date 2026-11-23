@@ -1,7 +1,9 @@
 package com.ashchan.cloudsaver.transfer
 
+import com.ashchan.cloudsaver.core.adapter.CloudAdapterFactory
 import com.ashchan.cloudsaver.core.adapter.CloudDriveAdapter
 import com.ashchan.cloudsaver.core.model.DriveType
+import com.ashchan.cloudsaver.core.model.ShareNode
 import com.ashchan.cloudsaver.core.tmdb.TmdbClient
 import com.ashchan.cloudsaver.data.EpisodeCounter
 import com.ashchan.cloudsaver.data.SeasonParser
@@ -10,8 +12,9 @@ import com.ashchan.cloudsaver.data.Weekdays
 import com.ashchan.cloudsaver.data.db.RunRecordEntity
 import com.ashchan.cloudsaver.data.db.TaskEntity
 import com.ashchan.cloudsaver.drive.guangya.GuangYaAdapter
-import com.ashchan.cloudsaver.drive.quark.QuarkAdapter
+import com.ashchan.cloudsaver.rename.RenameEngine
 import com.ashchan.cloudsaver.storage.CredentialStore
+import com.ashchan.cloudsaver.storage.RuleStore
 import com.ashchan.cloudsaver.storage.TmdbStore
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
@@ -29,6 +32,8 @@ class TaskRunner(
     private val repo: TaskRepository,
     private val credentialStore: CredentialStore,
     private val tmdbStore: TmdbStore? = null,
+    /** 命名规则来源；为空则所有任务都不改名（与老行为一致） */
+    private val ruleStore: RuleStore? = null,
 ) {
 
     private companion object {
@@ -132,6 +137,7 @@ class TaskRunner(
         }.getOrThrow()
 
         val scope = resolveScope(task, tree)
+        val plan = buildRenamePlan(task, tree)
         val report = TreeSyncEngine(adapter).sync(
             share = resolved,
             tree = tree,
@@ -139,7 +145,7 @@ class TaskRunner(
             // destFid 已经是「剧名」目录，这里不再用任务名二次建层，
             // 让引擎沿用分享里的真实目录名（如「第 1 季 - 1080p」）
             taskName = "",
-            renamePlan = emptyMap(),
+            renamePlan = plan,
             scope = scope,
         ).getOrThrow()
 
@@ -221,6 +227,35 @@ class TaskRunner(
     private data class TmdbLatest(val latestEpisode: Int, val weekday: Int?)
 
     /**
+     * 生成改名映射（分享文件 fid → 转存时要用的新文件名）。
+     *
+     * 口径：
+     * - 任务没选规则（`ruleKey` 为空）→ 原样转存，一个文件都不改
+     * - 规则被全局禁用了 → 同样不改名（尊重设置页里的开关）
+     * - 只对视频文件算，目录名一律不动（目录名是层级结构，改了会和「保留原层级」冲突）
+     * - 新名与原名相同时不进映射，减少无意义的重命名请求
+     */
+    private fun buildRenamePlan(task: TaskEntity, tree: ShareNode): Map<String, String> {
+        val key = task.ruleKey.trim()
+        if (key.isEmpty()) return emptyMap()
+        val store = ruleStore ?: return emptyMap()
+        val rule = store.loadRules().firstOrNull { it.key == key && it.enabled } ?: return emptyMap()
+
+        val files = tree.flattenFiles().filter { it.isVideo }.map { it.file }
+        if (files.isEmpty()) return emptyMap()
+
+        val previews = RenameEngine().preview(files, listOf(rule), task.name.trim())
+        return previews
+            .mapNotNull { p ->
+                val newName = p.newName?.trim()
+                if (newName.isNullOrEmpty() || newName == p.originName) return@mapNotNull null
+                if (p.filtered) return@mapNotNull null
+                p.file.fid to newName
+            }
+            .toMap()
+    }
+
+    /**
      * 查 TMDB：最新集号 + 推断更新日。
      *
      * 口径：
@@ -241,15 +276,6 @@ class TaskRunner(
         )
     }
 
-    private fun buildAdapter(drive: DriveType, credential: String): CloudDriveAdapter = when (drive) {
-        DriveType.QUARK -> QuarkAdapter(credential)
-        DriveType.GUANGYA -> {
-            // 光鸭凭证格式 "access||refresh"
-            val parts = credential.split("||")
-            GuangYaAdapter(
-                accessToken = parts.getOrElse(0) { "" },
-                refreshToken = parts.getOrElse(1) { "" },
-            )
-        }
-    }
+    private fun buildAdapter(drive: DriveType, credential: String): CloudDriveAdapter =
+        CloudAdapterFactory.create(drive, credential)
 }

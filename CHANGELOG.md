@@ -327,3 +327,61 @@
 
 - 8 阶段 29 步全部落地；单测 74 项、12 个 suite 全绿；数据库 v3（两次迁移均在真机上验证过）
 - 累计提交见 `git log`，`dev` 分支
+
+## Stage 9 · 新建任务表单重构（2026-11-23）
+
+> 需求：新建任务改成**全屏页**（字段多，弹窗放不下）；文案全部嵌进输入框省空间；字段补齐为
+> 任务名称 / 资源链接 / 网盘 / 保存路径 / 命名规则 / TMDB（搜索选剧）/ 播出时刻（时间选择器）。
+
+**发现的问题：字段不全 + 改名链路是断的**
+
+| 字段 | 数据层 | 旧弹窗 | 结论 |
+| --- | --- | --- | --- |
+| 名称 / 链接 | 有 | 有 | 正常 |
+| 网盘 `driveType` | 有 | 无（按链接自动识别，不可改） | 补手动选择 |
+| 保存路径 `saveFid` | 有 | 无（写死 `"0"` 根目录） | 补目录选择 |
+| 命名规则 | **没有字段** | 无 | 新增 `ruleKey` |
+| TMDB | `tmdbId` | 只能手填数字 | 补搜索 |
+| 播出时刻 | `airTime` | 只能手填文本 | 改时间选择器 |
+
+更严重的是：`RenameEngine` 能算改名映射、`TreeSyncEngine` 也收 `renamePlan`，但 `TaskRunner` 里写死
+`renamePlan = emptyMap()` —— **规则配了也不会生效，整条改名链是断的**。
+
+**9.1 全屏新建页（✅）**
+
+- 新增 `ui/tasks/NewTaskScreen.kt` + `Screen.NEW_TASK`；列表页 FAB、空态按钮都跳这里，旧 `NewTaskDialog` 整段删除。
+- 所有说明文案下沉到 `placeholder`（不再用 `label` 占一行）；名称框单行、链接框 2 行，一屏能同时看到「更新日」。
+- 字段顺序：剧名 → 链接 → 网盘 chip → 保存路径 → 命名规则 → TMDB → 更新日 → 播出时刻。
+- 二级弹层：目录浏览（逐层下钻 + 面包屑 + 上级）、规则单选、TMDB 搜索、时间选择器（`TimePicker`，24 小时制）。
+
+**9.2 四个新能力（✅）**
+
+1. `TmdbClient.searchTv(query)` → `/3/search/tv`，返回 `TmdbSearchItem`（名称 / 原名 / 首播年份 / 季数 / 简介前 60 字），列表按「中文名 + 年份」展示，同名翻拍能区分。
+2. `CloudAdapterFactory`：把「按网盘类型造适配器」从 `TaskRunner` 私有方法提成公共对象，新建页列目录与执行转存共用一份凭证拆分逻辑。
+3. `TasksViewModel.listDirs / searchTv / isLoggedIn / hasTmdb / renameRules`：目录列举按当前选中的网盘实时拉取（不依赖旧 `FolderPickerScreen`）。
+4. `TaskEntity.ruleKey` + 数据库 3 → 4（`MIGRATION_3_4`：`ALTER TABLE tasks ADD COLUMN ruleKey TEXT NOT NULL DEFAULT ''`）。
+
+**9.3 改名链路接通（✅）**
+
+- `TaskRunner` 注入 `RuleStore`，新增 `buildRenamePlan(task, tree)`：
+  - `ruleKey` 为空 → 不改名（与老行为一致，老任务升级后不受影响）
+  - 规则在设置页被禁用 → 也不改名
+  - 只对视频文件算，目录名不动（目录名是层级结构，改了会与「保留原层级」冲突）
+  - 新名与原名相同的条目跳过，减少无意义的重命名请求
+
+**9.4 未确认点的默认处理**
+
+用户当时没在线，四项按最稳妥方式落地，后面可一句话改回：
+
+| 点 | 采用 | 理由 |
+| --- | --- | --- |
+| 命名规则 | 单选一套（含「不改名」） | 同名剧在不同盘里命名风格常不同，全局开关做不到 |
+| 网盘 | 手动选择优先，链接识别只做预填 | 链接本身有时看不出平台 |
+| TMDB 未配置 | 搜索按钮置灰 + 提示去设置，并保留「改为手填 ID」兜底 | 不让人以为「搜不到剧」 |
+| 目标季 `seasonFid` | 本轮不进表单 | 表单已 8 个字段，季选择单独做更清楚 |
+
+**验收**
+
+- `:app:assembleDebug` 通过，单测 74 项仍全绿（`searchTv` 解析未加单测，需要网络，靠真机验证）
+- 真机（Xiaomi Civi 3 / USB）安装后：`am start --ez openNewTask true` 直达新页，截图 `docs/newtask-full.png`
+- 数据库 v4 迁移未在真机上单独校验（本轮装机时 App 已从 v3 库启动成功，无 migration 报错）

@@ -79,6 +79,7 @@ fun TaskListScreen(
     viewModel: TasksViewModel,
     onOpenSettings: () -> Unit,
     onOpenHistory: () -> Unit,
+    onOpenNewTask: () -> Unit = {},
     startWithNewTaskDialog: Boolean = false,
 ) {
     val cards by viewModel.cards.collectAsStateWithLifecycle()
@@ -87,11 +88,15 @@ fun TaskListScreen(
     val running by viewModel.running.collectAsStateWithLifecycle()
     val progress by viewModel.progress.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
-    var showNewDialog by remember { mutableStateOf(startWithNewTaskDialog) }
     var pendingDelete by remember { mutableStateOf<TaskEntity?>(null) }
 
     // 打开 App 自动同步一轮（每个 ViewModel 生命周期一次）
     LaunchedEffect(Unit) { viewModel.syncOnStartOnce() }
+
+    // 调试/外部分享入口仍可直达新建页（openNewTask extra）
+    LaunchedEffect(startWithNewTaskDialog) {
+        if (startWithNewTaskDialog) onOpenNewTask()
+    }
 
     LaunchedEffect(toast) {
         toast?.let {
@@ -125,7 +130,7 @@ fun TaskListScreen(
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(
-                onClick = { showNewDialog = true },
+                onClick = onOpenNewTask,
                 icon = { Icon(Icons.Filled.Add, contentDescription = null) },
                 text = { Text("新建任务") },
             )
@@ -183,7 +188,7 @@ fun TaskListScreen(
             }
 
             if (cards.isEmpty()) {
-                EmptyTasks(modifier = Modifier.fillMaxSize()) { showNewDialog = true }
+                EmptyTasks(modifier = Modifier.fillMaxSize(), onAdd = onOpenNewTask)
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
@@ -202,16 +207,6 @@ fun TaskListScreen(
                 }
             }
         }
-    }
-
-    if (showNewDialog) {
-        NewTaskDialog(
-            onDismiss = { showNewDialog = false },
-            onSave = { name, link, weekdays, tmdbId, airTime ->
-                viewModel.createTask(name, link, weekdays, tmdbId, airTime = airTime)
-                showNewDialog = false
-            },
-        )
     }
 
     pendingDelete?.let { task ->
@@ -461,112 +456,6 @@ private fun EmptyTasks(modifier: Modifier = Modifier, onAdd: () -> Unit) {
         Spacer(Modifier.height(16.dp))
         OutlinedButton(onClick = onAdd) { Text("新建第一个任务") }
     }
-}
-
-// ---------------- 新建任务 ----------------
-
-@Composable
-private fun NewTaskDialog(
-    onDismiss: () -> Unit,
-    onSave: (name: String, link: String, weekdays: String, tmdbId: String, airTime: String) -> Unit,
-) {
-    var name by remember { mutableStateOf("") }
-    var link by remember { mutableStateOf("") }
-    var tmdbId by remember { mutableStateOf("") }
-    var airTime by remember { mutableStateOf("") }
-    var selected by remember { mutableStateOf(setOf<Int>()) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("新建追剧任务") },
-        text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("剧名") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                OutlinedTextField(
-                    value = link,
-                    onValueChange = { link = it },
-                    label = { Text("分享链接") },
-                    placeholder = { Text("夸克 / 光鸭分享链接，可带提取码") },
-                    minLines = 2,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-
-                Text(
-                    text = "更新日",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
-                // 7 个按钮分两行排，窄屏 Dialog 里一行放不下会裁掉周六周日
-                listOf(1..4, 5..7).forEach { range ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        range.forEach { day ->
-                            FilterChip(
-                                selected = day in selected,
-                                onClick = {
-                                    selected = if (day in selected) selected - day else selected + day
-                                },
-                                label = {
-                                    Text(
-                                        text = Weekdays.nameOf(day).removePrefix("周"),
-                                        style = MaterialTheme.typography.labelSmall,
-                                    )
-                                },
-                            )
-                        }
-                    }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextButton(onClick = { selected = Weekdays.everyDay() }) { Text("每天") }
-                    TextButton(onClick = { selected = Weekdays.workdays() }) { Text("工作日 1-5") }
-                    TextButton(onClick = { selected = emptySet() }) { Text("清空") }
-                }
-
-                OutlinedTextField(
-                    value = tmdbId,
-                    onValueChange = { tmdbId = it },
-                    label = { Text("TMDB ID（可选）") },
-                    supportingText = { Text("填了会自动判断最新集与更新日") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-
-                OutlinedTextField(
-                    value = airTime,
-                    onValueChange = { airTime = it },
-                    label = { Text("播出时刻（可选）") },
-                    placeholder = { Text("例如 18:00，只用于提醒，暂不影响同步") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-
-                Text(
-                    text = "保存后会先自动扫描一次，确认盘里已有多少集。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = {
-                    onSave(name, link, Weekdays.format(selected), tmdbId, airTime)
-                },
-                enabled = name.isNotBlank() && link.isNotBlank(),
-            ) { Text("保存") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
-        },
-    )
 }
 
 // ---------------- 小工具 ----------------

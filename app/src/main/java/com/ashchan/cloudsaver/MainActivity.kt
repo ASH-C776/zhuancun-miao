@@ -55,9 +55,14 @@ class MainActivity : ComponentActivity() {
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 val repo = TaskRepository(AppDatabase.get(applicationContext))
                 val credentials = CredentialStore(applicationContext)
+                val rules = RuleStore(applicationContext)
+                val tmdb = TmdbStore(applicationContext)
                 return TasksViewModel(
-                    repo,
-                    TaskRunner(repo, credentials, TmdbStore(applicationContext)),
+                    repo = repo,
+                    runner = TaskRunner(repo, credentials, tmdb, rules),
+                    credentials = credentials,
+                    ruleStore = rules,
+                    tmdbStore = tmdb,
                 ) as T
             }
         }
