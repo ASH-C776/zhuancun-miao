@@ -1,11 +1,14 @@
 package com.ashchan.cloudsaver.ui.tasks
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -28,7 +31,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DateRange
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.PlayArrow
@@ -66,13 +68,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.painterResource
 import com.ashchan.cloudsaver.R
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.TextRange
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -99,6 +105,8 @@ fun NewTaskScreen(
     editingTask: TaskEntity? = null,
     /** 调试用：进页直接弹「保存位置」全屏选择（截屏验收沉浸效果） */
     openPathPickerOnStart: Boolean = false,
+    /** 调试用：进页就摊开 N 行空链接（截屏验收多源排版），1 = 单行 */
+    startSourceRows: Int = 1,
     onSelectTab: (com.ashchan.cloudsaver.ui.MainTab) -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
@@ -107,9 +115,15 @@ fun NewTaskScreen(
     var name by remember { mutableStateOf(editingTask?.name ?: "") }
     // 多源：第 1 行是默认链接（右端「+」追加），第 2~5 行是附加源（右端「−」删除）
     // 每行带稳定 id，删中间行时不会串内容
-    var nextSlotId by remember { mutableStateOf(0L) }
+    var nextSlotId by remember { mutableStateOf(startSourceRows.coerceIn(1, MAX_SOURCES).toLong()) }
     val slots = remember {
-        mutableStateListOf(LinkSlot(id = 0L, text = editingTask?.shareUrl ?: ""))
+        mutableStateListOf<LinkSlot>().apply {
+            // 新建默认 1 行；编辑时先用任务里的主链接占位，多源由下面的 LaunchedEffect 回填
+            add(LinkSlot(id = 0L, text = editingTask?.shareUrl ?: ""))
+            repeat((startSourceRows - 1).coerceIn(0, MAX_SOURCES - 1)) { i ->
+                add(LinkSlot(id = i + 1L, text = ""))
+            }
+        }
     }
     var drive by remember {
         mutableStateOf(editingTask?.let { DriveType.fromName(it.driveType) })
@@ -317,26 +331,32 @@ fun NewTaskScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            // 任务名称：右侧直接搜 TMDB（按当前输入的名字去搜，选中就绑上）
-            OutlinedTextField(
-                value = name,
-                onValueChange = {
-                    name = it
-                    error = null
-                },
-                placeholder = { Text("任务名称") },
-                singleLine = true,
-                trailingIcon = {
-                    IconButton(
-                        onClick = {
-                            if (viewModel.hasTmdb()) showTmdbSearch = true else showTmdbHint = true
-                        },
-                    ) {
-                        Icon(Icons.Default.Search, contentDescription = "搜索剧集")
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-            )
+            // 任务名称：左边输入，右边一个独立方块按钮（放大镜）——与下面链接行的按钮同一条竖线
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CompactStringField(
+                    value = name,
+                    onValueChange = {
+                        name = it
+                        error = null
+                    },
+                    placeholder = "任务名称",
+                    modifier = Modifier.weight(1f),
+                )
+                Spacer(Modifier.width(8.dp))
+                SquareActionButton(
+                    contentDescription = "搜索剧集",
+                    onClick = {
+                        if (viewModel.hasTmdb()) showTmdbSearch = true else showTmdbHint = true
+                    },
+                ) {
+                    Icon(
+                        Icons.Default.Search,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
             if (tmdbId.isNotBlank()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -354,58 +374,60 @@ fun NewTaskScreen(
                 }
             }
 
-            // 多源链接：第 1 行右端是「+」（末尾追加一行），第 2~5 行右端是「−」（删掉这一行）
-            // 一个任务只有一套规则，所以这里只有「多几个链接入口」，没有其它按源的设置
+            // 多源链接：所有行左边缘/右边缘/等宽，右侧一列独立方块按钮（第 1 行「+」，其余行「−」）
+            // 行与行靠 placeholder 区分，不再放「源N」序号；一个任务只有一套规则
             slots.forEachIndexed { index, slot ->
                 val rowError = slotError(index, slot.text)
                 Column(Modifier.fillMaxWidth()) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (index > 0) {
-                            Text(
-                                "源${index + 1}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.width(32.dp),
-                            )
-                        }
-                        OutlinedTextField(
+                        CompactValueField(
                             value = TextFieldValue(slot.text, selection = slot.selection),
                             onValueChange = { value ->
                                 slots[index] = slot.copy(text = value.text, selection = value.selection)
                                 error = null
                             },
-                            placeholder = { Text(if (index == 0) "分享链接" else "附加源链接") },
-                            singleLine = true,
+                            placeholder = if (index == 0) "分享链接" else "附加源链接",
                             isError = rowError != null,
-                            modifier = Modifier
-                                .weight(1f)
-                                // 失焦后光标回到开头，这样长链接默认显示的是前段，而不是尾部
-                                .onFocusChanged {
-                                    if (!it.isFocused) {
-                                        slots[index] = slots[index].copy(selection = TextRange(0))
-                                    }
-                                },
+                            modifier = Modifier.weight(1f),
+                            // 失焦后光标回到开头，这样长链接默认显示的是前段，而不是尾部
+                            onBlur = {
+                                slots[index] = slots[index].copy(selection = TextRange(0))
+                            },
                         )
+                        Spacer(Modifier.width(8.dp))
                         if (index == 0) {
-                            IconButton(
+                            SquareActionButton(
+                                contentDescription = "添加源",
+                                enabled = slots.size < MAX_SOURCES,
                                 onClick = {
                                     if (slots.size < MAX_SOURCES) {
                                         slots += LinkSlot(id = nextSlotId++, text = "")
                                     }
                                     error = null
                                 },
-                                enabled = slots.size < MAX_SOURCES,
                             ) {
-                                Icon(Icons.Default.Add, contentDescription = "添加源")
+                                Icon(
+                                    Icons.Default.Add,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp),
+                                )
                             }
                         } else {
-                            IconButton(
+                            SquareActionButton(
+                                contentDescription = "删除这一行",
                                 onClick = {
                                     slots.removeAt(index)
                                     error = null
                                 },
                             ) {
-                                Icon(Icons.Default.Delete, contentDescription = "删除这一行")
+                                // 没有 Material 的减号图标（core 包只有 Add/Delete），用等宽的半角减号字符，
+                                // 与「+」的线宽、粗细看起来一致
+                                Text(
+                                    "−",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                             }
                         }
                     }
@@ -414,7 +436,7 @@ fun NewTaskScreen(
                             it,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.padding(start = if (index > 0) 32.dp else 0.dp, top = 4.dp),
+                            modifier = Modifier.padding(top = 4.dp),
                         )
                     }
                 }
@@ -680,6 +702,15 @@ private enum class SubmitMode { SAVE, RUN }
 /** 一个任务最多几个分享链接（用户口径：5 个以内，硬限制） */
 private const val MAX_SOURCES = 5
 
+/**
+ * 输入框与右侧方块按钮的统一高度。
+ *
+ * 设计逻辑：文字是 16sp（bodyLarge），56dp 的默认框高会让文字上下各空 20dp，看起来「框大、字小」；
+ * 收到 48dp 后上下各 16dp，文字既不挤又有呼吸感，且正好和 48dp 的按钮同高，
+ * 一行是「框 + 按钮」而不是「大框挂小扣子」。48dp 同时是规范里的最小可点尺寸。
+ */
+private val ROW_HEIGHT = 48.dp
+
 /** 链接行：带稳定 id，删中间行不会串内容；selection 用来让长链接默认露前段 */
 private data class LinkSlot(
     val id: Long,
@@ -696,6 +727,145 @@ private fun SectionLabel(text: String) {
         style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
+}
+
+/**
+ * 紧凑输入框（文字版）：48dp 高、12dp 圆角、1dp 描边，文字垂直居中。
+ *
+ * 为什么不用 OutlinedTextField：它内部有 56dp 的最小高度和上下各 16dp 的内边距，
+ * 硬压到 48dp 会把文字上下切掉（真机截图上「任务名称」顶部被裁）。
+ * 这里改用 BasicTextField + 自绘边框，高度完全由我们说了算，文字自然居中不裁。
+ */
+@Composable
+private fun CompactStringField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+) {
+    var focused by remember { mutableStateOf(false) }
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        singleLine = true,
+        textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+        modifier = modifier
+            .height(ROW_HEIGHT)
+            .onFocusChanged { focused = it.isFocused },
+        decorationBox = { inner ->
+            Row(
+                Modifier
+                    .fillMaxSize()
+                    .border(
+                        width = if (focused) 2.dp else 1.dp,
+                        color = if (focused) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                    )
+                    .padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.weight(1f)) {
+                    if (value.isEmpty()) {
+                        Text(
+                            placeholder,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                        )
+                    }
+                    inner()
+                }
+            }
+        },
+    )
+}
+
+/** 紧凑输入框（TextFieldValue 版）：链接行要用光标位置控制「露哪一段」，所以保留 selection */
+@Composable
+private fun CompactValueField(
+    value: TextFieldValue,
+    onValueChange: (TextFieldValue) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+    isError: Boolean = false,
+    onBlur: () -> Unit = {},
+) {
+    var focused by remember { mutableStateOf(false) }
+    val borderColor = when {
+        isError -> MaterialTheme.colorScheme.error
+        focused -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
+    }
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        singleLine = true,
+        textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+        modifier = modifier
+            .height(ROW_HEIGHT)
+            .onFocusChanged {
+                focused = it.isFocused
+                if (!it.isFocused) onBlur()
+            },
+        decorationBox = { inner ->
+            Row(
+                Modifier
+                    .fillMaxSize()
+                    .border(
+                        width = if (focused && !isError) 2.dp else 1.dp,
+                        color = borderColor,
+                        shape = RoundedCornerShape(12.dp),
+                    )
+                    .padding(horizontal = 16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.weight(1f)) {
+                    if (value.text.isEmpty()) {
+                        Text(
+                            placeholder,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                        )
+                    }
+                    inner()
+                }
+            }
+        },
+    )
+}
+
+/**
+ * 输入框右侧的独立方块按钮（48dp，圆角 12，1dp 描边，图标 20dp）。
+ *
+ * 口径：从输入框里拆出来单独成一列，任务名「搜索」与链接行「加 / 减」用同一规格，
+ * 这样右侧是一列齐整的方块，而不是有的挂在框里、有的是实心图标。
+ */
+@Composable
+private fun SquareActionButton(
+    contentDescription: String,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    OutlinedButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier
+            .size(ROW_HEIGHT)
+            .semantics { this.contentDescription = contentDescription },
+        shape = RoundedCornerShape(12.dp),
+        contentPadding = PaddingValues(0.dp),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        content()
+    }
 }
 
 /** 一行可点的设置项，用来省掉输入框的 label 行 */

@@ -207,6 +207,11 @@ fun AppRoot(
                 (ctx as? android.app.Activity)
                     ?.intent?.getBooleanExtra("openPathPicker", false) == true
             }
+            // 调试用：adb --es sourceRows 3 进新建页就摊开 3 行空链接（截屏验收多源排版）
+            val debugRows = remember(ctx) {
+                (ctx as? android.app.Activity)
+                    ?.intent?.getIntExtra("sourceRows", 1) ?: 1
+            }
             com.ashchan.cloudsaver.ui.tasks.NewTaskScreen(
                 viewModel = tasksViewModel,
                 onDone = {
@@ -215,6 +220,7 @@ fun AppRoot(
                 },
                 editingTask = editingTask,
                 openPathPickerOnStart = autoPathPicker,
+                startSourceRows = debugRows,
                 onSelectTab = { goTab(it) },
             )
         }
