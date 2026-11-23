@@ -105,6 +105,10 @@ class MainActivity : ComponentActivity() {
         if (intent?.getBooleanExtra("openRunLog", false) == true) {
             viewModel.go(com.ashchan.cloudsaver.ui.Screen.RUNLOG)
         }
+        // 调试/联调用：adb ... --ez openSettings true 直接进「设置」页
+        if (intent?.getBooleanExtra("openSettings", false) == true) {
+            viewModel.go(com.ashchan.cloudsaver.ui.Screen.SETTINGS)
+        }
         // 调试/联调用：adb ... --es debugTmdbPing KEY [--es debugTmdbBase 地址] 只做一次 TMDB 探活
         intent?.getStringExtra("debugTmdbPing")?.takeIf { it.isNotBlank() }?.let { key ->
             val base = intent?.getStringExtra("debugTmdbBase") ?: "https://api.themoviedb.org"

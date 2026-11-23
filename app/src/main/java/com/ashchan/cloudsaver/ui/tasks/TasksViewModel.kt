@@ -72,6 +72,15 @@ class TasksViewModel(
         _toast.value = null
     }
 
+    /** 清空运行日志（日志页右上角按钮用，只删记录，不动任务与快照） */
+    fun clearRuns() {
+        viewModelScope.launch {
+            runCatching { repo.clearRuns() }
+                .onSuccess { _toast.value = "已清空运行日志" }
+                .onFailure { _toast.value = "清空失败：${it.message ?: "未知错误"}" }
+        }
+    }
+
     /** 新建任务。
      *
      * 链接解析全部本地完成，不联网；网盘类型允许被用户手选覆盖（分享链接本身有时看不出平台）。

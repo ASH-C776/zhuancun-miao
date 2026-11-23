@@ -29,6 +29,15 @@ import com.ashchan.cloudsaver.storage.TmdbStore
 import kotlinx.coroutines.launch
 
 /**
+ * 凭证脱敏：前 9 位可见，其余星号遮蔽（最多 12 个星），仅界面展示、存储保持原样。
+ * 与设置页 Refresh Token / Cookie 用的是同一口径。
+ */
+private fun maskSecret(raw: String): String {
+    if (raw.length <= 9) return raw
+    return raw.take(9) + "*".repeat(minOf(raw.length - 9, 12))
+}
+
+/**
  * 设置页「TMDB」区块（可选功能）。
  *
  * 只做三件事：保存凭证、验证能不能用、清除。
@@ -50,24 +59,18 @@ fun TmdbCredentialSection() {
 
     Column(Modifier.fillMaxWidth()) {
         Text("TMDB（可选）", style = MaterialTheme.typography.titleMedium)
-        Spacer(Modifier.height(4.dp))
-        Text(
-            "填 API Key 或 Read Access Token，用于计算「最新集」和自动推断周几更新。" +
-                "不填也能转存，只是卡片显示「未绑定 TMDB」。",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
         Spacer(Modifier.height(8.dp))
         OutlinedTextField(
-            value = input,
+            // 已保存的凭证只露前 9 位，其余用星号遮蔽（与 Refresh Token / Cookie 一致的脱敏口径）
+            value = if (saved) maskSecret(input) else input,
             onValueChange = {
                 input = it
                 message = null
-                if (saved && it != store.loadCredential()) saved = false
             },
-            label = { Text("API Key / Read Access Token") },
+            label = { Text("API Key") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
+            readOnly = saved,
         )
         Spacer(Modifier.height(8.dp))
         OutlinedTextField(
@@ -76,11 +79,8 @@ fun TmdbCredentialSection() {
                 baseUrl = it
                 message = null
             },
-            label = { Text("接口地址（默认 api.tmdb.org，国内可直连）") },
+            label = { Text("接口地址") },
             placeholder = { Text(TmdbStore.DEFAULT_BASE_URL) },
-            supportingText = {
-                Text("官方 api.themoviedb.org 在国内被 DNS 污染会超时，默认已改用等价的 api.tmdb.org；有反代/镜像再填这里，末尾不要带 /")
-            },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
         )

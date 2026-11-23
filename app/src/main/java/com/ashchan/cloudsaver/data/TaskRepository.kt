@@ -39,6 +39,9 @@ class TaskRepository(private val db: AppDatabase) {
 
     fun observeRecentRuns(limit: Int = 30): Flow<List<RunRecordEntity>> = runDao.observeRecent(limit)
 
+    /** 清空运行日志 */
+    suspend fun clearRuns() = runDao.clearAll()
+
     suspend fun tasks(): List<TaskEntity> = taskDao.getAll()
 
     suspend fun enabledTasks(): List<TaskEntity> = taskDao.getEnabled()

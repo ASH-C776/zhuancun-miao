@@ -501,3 +501,9 @@
 - 新增单测 `TmdbWeekdayInferenceTest`（7 例：单日、两天、三天、天天播、样本过少、改档、空样本），全绿
 - 真机日志：`tv=307106 weekdays=[1, 2]`（恋爱博士 周一+周二）、`tv=259785 weekdays=[1, 2, 3, 4, 5, 6, 7]`（鉴定 每日更新，与优酷「每天更 4 集」一致）
 - 现有两条任务是 MANUAL 模式（早前手点过星期），不会自动覆盖；编辑页点「按 TMDB 重算」再保存即可更新
+### Stage 16 · 日志可清除 + TMDB 凭证脱敏 + 去掉小字（2026-11-23）
+
+- 运行日志右上角加「清除」垃圾桶图标（有记录才显示），点了先弹确认「共 N 条记录会被删除，任务和集数进度不受影响」；`RunRecordDao.clearAll()` → `TaskRepository.clearRuns()` → `TasksViewModel.clearRuns()`，只删 run_records 表
+- TMDB 凭证脱敏：保存并验证通过后输入框变只读，显示「前 9 位 + 星号」，与设置页 Refresh Token / Cookie 同一口径（星号最多 12 个，不泄露原长度）；点「清除」后可重新填写
+- 去掉 TMDB 区块的小字说明：「填 API Key 或 Read Access Token…」「官方 api.themoviedb.org 在国内被 DNS 污染…」supportingText、label 后缀「（默认 api.tmdb.org，国内可直连）」全部删除，label 简化为「API Key」「接口地址」
+- 新增调试入口 `--ez openSettings true` 直接进设置页（截图验收用）

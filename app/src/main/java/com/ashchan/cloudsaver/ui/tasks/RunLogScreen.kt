@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -61,6 +62,7 @@ fun RunLogScreen(
 ) {
     val runs by viewModel.recentRuns.collectAsStateWithLifecycle()
     val formatter = remember { SimpleDateFormat("MM-dd HH:mm", Locale.CHINA) }
+    var confirmClear by remember { mutableStateOf(false) }
     BackHandler { onBack() }
 
     Scaffold(
@@ -72,12 +74,35 @@ fun RunLogScreen(
                         Icon(Icons.Default.ArrowBack, contentDescription = "返回")
                     }
                 },
+                actions = {
+                    if (runs.isNotEmpty()) {
+                        IconButton(onClick = { confirmClear = true }) {
+                            Icon(Icons.Default.Delete, contentDescription = "清除日志")
+                        }
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                 ),
             )
         },
     ) { padding ->
+        if (confirmClear) {
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { confirmClear = false },
+                title = { Text("清除全部运行日志？") },
+                text = { Text("共 ${runs.size} 条记录会被删除，任务和集数进度不受影响。") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        confirmClear = false
+                        viewModel.clearRuns()
+                    }) { Text("清除", color = MaterialTheme.colorScheme.error) }
+                },
+                dismissButton = {
+                    TextButton(onClick = { confirmClear = false }) { Text("取消") }
+                },
+            )
+        }
         Column(
             Modifier
                 .fillMaxSize()

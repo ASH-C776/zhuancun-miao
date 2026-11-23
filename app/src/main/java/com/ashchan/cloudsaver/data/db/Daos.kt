@@ -69,4 +69,8 @@ interface RunRecordDao {
             "(SELECT id FROM run_records ORDER BY startedAt DESC LIMIT :keep)"
     )
     suspend fun trimTo(keep: Int = 200)
+
+    /** 清空全部运行日志（用户在日志页手动清除） */
+    @Query("DELETE FROM run_records")
+    suspend fun clearAll()
 }
