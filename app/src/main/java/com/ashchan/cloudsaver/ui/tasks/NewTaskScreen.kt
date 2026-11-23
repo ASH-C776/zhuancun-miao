@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -24,12 +25,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -209,21 +212,45 @@ fun NewTaskScreen(
                 title = { Text(if (editing) "编辑任务" else "新增任务", fontWeight = FontWeight.SemiBold) },
                 navigationIcon = {
                     IconButton(onClick = onDone) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                 },
-                actions = {
-                    TextButton(onClick = { submit(SubmitMode.SAVE) }) {
-                        Text("保存", fontWeight = FontWeight.SemiBold)
-                    }
-                    IconButton(onClick = { submit(SubmitMode.RUN) }) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = "运行一次")
-                    }
-                },
+                // 保存 / 运行一次已挪到右下拇指区（bottomBar），顶栏只留返回
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                 ),
             )
+        },
+        // 右下角主按钮：保存（拇指区）；左侧「运行一次」图标（不保存只转存一轮）
+        bottomBar = {
+            Surface(color = MaterialTheme.colorScheme.surface) {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(
+                        onClick = { submit(SubmitMode.RUN) },
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.PlayArrow,
+                            contentDescription = "运行一次",
+                            modifier = Modifier.size(24.dp),
+                        )
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Button(
+                        onClick = { submit(SubmitMode.SAVE) },
+                        modifier = Modifier.height(48.dp),
+                    ) {
+                        Text("保存", fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
         },
     ) { padding ->
         Column(
@@ -587,8 +614,9 @@ private fun SmallChoice(
 ) {
     Box(
         modifier
-            .height(38.dp)
-            .clip(RoundedCornerShape(10.dp))
+            // 规范：可点元素最小 48dp 热区；圆角统一 12
+            .heightIn(min = 48.dp)
+            .clip(RoundedCornerShape(12.dp))
             .background(
                 when {
                     !enabled -> MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.5f)
@@ -675,7 +703,7 @@ private fun SaveLocationDialog(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     IconButton(onClick = onDismiss) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
                     }
                     Text(
                         "保存位置",
@@ -698,6 +726,7 @@ private fun SaveLocationDialog(
                         val loggedIn = viewModel.isLoggedIn(candidate)
                         FilterChip(
                             selected = drive == candidate,
+                            modifier = Modifier.heightIn(min = 48.dp),
                             onClick = { if (loggedIn) drive = candidate },
                             enabled = loggedIn,
                             label = {
@@ -763,9 +792,18 @@ private fun SaveLocationDialog(
                                 .padding(vertical = 14.dp, horizontal = 20.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text("📁", style = MaterialTheme.typography.bodyMedium)
-                            Spacer(Modifier.width(10.dp))
-                            Text(dir.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
+                            Text(
+                                dir.name,
+                                style = MaterialTheme.typography.bodyLarge,
+                                maxLines = 1,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Icon(
+                                Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp),
+                            )
                         }
                     }
                     if (dirs.isEmpty() && !loading && error == null) {

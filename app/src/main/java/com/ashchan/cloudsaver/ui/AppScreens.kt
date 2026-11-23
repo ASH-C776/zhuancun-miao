@@ -88,6 +88,7 @@ import kotlinx.coroutines.delay
 import androidx.compose.ui.text.style.TextAlign
 import com.ashchan.cloudsaver.R
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -232,7 +233,9 @@ private fun AppTopBar(title: String, onBack: (() -> Unit)? = null, actions: @Com
         title = { Text(title) },
         navigationIcon = {
             if (onBack != null) {
-                TextButton(onClick = onBack) { Text("返回") }
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", modifier = Modifier.size(24.dp))
+                }
             }
         },
         actions = {
@@ -1111,8 +1114,8 @@ fun GuangYaSmsDialog(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("光鸭验证码登录", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.weight(1f))
-                    IconButton(onClick = onClose, modifier = Modifier.size(28.dp)) {
-                        Icon(Icons.Default.Close, contentDescription = "关闭")
+                    IconButton(onClick = onClose, modifier = Modifier.size(40.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "关闭", modifier = Modifier.size(20.dp))
                     }
                 }
                 Spacer(Modifier.height(12.dp))
@@ -1307,7 +1310,7 @@ private fun SmsHumanVerify(
 @Composable
 private fun SmsSuccess() {
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-        Icon(Icons.Default.Check, contentDescription = null, tint = SuccessGreen, modifier = Modifier.size(40.dp))
+        Icon(Icons.Default.Check, contentDescription = null, tint = SuccessGreen, modifier = Modifier.size(32.dp))
         Spacer(Modifier.height(8.dp))
         Text("已获取登录凭证", style = MaterialTheme.typography.titleSmall)
         Spacer(Modifier.height(4.dp))
@@ -1374,7 +1377,7 @@ private fun SettingsEntry(title: String, subtitle: String, showDot: Boolean = fa
             Icons.Filled.ArrowForward,
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.size(18.dp),
+            modifier = Modifier.size(16.dp),
         )
     }
 }
@@ -1487,7 +1490,7 @@ private fun QuarkCookieDialog(
                                 Icons.Filled.Lock,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp).padding(top = 1.dp),
+                                modifier = Modifier.size(16.dp).padding(top = 1.dp),
                             )
                             Spacer(Modifier.width(8.dp))
                             Text(
@@ -2365,7 +2368,7 @@ fun HistoryScreen(viewModel: AppViewModel) {
                             Icon(
                                 Icons.Filled.Delete,
                                 contentDescription = "清空记录",
-                                modifier = Modifier.size(18.dp),
+                                modifier = Modifier.size(16.dp),
                             )
                             Spacer(Modifier.width(4.dp))
                             Text("清空", style = MaterialTheme.typography.labelMedium)
@@ -2386,7 +2389,7 @@ fun HistoryScreen(viewModel: AppViewModel) {
                     Icons.Filled.Refresh,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.outlineVariant,
-                    modifier = Modifier.size(48.dp),
+                    modifier = Modifier.size(32.dp),
                 )
                 Spacer(Modifier.height(12.dp))
                 Text("还没有转存记录", style = MaterialTheme.typography.titleMedium)
@@ -2492,7 +2495,7 @@ private fun RecordCard(
                     Icon(
                         Icons.Filled.Refresh,
                         contentDescription = null,
-                        modifier = Modifier.size(14.dp),
+                        modifier = Modifier.size(16.dp),
                         tint = MaterialTheme.colorScheme.primary,
                     )
                     Spacer(Modifier.width(4.dp))
@@ -2506,4 +2509,3 @@ private fun RecordCard(
         }
     }
 }
-

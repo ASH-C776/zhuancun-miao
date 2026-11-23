@@ -561,3 +561,28 @@
 - 单测 `SnapshotCalcTest` 重写为 7 例（缺 1 集、追平、到达总数、超前、未绑定、只有总数、整条快照），84 项全绿
 - 真机 `debugRunAll` 日志：`tv=307106 latest=12 total=12`、`tv=259785 latest=48 total=48`
 - 真机截图 `docs/home20.png`：两卡均显示「转存完」（12/12、48/48 都到齐）
+
+## Stage 18 — UI 规范 P0 落地：单手操作与统一性（2026-11-23）
+
+按 `docs/UI-SPEC.md` 的 P0 清单改造，只动布局与尺寸，不动业务逻辑。
+
+### 1) 高频操作全部下移到右下拇指区
+- 主页：顶栏三个图标（全部检测 / 运行日志 / 设置）下线，改为右下角一列圆形按钮（48dp 热区、24dp 图标、圆角 28 液态胶囊 + 4dp 阴影），最下方是「+」FAB。列表底部留白 96→200dp，卡片不再被按到。
+- 新增/编辑任务页：顶栏「保存 / 运行一次」下线，改为底部 bar —— 左侧「运行一次」图标（48dp），右侧「保存」按钮（48dp 高），并套 `WindowInsets.navigationBars` 避让小白条。
+
+### 2) 返回按钮统一图标
+- `AppTopBar` 与各全屏页返回由文字/混合写法统一为 `ArrowBack` 图标（48dp 热区 / 24dp 图标），并改用 `Icons.AutoMirrored` 版本（支持 RTL，且消除 deprecated 警告）。
+
+### 3) 触控与尺寸收敛
+- `SmallChoice`（季度 / 命名规则 / 星期）由 38dp 提到 `heightIn(min = 48dp)`，圆角统一 12。
+- 保存位置选择器的网盘 `FilterChip` 补 `heightIn(min = 48dp)`。
+- 卡片行内刷新按钮热区 36 → 48dp（图标仍 20dp）。
+- 图标尺寸向 16 / 20 / 24 / 32 收敛：账号行 14→16、提示条 18→16、清空 18→16、再转一次 14→16、登录成功勾 40→32、空态刷新 48→32、验证码弹窗关闭键 28→40（含 20dp 图标）；箭头图标统一 16。
+
+### 4) 去掉 emoji 当图标
+- 保存位置选择器列表由 `📁` emoji 改为「目录名 + 右侧 chevron（`KeyboardArrowRight` 20dp）」，行高与点击区更符合列表习惯，视觉也与全局 Material 图标一致。
+
+### 验证
+- `:app:testDebugUnitTest` + `:app:assembleDebug` 通过，84 项单测无回归。
+- 真机截图：`docs/h22.png`（主页右下操作列）、`docs/n21.png`（新增页底部保存栏）、`docs/s21.png`（设置页）、`docs/pk22.png`（选择器 chevron 列表）。
+- 遗留：间距仍有个别 10/14 等非规范值（P1），「又小又灰」双重降级与部分 `contentDescription` 缺失待 P1 处理。

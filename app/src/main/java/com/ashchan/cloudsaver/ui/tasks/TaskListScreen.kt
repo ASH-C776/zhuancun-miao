@@ -120,36 +120,71 @@ fun TaskListScreen(
         topBar = {
             TopAppBar(
                 title = { Text("转存喵", fontWeight = FontWeight.SemiBold) },
-                actions = {
-                    // 全部检测：跟日志、设置同一行，省掉原来独立的一行
-                    IconButton(
-                        onClick = { viewModel.runAll() },
-                        enabled = cards.isNotEmpty() && running.isEmpty(),
-                    ) {
-                        if (running.isEmpty()) {
-                            Icon(Icons.Filled.Refresh, contentDescription = "全部检测")
-                        } else {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp,
-                            )
-                        }
-                    }
-                    IconButton(onClick = onOpenHistory) {
-                        Icon(Icons.Filled.List, contentDescription = "运行日志")
-                    }
-                    IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Filled.Settings, contentDescription = "设置")
-                    }
-                },
+                // 顶栏不再放高频操作：刷新/日志/设置统一挪到右下拇指区（见下方 floatingActionButton）
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                 ),
             )
         },
+        // 右下拇指区：一列圆形「刷新 / 日志 / 设置」+ 主按钮「+」。单手（右手握持）抬拇指即可
         floatingActionButton = {
-            FloatingActionButton(onClick = onOpenNewTask) {
-                Icon(Icons.Filled.Add, contentDescription = "新增任务")
+            Column(
+                horizontalAlignment = Alignment.End,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(28.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    shadowElevation = 4.dp,
+                ) {
+                    Column {
+                        IconButton(
+                            onClick = { viewModel.runAll() },
+                            enabled = cards.isNotEmpty() && running.isEmpty(),
+                            modifier = Modifier.size(48.dp),
+                        ) {
+                            if (running.isEmpty()) {
+                                Icon(
+                                    Icons.Filled.Refresh,
+                                    contentDescription = "全部检测",
+                                    modifier = Modifier.size(24.dp),
+                                )
+                            } else {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                            }
+                        }
+                        IconButton(
+                            onClick = onOpenHistory,
+                            modifier = Modifier.size(48.dp),
+                        ) {
+                            Icon(
+                                Icons.Filled.List,
+                                contentDescription = "运行日志",
+                                modifier = Modifier.size(24.dp),
+                            )
+                        }
+                        IconButton(
+                            onClick = onOpenSettings,
+                            modifier = Modifier.size(48.dp),
+                        ) {
+                            Icon(
+                                Icons.Filled.Settings,
+                                contentDescription = "设置",
+                                modifier = Modifier.size(24.dp),
+                            )
+                        }
+                    }
+                }
+                FloatingActionButton(onClick = onOpenNewTask) {
+                    Icon(
+                        Icons.Filled.Add,
+                        contentDescription = "新增任务",
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
             }
         },
         snackbarHost = { SnackbarHost(snackbar) },
@@ -175,7 +210,7 @@ fun TaskListScreen(
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 96.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 200.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     items(cards, key = { it.task.id }) { card ->
@@ -310,7 +345,7 @@ private fun TaskRow(
                 if (!isRunning) {
                     IconButton(
                         onClick = onRun,
-                        modifier = Modifier.size(36.dp),
+                        modifier = Modifier.size(48.dp),
                     ) {
                         Icon(
                             Icons.Filled.Refresh,
@@ -321,7 +356,7 @@ private fun TaskRow(
                     }
                 } else {
                     Box(
-                        modifier = Modifier.size(36.dp),
+                        modifier = Modifier.size(48.dp),
                         contentAlignment = Alignment.Center,
                     ) {
                         CircularProgressIndicator(
