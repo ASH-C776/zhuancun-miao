@@ -12,8 +12,8 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  * 版本 1 起步；后续加字段走 Migration，不做破坏性重建（任务数据是用户手工攒的）。
  */
 @Database(
-    entities = [TaskEntity::class, SnapshotEntity::class, RunRecordEntity::class],
-    version = 7,
+    entities = [TaskEntity::class, SnapshotEntity::class, RunRecordEntity::class, TaskSourceEntity::class],
+    version = 8,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -21,6 +21,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun taskDao(): TaskDao
     abstract fun snapshotDao(): SnapshotDao
     abstract fun runRecordDao(): RunRecordDao
+    abstract fun taskSourceDao(): TaskSourceDao
 
     companion object {
         private const val DB_NAME = "zhuancunmiao.db"
@@ -110,6 +111,38 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v8：新增 `task_sources`（多源）。
+         *
+         * 一个任务可以带多个分享链接。只加表、不动 tasks 结构：
+         * 老任务的 shareUrl/shareId/passcode 原样搬成 `position = 0` 的那一行，
+         * 引擎与表单从此读 task_sources，行为与改前完全一致（单源）。
+         */
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `task_sources` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`taskId` INTEGER NOT NULL, " +
+                        "`position` INTEGER NOT NULL, " +
+                        "`shareUrl` TEXT NOT NULL, " +
+                        "`shareId` TEXT NOT NULL, " +
+                        "`passcode` TEXT NOT NULL, " +
+                        "`createdAt` INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_task_sources_taskId` " +
+                        "ON `task_sources` (`taskId`)"
+                )
+                db.execSQL(
+                    "INSERT OR REPLACE INTO `task_sources` " +
+                        "(`taskId`, `position`, `shareUrl`, `shareId`, `passcode`, `createdAt`) " +
+                        "SELECT `id`, 0, `shareUrl`, `shareId`, `passcode`, `createdAt` " +
+                        "FROM `tasks` WHERE `shareUrl` <> ''"
+                )
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -123,6 +156,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_4_5,
                     MIGRATION_5_6,
                     MIGRATION_6_7,
+                    MIGRATION_7_8,
                 ).build().also { instance = it }
             }
     }

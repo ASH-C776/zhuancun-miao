@@ -36,6 +36,23 @@ interface TaskDao {
 }
 
 @Dao
+interface TaskSourceDao {
+
+    @Query("SELECT * FROM task_sources WHERE taskId = :taskId ORDER BY position ASC")
+    suspend fun listByTask(taskId: Long): List<TaskSourceEntity>
+
+    /** 全表：卡片要显示「· 2 源」，跟随任务列表一起观察 */
+    @Query("SELECT * FROM task_sources ORDER BY taskId ASC, position ASC")
+    fun observeAll(): Flow<List<TaskSourceEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertAll(rows: List<TaskSourceEntity>)
+
+    @Query("DELETE FROM task_sources WHERE taskId = :taskId")
+    suspend fun deleteByTask(taskId: Long)
+}
+
+@Dao
 interface SnapshotDao {
 
     @Query("SELECT * FROM snapshots")

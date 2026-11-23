@@ -732,3 +732,28 @@
 ### 验证
 - `:app:testDebugUnitTest` + `:app:assembleDebug` 通过（单测由 84 增至 91 项，全绿）。
 - 真机：`docs/bar2.png` 三段条与「（共30）」正常；为截这张图临时往数据库插入了一行「演示用·恋爱博士」，截完已还原原库（当前任务列表为空，与操作前一致）。
+
+## Stage 24 多源转存（一个任务最多 5 个分享链接）
+
+### 口径
+- 一个任务只属于一个网盘：网盘由任务的保存位置决定，链接行不存网盘类型，从根上不跨盘（粘别的盘链接会在该行就地红字拦截）。
+- 一个任务 = **一套规则 + 多个源**：保存位置 / 季度 / 命名规则 / tmdb id / 更新日 / 播出时刻全任务共用，源只是多几个链接入口。
+- 链接区：第 1 行右端是「+」（点一次在末尾追加一行空框，满 5 行置灰）；第 2~5 行右端是「−」（直接删掉这一行）。第 2 行起行首小字「源2 / 源3」。
+- 每行就地校验：链接无法识别 / 与前面某行重复 / 不是本任务网盘，都在该行下方红字，不等点保存；空行保存时自动丢弃。
+
+### 代码
+- 新增 `data/db/TaskSourceEntity.kt`（`task_sources`：taskId / position / shareUrl / shareId / passcode / createdAt，索引 taskId）。
+- `AppDatabase` 7 → 8 + `MIGRATION_7_8`：建表 + 索引 + 把老任务的 `shareUrl/shareId/passcode` 搬成 `position = 0` 一行；只加表不改 `tasks` 结构，可回滚。
+- `TaskRepository`：`TaskCard` 增 `sourceCount`；`sourcesOf` / `saveSources`（先删后插、顺序即行序，同时把第一行镜像回 `tasks` 旧字段）；`delete` 连带删源；卡片流改成任务 / 快照 / 源三路 `combine`。
+- 新增 `data/SourceLinks.kt`（纯函数：去空、去重、上限 5、全空退回任务旧 shareUrl）。
+- `TaskRunner`：`run` 增 `draftLinks`（试跑用表单里的多行）；目录只建一次后逐源「解析链接 → 拿令牌 → 拉树 → 改名计划 → syncFlat」；某源异常只记「源K 失败：原因」继续下一个源，掉线类异常仍交给外层重登重跑；`linksOf` 走 `SourceLinks.normalize`。
+- `TreeSyncEngine.Report` 增 `explicitOk`（null = 沿用 failures 判空）：多源里「源2 失败但源1 成功」这一轮算成功，失败原因仍留在 failures 里提示。
+- `TasksViewModel`：`createTask / saveEdit / runDraft` 参数由 `link: String` 改为 `links: List<String>`，新增 `parseLinks`（逐行识别 + 同盘校验）；新增 `sourceLinks(taskId)` 供编辑页回填。
+- `NewTaskScreen`：链接框改成 `LinkSlot` 列表（稳定 id，删中间行不串内容），第 1 行「+」/ 其余「−」，每行就地红字，保存/试跑都传 `links`；编辑时按 `sourceLinks` 回填。
+- `TaskListScreen`：卡片底行源数 > 1 时加「· 2 源」。
+- `MainActivity`：调试入口新增 `debugShareUrl2`（第二个源）；新增 `wakeScreen` extra（HyperOS 拒 adb input 注入，截屏前靠 App 自己点亮屏幕），`AndroidManifest` 只加了普通权限 `WAKE_LOCK`。
+
+### 验证
+- 单测 91 → 99 项全绿（新增 `SourceLinksTest` 8 例：单源 / 空行 / 重复 / 顺序 / 超五个 / 全空退回 / 空列表 / 有值忽略 fallback）。
+- 真机装包后读库确认真实迁移成功：`user_version = 8`，`task_sources` 列齐全、索引 `index_task_sources_taskId` 存在，现有 2 个任务各搬出 1 行 `position = 0`，`shareId` 与 `tasks` 一致。
+- 界面截屏待补（当时手机锁屏、adb 无法注入解锁事件）。

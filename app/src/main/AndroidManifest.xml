@@ -8,6 +8,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 普通权限，不弹窗：仅调试入口（wakeScreen extra）用来点亮屏幕，方便真机截屏回归 -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- 仅 Android 9 及以下保存打赏二维码到相册需要；Android 10+ 走 MediaStore 免权限 -->
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"

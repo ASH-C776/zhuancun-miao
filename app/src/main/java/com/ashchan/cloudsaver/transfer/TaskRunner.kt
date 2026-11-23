@@ -6,6 +6,7 @@ import com.ashchan.cloudsaver.core.model.ShareNode
 import com.ashchan.cloudsaver.core.tmdb.TmdbClient
 import com.ashchan.cloudsaver.data.EpisodeCounter
 import com.ashchan.cloudsaver.data.SeasonParser
+import com.ashchan.cloudsaver.data.SourceLinks
 import com.ashchan.cloudsaver.data.TaskRepository
 import com.ashchan.cloudsaver.data.Weekdays
 import com.ashchan.cloudsaver.data.db.RunRecordEntity
@@ -76,6 +77,8 @@ class TaskRunner(
         trigger: String = RunRecordEntity.TRIGGER_MANUAL,
         /** false = 试跑（「运行一次」）：照常转存，但不动任务快照，只写运行日志 */
         saveSnapshot: Boolean = true,
+        /** 试跑时表单里的链接（含多源）；为空则按 [task] 的源列表取 */
+        draftLinks: List<String> = emptyList(),
     ): Result<TreeSyncEngine.Report> {
         val startedAt = System.currentTimeMillis()
         val drive = DriveType.fromName(task.driveType)
@@ -83,6 +86,14 @@ class TaskRunner(
             val msg = "未知的网盘类型：${task.driveType}"
             repo.finishRun(task, trigger, startedAt, null, 0, 0, 0, 0, msg)
             return Result.failure(IllegalArgumentException(msg))
+        }
+
+        // 源列表：试跑用表单里的，正式执行读 task_sources（老任务由迁移补成 1 行）
+        val links = linksOf(task, draftLinks)
+        if (links.isEmpty()) {
+            val msg = "任务没有可用的分享链接"
+            repo.finishRun(task, trigger, startedAt, null, 0, 0, 0, 0, msg)
+            return Result.failure(IllegalStateException(msg))
         }
 
         val baseFid = task.saveFid.ifBlank { "0" }
@@ -95,7 +106,7 @@ class TaskRunner(
                     return@withLock Result.failure<TreeSyncEngine.Report>(err)
                 }
                 try {
-                    executeLocked(task, trigger, startedAt, adapter, baseFid, saveSnapshot)
+                    executeLocked(task, trigger, startedAt, adapter, baseFid, saveSnapshot, links)
                 } catch (e: Throwable) {
                     // 跑到一半掉线：强制重新登录一次，再整轮重来（目录 diff 幂等，重跑不重复转存）
                     if (!DriveSession.isAuthError(e)) throw e
@@ -103,7 +114,7 @@ class TaskRunner(
                     DriveSession.invalidate(drive)
                     val retryAdapter = DriveSession.ensure(drive, credentialStore, force = true)
                         .getOrElse { throw e }
-                    executeLocked(task, trigger, startedAt, retryAdapter, baseFid, saveSnapshot)
+                    executeLocked(task, trigger, startedAt, retryAdapter, baseFid, saveSnapshot, links)
                 }
             }
         } catch (e: Throwable) {
@@ -121,6 +132,16 @@ class TaskRunner(
         }
     }
 
+    /** 这个任务要跑的分享链接（去空、去重、保序，最多 5 个） */
+    private suspend fun linksOf(task: TaskEntity, draftLinks: List<String>): List<String> {
+        val own = if (task.id > 0 && draftLinks.isEmpty()) {
+            repo.sourcesOf(task.id).map { it.shareUrl }
+        } else {
+            draftLinks
+        }
+        return SourceLinks.normalize(own, fallback = task.shareUrl)
+    }
+
     /** [run] 的实际主体，调用时已持有 [runLock] */
     private suspend fun executeLocked(
         task: TaskEntity,
@@ -129,13 +150,12 @@ class TaskRunner(
         adapter: CloudDriveAdapter,
         baseFid: String,
         saveSnapshot: Boolean,
+        links: List<String>,
     ): Result<TreeSyncEngine.Report> {
-        val share = retryOnce("解析分享链接") { adapter.parseShareLink(task.shareUrl) }.getOrThrow()
-        val resolved = retryOnce("获取分享访问令牌") { adapter.resolveShareAccess(share) }.getOrThrow()
-
         // 每个任务在自己的保存位置下建一个「剧名」目录：
         // 多剧混在同一层会让集数统计把整盘视频算作一个任务，必须隔离。
         // 勾了「文件夹加 TMDB ID」时目录名变成「剧名 tmdb-12345」。
+        // 目录只建一次：所有源共用同一个保存位置（一个任务 = 一套规则）。
         val folderName = taskNameOf(task)
         val nameFid = retryOnce("创建任务目录") {
             adapter.ensureFolder(baseFid, folderName)
@@ -150,23 +170,75 @@ class TaskRunner(
             nameFid
         }
 
-        val rootId = task.seasonFid.ifBlank { task.startFid }.ifBlank { resolved.pdirFid }
-        val tree = retryOnce("拉取分享目录树") {
-            adapter.fetchShareTree(
-                share = resolved,
-                rootId = rootId.takeIf { it != "0" },
-                maxDepth = TreeSyncEngine.DEFAULT_MAX_DEPTH,
-            )
-        }.getOrThrow()
+        // 逐源跑：某源失败只记一行，不影响其它源（用户口径：源只是多几个链接入口）
+        var restoredDirs = 0
+        var restoredFiles = 0
+        var renamedItems = 0
+        var skippedFiles = 0
+        val failures = mutableListOf<String>()
+        var anyOk = false
 
-        val plan = buildRenamePlan(task, tree)
-        val report = TreeSyncEngine(adapter).syncFlat(
-            share = resolved,
-            tree = tree,
-            destRootFid = destFid,
-            renamePlan = plan,
-            seasonNo = task.seasonNo,
-        ).getOrThrow()
+        links.forEachIndexed { index, link ->
+            val label = if (links.size > 1) "源${index + 1}" else "源"
+            val outcome: Result<TreeSyncEngine.Report> = try {
+                val share = retryOnce("$label 解析分享链接") { adapter.parseShareLink(link) }.getOrThrow()
+                val resolved = retryOnce("$label 获取分享访问令牌") {
+                    adapter.resolveShareAccess(share)
+                }.getOrThrow()
+
+                val rootId = task.seasonFid.ifBlank { task.startFid }.ifBlank { resolved.pdirFid }
+                val tree = retryOnce("$label 拉取分享目录树") {
+                    adapter.fetchShareTree(
+                        share = resolved,
+                        rootId = rootId.takeIf { it != "0" },
+                        maxDepth = TreeSyncEngine.DEFAULT_MAX_DEPTH,
+                    )
+                }.getOrThrow()
+
+                val plan = buildRenamePlan(task, tree)
+                TreeSyncEngine(adapter).syncFlat(
+                    share = resolved,
+                    tree = tree,
+                    destRootFid = destFid,
+                    renamePlan = plan,
+                    seasonNo = task.seasonNo,
+                )
+            } catch (e: Throwable) {
+                // 掉线类的异常交给外层重登整轮重跑；其余按「本源失败」吞掉，继续下一个源
+                if (DriveSession.isAuthError(e)) throw e
+                Result.failure(e)
+            }
+
+            outcome
+                .onSuccess { r ->
+                    anyOk = anyOk || r.ok
+                    restoredDirs += r.restoredDirs
+                    restoredFiles += r.restoredFiles
+                    renamedItems += r.renamedItems
+                    skippedFiles += r.skippedFiles
+                    // 同一批文件可能两个源都有：第二个源靠目标目录 diff 判定已存在 → 计入跳过
+                    r.failures.forEach { failures += if (links.size > 1) "$label $it" else it }
+                }
+                .onFailure { e ->
+                    failures += if (links.size > 1) {
+                        "$label 失败：${e.message ?: "未知错误"}"
+                    } else {
+                        e.message ?: "同步失败"
+                    }
+                }
+        }
+
+        val report = TreeSyncEngine.Report(
+            restoredDirs = restoredDirs,
+            restoredFiles = restoredFiles,
+            renamedItems = renamedItems,
+            skippedFiles = skippedFiles,
+            failures = failures.toList().ifEmpty {
+                if (anyOk) emptyList() else listOf("所有源都没有可转存的内容")
+            },
+            // 多源：只要有一个源成功，这一轮就算成功（失败的源原因仍留在 failures 里提示）
+            explicitOk = anyOk,
+        )
 
         // 光鸭的 access_token 会在刷新后轮换，必须回写，否则下次登录失效
         if (adapter is GuangYaAdapter) {

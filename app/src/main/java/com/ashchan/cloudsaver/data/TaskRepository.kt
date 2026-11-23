@@ -4,6 +4,7 @@ import com.ashchan.cloudsaver.data.db.AppDatabase
 import com.ashchan.cloudsaver.data.db.RunRecordEntity
 import com.ashchan.cloudsaver.data.db.SnapshotEntity
 import com.ashchan.cloudsaver.data.db.TaskEntity
+import com.ashchan.cloudsaver.data.db.TaskSourceEntity
 import com.ashchan.cloudsaver.transfer.TreeSyncEngine
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -13,6 +14,15 @@ import kotlinx.coroutines.flow.map
 data class TaskCard(
     val task: TaskEntity,
     val snapshot: SnapshotEntity,
+    /** 这个任务配了几个分享链接；> 1 时卡片上标「· N 源」 */
+    val sourceCount: Int = 1,
+)
+
+/** 一条待落库的源（UI 层解析好链接再交下来，仓库不重复做正则） */
+data class SourceDraft(
+    val shareUrl: String,
+    val shareId: String,
+    val passcode: String = "",
 )
 
 /**
@@ -27,13 +37,23 @@ class TaskRepository(private val db: AppDatabase) {
     private val taskDao = db.taskDao()
     private val snapshotDao = db.snapshotDao()
     private val runDao = db.runRecordDao()
+    private val sourceDao = db.taskSourceDao()
 
-    /** 首页卡片流：任务与快照合并，按任务 id 升序 */
+    /** 首页卡片流：任务 / 快照 / 源数三路合并，按任务 id 升序 */
     fun observeCards(): Flow<List<TaskCard>> =
-        combine(taskDao.observeAll(), snapshotDao.observeAll()) { tasks, snaps ->
+        combine(
+            taskDao.observeAll(),
+            snapshotDao.observeAll(),
+            sourceDao.observeAll(),
+        ) { tasks, snaps, sources ->
             val byTask = snaps.associateBy { it.taskId }
+            val countByTask = sources.groupingBy { it.taskId }.eachCount()
             tasks.map { task ->
-                TaskCard(task, byTask[task.id] ?: SnapshotEntity(taskId = task.id))
+                TaskCard(
+                    task = task,
+                    snapshot = byTask[task.id] ?: SnapshotEntity(taskId = task.id),
+                    sourceCount = countByTask[task.id] ?: 1,
+                )
             }
         }
 
@@ -50,11 +70,43 @@ class TaskRepository(private val db: AppDatabase) {
 
     suspend fun create(task: TaskEntity): Long = taskDao.insert(task)
 
+    /** 一个任务的全部源（按 position 升序）；老任务恰好只有一行 */
+    suspend fun sourcesOf(taskId: Long): List<TaskSourceEntity> = sourceDao.listByTask(taskId)
+
+    /**
+     * 重写某个任务的源列表（先删后插，顺序即行序）。
+     * 同时把第一行镜像回 tasks.shareUrl / shareId / passcode：老代码任何漏改的地方仍能读到主链接。
+     */
+    suspend fun saveSources(taskId: Long, drafts: List<SourceDraft>, task: TaskEntity) {
+        sourceDao.deleteByTask(taskId)
+        if (drafts.isEmpty()) return
+        sourceDao.insertAll(
+            drafts.mapIndexed { index, d ->
+                TaskSourceEntity(
+                    taskId = taskId,
+                    position = index,
+                    shareUrl = d.shareUrl,
+                    shareId = d.shareId,
+                    passcode = d.passcode,
+                )
+            }
+        )
+        val first = drafts.first()
+        taskDao.update(
+            task.copy(
+                shareUrl = first.shareUrl,
+                shareId = first.shareId,
+                passcode = first.passcode,
+            )
+        )
+    }
+
     suspend fun update(task: TaskEntity) =
         taskDao.update(task.copy(updatedAt = System.currentTimeMillis()))
 
     suspend fun delete(id: Long) {
         snapshotDao.deleteByTask(id)
+        sourceDao.deleteByTask(id)
         taskDao.delete(id)
     }
 

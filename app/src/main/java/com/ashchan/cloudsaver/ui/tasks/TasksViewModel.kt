@@ -9,6 +9,7 @@ import com.ashchan.cloudsaver.core.model.RenameRule
 import com.ashchan.cloudsaver.core.tmdb.TmdbClient
 import com.ashchan.cloudsaver.core.tmdb.TmdbSearchItem
 import com.ashchan.cloudsaver.data.TaskCard
+import com.ashchan.cloudsaver.data.SourceDraft
 import com.ashchan.cloudsaver.data.TaskDraftParser
 import com.ashchan.cloudsaver.data.TaskRepository
 import com.ashchan.cloudsaver.data.Weekdays
@@ -88,7 +89,7 @@ class TasksViewModel(
      */
     fun createTask(
         name: String,
-        link: String,
+        links: List<String>,
         weekdays: String,
         tmdbIdText: String,
         airTime: String = "",
@@ -106,40 +107,87 @@ class TasksViewModel(
             _error.value = "请填写任务名称"
             return
         }
-        TaskDraftParser.inspect(link)
-            .onFailure { _error.value = it.message ?: "链接无法识别" }
-            .onSuccess { inspect ->
-                val drive = driveOverride ?: inspect.driveType
-                viewModelScope.launch {
-                    val task = TaskEntity(
-                        name = title,
-                        driveType = drive.name,
-                        shareUrl = link.trim(),
-                        shareId = inspect.shareId,
-                        passcode = inspect.passcode,
-                        saveFid = saveFid,
-                        savePathLabel = savePathLabel,
-                        weekdays = Weekdays.format(Weekdays.parse(weekdays)),
-                        tmdbId = tmdbIdText.trim().toLongOrNull(),
-                        airTime = airTime.trim(),
-                        ruleKey = ruleKey,
-                        seasonNo = seasonNo,
-                        folderWithTmdbId = folderWithTmdbId,
-                        updateMode = if (updateModeAuto || weekdays.isBlank()) {
-                            TaskEntity.UPDATE_MODE_TMDB
-                        } else {
-                            TaskEntity.UPDATE_MODE_MANUAL
-                        },
-                    )
-                    val id = repo.create(task)
-                    if (id <= 0) {
-                        _error.value = "保存失败"
-                        return@launch
-                    }
-                    _toast.value = "已添加「$title」，正在扫描…"
-                    execute(task.copy(id = id), RunRecordEntity.TRIGGER_MANUAL)
-                }
+        val parsed = parseLinks(links, driveOverride) ?: return
+        val (inspected, drive) = parsed
+        viewModelScope.launch {
+            val task = TaskEntity(
+                name = title,
+                driveType = drive.name,
+                shareUrl = inspected.first().shareUrl,
+                shareId = inspected.first().shareId,
+                passcode = inspected.first().passcode,
+                saveFid = saveFid,
+                savePathLabel = savePathLabel,
+                weekdays = Weekdays.format(Weekdays.parse(weekdays)),
+                tmdbId = tmdbIdText.trim().toLongOrNull(),
+                airTime = airTime.trim(),
+                ruleKey = ruleKey,
+                seasonNo = seasonNo,
+                folderWithTmdbId = folderWithTmdbId,
+                updateMode = if (updateModeAuto || weekdays.isBlank()) {
+                    TaskEntity.UPDATE_MODE_TMDB
+                } else {
+                    TaskEntity.UPDATE_MODE_MANUAL
+                },
+            )
+            val id = repo.create(task)
+            if (id <= 0) {
+                _error.value = "保存失败"
+                return@launch
             }
+            if (inspected.size > 1) repo.saveSources(id, inspected, task.copy(id = id))
+            _toast.value = "已添加「$title」，正在扫描…"
+            execute(task.copy(id = id), RunRecordEntity.TRIGGER_MANUAL)
+        }
+    }
+
+    /**
+     * 解析表单里的多行链接：去空、去重、逐行识别。
+     * 失败时把错误写进 [_error] 并返回 null（调用方直接 return）。
+     *
+     * 口径（用户明确）：一个任务只有一个网盘，所有行必须是同一个盘，
+     * 第一行决定网盘；后面的行光鸭粘到光鸭任务里才算，掺别的盘直接拦。
+     */
+    private fun parseLinks(
+        links: List<String>,
+        driveOverride: DriveType?,
+    ): Pair<List<SourceDraft>, DriveType>? {
+        val urls = links.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        if (urls.isEmpty()) {
+            _error.value = "请粘贴分享链接"
+            return null
+        }
+        val drafts = mutableListOf<SourceDraft>()
+        val detected = mutableListOf<DriveType>()
+        urls.forEachIndexed { index, url ->
+            TaskDraftParser.inspect(url)
+                .onFailure {
+                    _error.value = if (index == 0) {
+                        "链接无法识别，仅支持夸克 / 光鸭分享链接"
+                    } else {
+                        "源${index + 1} 无法识别，仅支持夸克 / 光鸭分享链接"
+                    }
+                    return null
+                }
+                .onSuccess { inspect ->
+                    drafts += SourceDraft(url, inspect.shareId, inspect.passcode)
+                    detected += inspect.driveType
+                }
+        }
+        if (drafts.size != urls.size) return null
+
+        // 一个任务只能用一个网盘：网盘由用户在选择器里选的那次决定，没选过就按第一行识别
+        val drive = driveOverride ?: detected.first()
+        val mismatched = detected.indexOfFirst { it != drive }
+        if (mismatched >= 0) {
+            _error.value = if (mismatched == 0) {
+                "第一行不是${drive.displayName}链接，与所选网盘不一致"
+            } else {
+                "源${mismatched + 1} 不是${drive.displayName}链接，一个任务只能用一个网盘"
+            }
+            return null
+        }
+        return drafts to drive
     }
 
     /** 新建页下拉用的命名规则（已禁用的也列出来，UI 上置灰说明） */
@@ -172,7 +220,7 @@ class TasksViewModel(
      */
     fun saveEdit(
         name: String,
-        link: String,
+        links: List<String>,
         weekdays: String,
         tmdbIdText: String,
         airTime: String,
@@ -191,37 +239,35 @@ class TasksViewModel(
             _error.value = "请填写任务名称"
             return
         }
-        TaskDraftParser.inspect(link)
-            .onFailure { _error.value = it.message ?: "链接无法识别" }
-            .onSuccess { inspect ->
-                val drive = driveOverride ?: inspect.driveType
-                viewModelScope.launch {
-                    repo.update(
-                        base.copy(
-                            name = title,
-                            driveType = drive.name,
-                            shareUrl = link.trim(),
-                            shareId = inspect.shareId,
-                            passcode = inspect.passcode,
-                            saveFid = saveFid,
-                            savePathLabel = savePathLabel,
-                            weekdays = Weekdays.format(Weekdays.parse(weekdays)),
-                            tmdbId = tmdbIdText.trim().toLongOrNull(),
-                            airTime = airTime.trim(),
-                            ruleKey = ruleKey,
-                            seasonNo = seasonNo,
-                            folderWithTmdbId = folderWithTmdbId,
-                            updateMode = if (updateModeAuto || weekdays.isBlank()) {
-                                TaskEntity.UPDATE_MODE_TMDB
-                            } else {
-                                TaskEntity.UPDATE_MODE_MANUAL
-                            },
-                        )
-                    )
-                    _toast.value = "已保存"
-                    clearEdit()
-                }
-            }
+        val parsed = parseLinks(links, driveOverride) ?: return
+        val (inspected, drive) = parsed
+        viewModelScope.launch {
+            val updated = base.copy(
+                name = title,
+                driveType = drive.name,
+                shareUrl = inspected.first().shareUrl,
+                shareId = inspected.first().shareId,
+                passcode = inspected.first().passcode,
+                saveFid = saveFid,
+                savePathLabel = savePathLabel,
+                weekdays = Weekdays.format(Weekdays.parse(weekdays)),
+                tmdbId = tmdbIdText.trim().toLongOrNull(),
+                airTime = airTime.trim(),
+                ruleKey = ruleKey,
+                seasonNo = seasonNo,
+                folderWithTmdbId = folderWithTmdbId,
+                updateMode = if (updateModeAuto || weekdays.isBlank()) {
+                    TaskEntity.UPDATE_MODE_TMDB
+                } else {
+                    TaskEntity.UPDATE_MODE_MANUAL
+                },
+            )
+            repo.update(updated)
+            // 源列表整体重写：删掉的行就真的没了，顺序即行序
+            repo.saveSources(base.id, inspected, updated)
+            _toast.value = "已保存"
+            clearEdit()
+        }
     }
 
     /**
@@ -230,7 +276,7 @@ class TasksViewModel(
      */
     fun runDraft(
         name: String,
-        link: String,
+        links: List<String>,
         weekdays: String,
         tmdbIdText: String,
         airTime: String,
@@ -246,41 +292,48 @@ class TasksViewModel(
             _error.value = "请填写任务名称"
             return
         }
-        TaskDraftParser.inspect(link)
-            .onFailure { _error.value = it.message ?: "链接无法识别" }
-            .onSuccess { inspect ->
-                val drive = driveOverride ?: inspect.driveType
-                viewModelScope.launch {
-                    val draft = TaskEntity(
-                        id = editing.value?.id ?: 0,
-                        name = title,
-                        driveType = drive.name,
-                        shareUrl = link.trim(),
-                        shareId = inspect.shareId,
-                        passcode = inspect.passcode,
-                        saveFid = saveFid,
-                        savePathLabel = savePathLabel,
-                        weekdays = Weekdays.format(Weekdays.parse(weekdays)),
-                        tmdbId = tmdbIdText.trim().toLongOrNull(),
-                        airTime = airTime.trim(),
-                        ruleKey = ruleKey,
-                        seasonNo = seasonNo,
-                        folderWithTmdbId = folderWithTmdbId,
-                    )
-                    _toast.value = "正在跑一次「$title」…"
-                    val result = runner.run(draft, RunRecordEntity.TRIGGER_MANUAL, saveSnapshot = false)
-                    _toast.value = if (result.getOrNull()?.ok == true) {
-                        "「$title」运行完成"
-                    } else {
-                        "「$title」运行失败"
-                    }
-                }
+        val parsed = parseLinks(links, driveOverride) ?: return
+        val (inspected, drive) = parsed
+        viewModelScope.launch {
+            val draft = TaskEntity(
+                id = editing.value?.id ?: 0,
+                name = title,
+                driveType = drive.name,
+                shareUrl = inspected.first().shareUrl,
+                shareId = inspected.first().shareId,
+                passcode = inspected.first().passcode,
+                saveFid = saveFid,
+                savePathLabel = savePathLabel,
+                weekdays = Weekdays.format(Weekdays.parse(weekdays)),
+                tmdbId = tmdbIdText.trim().toLongOrNull(),
+                airTime = airTime.trim(),
+                ruleKey = ruleKey,
+                seasonNo = seasonNo,
+                folderWithTmdbId = folderWithTmdbId,
+            )
+            _toast.value = "正在跑一次「$title」…"
+            val result = runner.run(
+                task = draft,
+                trigger = RunRecordEntity.TRIGGER_MANUAL,
+                saveSnapshot = false,
+                draftLinks = inspected.map { it.shareUrl },
+            )
+            _toast.value = if (result.getOrNull()?.ok == true) {
+                "「$title」运行完成"
+            } else {
+                "「$title」运行失败"
             }
+        }
     }
 
     /** 某个网盘是否已登录（新建页用来提示「先去设置里登录」） */
     fun isLoggedIn(drive: DriveType): Boolean =
         credentials?.loadCredential(drive)?.isNotBlank() == true
+
+    /** 编辑任务时把已保存的多行链接带回表单（老任务只有 1 行） */
+    suspend fun sourceLinks(taskId: Long): List<String> = runCatching {
+        repo.sourcesOf(taskId).map { it.shareUrl }.filter { it.isNotBlank() }
+    }.getOrDefault(emptyList())
 
     /**
      * 列出某个网盘下的一级目录（新建页选保存路径用）。

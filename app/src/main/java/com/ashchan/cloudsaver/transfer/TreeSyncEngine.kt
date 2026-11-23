@@ -31,8 +31,14 @@ class TreeSyncEngine(
         val renamedItems: Int,
         val skippedFiles: Int,
         val failures: List<String>,
+        /**
+         * 覆盖默认判定。多源任务里「源2 失败但源1 成功」仍算这一轮成功，
+         * 此时 failures 里留着源2 的原因给人看，但整轮不该标红。
+         * null = 按 failures 是否为空判定（单源与原行为一致）。
+         */
+        val explicitOk: Boolean? = null,
     ) {
-        val ok: Boolean get() = failures.isEmpty()
+        val ok: Boolean get() = explicitOk ?: failures.isEmpty()
     }
 
     /**

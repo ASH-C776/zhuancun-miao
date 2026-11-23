@@ -26,7 +26,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.PlayArrow
@@ -56,6 +58,7 @@ import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -102,9 +105,12 @@ fun NewTaskScreen(
     val editing = editingTask != null
 
     var name by remember { mutableStateOf(editingTask?.name ?: "") }
-    var link by remember { mutableStateOf(editingTask?.shareUrl ?: "") }
-    // 链接框单行显示，用光标位置控制「露哪一段」：失焦回到开头，长链接只显示前面
-    var linkSelection by remember { mutableStateOf(TextRange(0)) }
+    // 多源：第 1 行是默认链接（右端「+」追加），第 2~5 行是附加源（右端「−」删除）
+    // 每行带稳定 id，删中间行时不会串内容
+    var nextSlotId by remember { mutableStateOf(0L) }
+    val slots = remember {
+        mutableStateListOf(LinkSlot(id = 0L, text = editingTask?.shareUrl ?: ""))
+    }
     var drive by remember {
         mutableStateOf(editingTask?.let { DriveType.fromName(it.driveType) })
     }
@@ -141,28 +147,62 @@ fun NewTaskScreen(
     val magic = remember { viewModel.renameRules().firstOrNull { it.key == "\$TV_MAGIC" && it.enabled } }
     val canUseTmdbFolder = magic != null && ruleKey == magic.key && tmdbId.isNotBlank()
 
-    LaunchedEffect(link) {
+    // 编辑任务：把已保存的多行链接带回来（老任务只有 1 行，界面看上去和以前一样）
+    LaunchedEffect(editingTask?.id) {
+        val id = editingTask?.id ?: return@LaunchedEffect
+        if (id <= 0) return@LaunchedEffect
+        val urls = viewModel.sourceLinks(id)
+        if (urls.size > 1) {
+            slots.clear()
+            urls.take(MAX_SOURCES).forEach { url ->
+                slots += LinkSlot(id = nextSlotId++, text = url)
+            }
+        }
+    }
+
+    // 网盘按第一行自动识别：用户没手动选过保存位置时，跟着第一行链接走
+    val firstLink = slots.firstOrNull()?.text.orEmpty()
+    LaunchedEffect(firstLink) {
         if (drivePickedByUser) return@LaunchedEffect
-        if (link.isBlank()) return@LaunchedEffect
-        TaskDraftParser.inspect(link).onSuccess { drive = it.driveType }
+        if (firstLink.isBlank()) return@LaunchedEffect
+        TaskDraftParser.inspect(firstLink).onSuccess { drive = it.driveType }
     }
 
     BackHandler { onDone() }
 
+    // 每行的就地校验：无法识别 / 与前面某行重复 / 不是本任务的网盘
+    fun slotError(index: Int, text: String): String? {
+        val trimmed = text.trim()
+        if (trimmed.isEmpty()) return null
+        val parsed = TaskDraftParser.inspect(trimmed)
+        if (parsed.isFailure) return "链接无法识别"
+        val type = parsed.getOrThrow().driveType
+        val taskDrive = drive
+        if (taskDrive != null && type != taskDrive) {
+            return "不是${taskDrive.displayName}链接，一个任务只能用一个网盘"
+        }
+        val dupIndex = slots.take(index).indexOfFirst { it.text.trim() == trimmed }
+        if (dupIndex >= 0) return "与第 ${dupIndex + 1} 行相同"
+        return null
+    }
+
     fun submit(mode: SubmitMode) {
         val title = name.trim()
-        val url = link.trim()
+        val urls = slots.map { it.text.trim() }.filter { it.isNotEmpty() }
         when {
             title.isBlank() -> error = "请填写任务名称"
-            url.isBlank() -> error = "请粘贴分享链接"
-            TaskDraftParser.inspect(url).isFailure ->
-                error = "链接无法识别，仅支持夸克 / 光鸭分享链接"
+            urls.isEmpty() -> error = "请粘贴分享链接"
             else -> {
+                val badIndex = slots.indices.firstOrNull { slotError(it, slots[it].text) != null } ?: -1
+                if (badIndex >= 0) {
+                    error = slotError(badIndex, slots[badIndex].text)
+                    return
+                }
                 val effectiveFolder = folderWithTmdbId && canUseTmdbFolder
                 when {
                     mode == SubmitMode.RUN -> viewModel.runDraft(
                         name = title,
-                        link = url,
+                        links = urls,
                         weekdays = Weekdays.format(weekdays),
                         tmdbIdText = tmdbId,
                         airTime = airTime,
@@ -176,7 +216,7 @@ fun NewTaskScreen(
 
                     editing -> viewModel.saveEdit(
                         name = title,
-                        link = url,
+                        links = urls,
                         weekdays = Weekdays.format(weekdays),
                         tmdbIdText = tmdbId,
                         airTime = airTime,
@@ -191,7 +231,7 @@ fun NewTaskScreen(
 
                     else -> viewModel.createTask(
                         name = title,
-                        link = url,
+                        links = urls,
                         weekdays = Weekdays.format(weekdays),
                         tmdbIdText = tmdbId,
                         airTime = airTime,
@@ -314,21 +354,71 @@ fun NewTaskScreen(
                 }
             }
 
-            // 分享链接：固定一行高，链接再长也只露前面，末尾顺着输入框裁掉/横滚
-            OutlinedTextField(
-                value = TextFieldValue(link, selection = linkSelection),
-                onValueChange = {
-                    link = it.text
-                    linkSelection = it.selection
-                    error = null
-                },
-                placeholder = { Text("分享链接") },
-                singleLine = true,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    // 失焦后光标回到开头，这样长链接默认显示的是前段，而不是尾部
-                    .onFocusChanged { if (!it.isFocused) linkSelection = TextRange(0) },
-            )
+            // 多源链接：第 1 行右端是「+」（末尾追加一行），第 2~5 行右端是「−」（删掉这一行）
+            // 一个任务只有一套规则，所以这里只有「多几个链接入口」，没有其它按源的设置
+            slots.forEachIndexed { index, slot ->
+                val rowError = slotError(index, slot.text)
+                Column(Modifier.fillMaxWidth()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (index > 0) {
+                            Text(
+                                "源${index + 1}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.width(32.dp),
+                            )
+                        }
+                        OutlinedTextField(
+                            value = TextFieldValue(slot.text, selection = slot.selection),
+                            onValueChange = { value ->
+                                slots[index] = slot.copy(text = value.text, selection = value.selection)
+                                error = null
+                            },
+                            placeholder = { Text(if (index == 0) "分享链接" else "附加源链接") },
+                            singleLine = true,
+                            isError = rowError != null,
+                            modifier = Modifier
+                                .weight(1f)
+                                // 失焦后光标回到开头，这样长链接默认显示的是前段，而不是尾部
+                                .onFocusChanged {
+                                    if (!it.isFocused) {
+                                        slots[index] = slots[index].copy(selection = TextRange(0))
+                                    }
+                                },
+                        )
+                        if (index == 0) {
+                            IconButton(
+                                onClick = {
+                                    if (slots.size < MAX_SOURCES) {
+                                        slots += LinkSlot(id = nextSlotId++, text = "")
+                                    }
+                                    error = null
+                                },
+                                enabled = slots.size < MAX_SOURCES,
+                            ) {
+                                Icon(Icons.Default.Add, contentDescription = "添加源")
+                            }
+                        } else {
+                            IconButton(
+                                onClick = {
+                                    slots.removeAt(index)
+                                    error = null
+                                },
+                            ) {
+                                Icon(Icons.Default.Delete, contentDescription = "删除这一行")
+                            }
+                        }
+                    }
+                    rowError?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(start = if (index > 0) 32.dp else 0.dp, top = 4.dp),
+                        )
+                    }
+                }
+            }
 
             // 保存位置：网盘 + 目录合成一行，点进去从网盘根开始逐层下钻
             SectionLabel("保存位置")
@@ -586,6 +676,16 @@ fun NewTaskScreen(
 }
 
 private enum class SubmitMode { SAVE, RUN }
+
+/** 一个任务最多几个分享链接（用户口径：5 个以内，硬限制） */
+private const val MAX_SOURCES = 5
+
+/** 链接行：带稳定 id，删中间行不会串内容；selection 用来让长链接默认露前段 */
+private data class LinkSlot(
+    val id: Long,
+    val text: String = "",
+    val selection: TextRange = TextRange(0),
+)
 
 // ---------------- 子块 ----------------
 

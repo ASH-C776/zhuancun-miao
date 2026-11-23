@@ -72,6 +72,27 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // 全局未捕获异常落盘（崩溃后可在文件里查堆栈，纯单机没有服务端日志）
         com.ashchan.cloudsaver.core.AppLog.install(this)
+        // 调试/联调用：--ez wakeScreen true 让本页把屏幕点亮（HyperOS 拒绝 adb input 注入，
+        // 真机回归截屏前只能靠 App 自己 setTurnScreenOn，否则截出来是一片黑）
+        if (intent?.getBooleanExtra("wakeScreen", false) == true) {
+            setTurnScreenOn(true)
+            setShowWhenLocked(true)
+            window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            // 顺手把锁屏让开（无密码锁屏可直接进入本页；有密码时仍需用户解锁）
+            window.addFlags(android.view.WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD)
+            (getSystemService(android.content.Context.KEYGUARD_SERVICE) as android.app.KeyguardManager)
+                .requestDismissKeyguard(this, null)
+            // HyperOS 上 setTurnScreenOn 只置「可点亮」标记，不会真的唤醒正在 doze 的屏幕；
+            // 带 ACQUIRE_CAUSES_WAKEUP 的旧式 wakelock 才会直接把屏点亮（仅调试入口用）
+            @Suppress("DEPRECATION")
+            (getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager)
+                .newWakeLock(
+                    android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
+                        android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                    "zhuancunmiao:debug-wake",
+                )
+                .acquire(60_000L)
+        }
         // 沉浸式：状态栏与底部导航条（小白条）完全透明，内容铺到系统栏底下；
         // 显式传透明 scrim，避免默认的导航栏白色对比度遮罩（底栏发白的带子）。
         // 注意强制亮/暗主题时，SideEffect 里会按当前主题重新设置状态栏图标风格。
@@ -94,8 +115,15 @@ class MainActivity : ComponentActivity() {
         // 绕开 HyperOS 拒绝 input 事件、无法在弹窗里打字的限制，直接建任务并同步
         val debugName = intent?.getStringExtra("debugTaskName")
         val debugUrl = intent?.getStringExtra("debugShareUrl")
+        // 多源调试：--es debugShareUrl2 再加一个附加源
+        val debugUrl2 = intent?.getStringExtra("debugShareUrl2")
         if (!debugName.isNullOrBlank() && !debugUrl.isNullOrBlank()) {
-            tasksViewModel.createTask(debugName, debugUrl, "", "")
+            tasksViewModel.createTask(
+                debugName,
+                listOfNotNull(debugUrl, debugUrl2),
+                "",
+                "",
+            )
         }
         // 调试/联调用：adb ... --ez debugRunAll true 直接跑一轮「全部检测」
         if (intent?.getBooleanExtra("debugRunAll", false) == true) {
