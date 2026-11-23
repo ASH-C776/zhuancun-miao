@@ -126,64 +126,64 @@ fun TaskListScreen(
                 ),
             )
         },
-        // 右下拇指区：一列圆形「刷新 / 日志 / 设置」+ 主按钮「+」。单手（右手握持）抬拇指即可
+        // 右下拇指区：一个横向胶囊，四键并排「刷新 / 日志 / 设置 / +」
         floatingActionButton = {
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                shadowElevation = 4.dp,
             ) {
-                Surface(
-                    shape = RoundedCornerShape(24.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    shadowElevation = 4.dp,
-                ) {
-                    Column {
-                        IconButton(
-                            onClick = { viewModel.runAll() },
-                            enabled = cards.isNotEmpty() && running.isEmpty(),
-                            modifier = Modifier.size(48.dp),
-                        ) {
-                            if (running.isEmpty()) {
-                                Icon(
-                                    Icons.Filled.Refresh,
-                                    contentDescription = "全部检测",
-                                    modifier = Modifier.size(24.dp),
-                                )
-                            } else {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(20.dp),
-                                    strokeWidth = 2.dp,
-                                )
-                            }
-                        }
-                        IconButton(
-                            onClick = onOpenHistory,
-                            modifier = Modifier.size(48.dp),
-                        ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = { viewModel.runAll() },
+                        enabled = cards.isNotEmpty() && running.isEmpty(),
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        if (running.isEmpty()) {
                             Icon(
-                                Icons.Filled.List,
-                                contentDescription = "运行日志",
+                                Icons.Filled.Refresh,
+                                contentDescription = "全部检测",
                                 modifier = Modifier.size(24.dp),
                             )
-                        }
-                        IconButton(
-                            onClick = onOpenSettings,
-                            modifier = Modifier.size(48.dp),
-                        ) {
-                            Icon(
-                                Icons.Filled.Settings,
-                                contentDescription = "设置",
-                                modifier = Modifier.size(24.dp),
+                        } else {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp,
                             )
                         }
                     }
-                }
-                FloatingActionButton(onClick = onOpenNewTask) {
-                    Icon(
-                        Icons.Filled.Add,
-                        contentDescription = "新增任务",
-                        modifier = Modifier.size(24.dp),
-                    )
+                    IconButton(
+                        onClick = onOpenHistory,
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.List,
+                            contentDescription = "运行日志",
+                            modifier = Modifier.size(24.dp),
+                        )
+                    }
+                    IconButton(
+                        onClick = onOpenSettings,
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.Settings,
+                            contentDescription = "设置",
+                            modifier = Modifier.size(24.dp),
+                        )
+                    }
+                    // 主操作「+」与前三键同尺寸同色，靠主色图标区分主次
+                    IconButton(
+                        onClick = onOpenNewTask,
+                        modifier = Modifier.size(48.dp),
+                    ) {
+                        Icon(
+                            Icons.Filled.Add,
+                            contentDescription = "新增任务",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp),
+                        )
+                    }
                 }
             }
         },
@@ -210,7 +210,7 @@ fun TaskListScreen(
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 200.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 96.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     items(cards, key = { it.task.id }) { card ->

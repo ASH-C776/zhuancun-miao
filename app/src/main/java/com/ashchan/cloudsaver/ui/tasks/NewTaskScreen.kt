@@ -43,6 +43,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -234,20 +235,27 @@ fun NewTaskScreen(
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    IconButton(
+                    // 两个按钮同一规格：48dp 高、并排等宽；「运行一次」描边、「保存」实心
+                    OutlinedButton(
                         onClick = { submit(SubmitMode.RUN) },
-                        modifier = Modifier.size(48.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
                     ) {
                         Icon(
                             Icons.Default.PlayArrow,
-                            contentDescription = "运行一次",
-                            modifier = Modifier.size(24.dp),
+                            contentDescription = null,
+                            modifier = Modifier.size(20.dp),
                         )
+                        Spacer(Modifier.width(8.dp))
+                        Text("运行一次", fontWeight = FontWeight.SemiBold)
                     }
                     Spacer(Modifier.width(12.dp))
                     Button(
                         onClick = { submit(SubmitMode.SAVE) },
-                        modifier = Modifier.height(48.dp),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp),
                     ) {
                         Text("保存", fontWeight = FontWeight.SemiBold)
                     }
@@ -689,7 +697,13 @@ private fun SaveLocationDialog(
 
     // 不再起独立 Dialog 窗口：直接画在 Activity 同一个窗口里，与主页/设置页共用
     // enableEdgeToEdge，状态栏图标和底部小白条都是同一套沉浸效果（不会再冒出灰带）。
-    BackHandler { onDismiss() }
+    // 返回即确认：点左上箭头或用手势返回，都把当前所在目录写回表单。
+    // 但如果进来看了一眼就返回、没切过网盘也没下钻任何目录，则保持原有选择不动。
+    fun commitOrDismiss() {
+        val moved = type != initialDrive || crumb.isNotEmpty()
+        if (type != null && moved) onPick(type, currentFid, label) else onDismiss()
+    }
+    BackHandler { commitOrDismiss() }
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
         Column(
             Modifier
@@ -697,15 +711,15 @@ private fun SaveLocationDialog(
                 // 底色铺满整屏（含系统栏区域），正文让开两端的系统栏
                 .windowInsetsPadding(WindowInsets.safeDrawing)
         ) {
-                // 顶栏：返回 / 标题 / 选这里
+                // 顶栏：返回即保存，不再单独放「选这里」
                 Row(
                     Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 8.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    IconButton(onClick = onDismiss) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
+                    IconButton(onClick = { commitOrDismiss() }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回并保存")
                     }
                     Text(
                         "保存位置",
@@ -713,10 +727,6 @@ private fun SaveLocationDialog(
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.weight(1f),
                     )
-                    TextButton(
-                        onClick = { if (type != null) onPick(type, currentFid, label) },
-                        enabled = type != null && !loading,
-                    ) { Text("选这里", fontWeight = FontWeight.SemiBold) }
                 }
 
                 // 网盘切换：未登录的置灰，点了给提示
@@ -763,6 +773,14 @@ private fun SaveLocationDialog(
                                 scope.launch { jumpTo(crumb.take(index + 1)) }
                             }
                         }
+                        Spacer(Modifier.weight(1f))
+                        // 明确告知：返回就等于选中当前目录
+                        Text(
+                            "返回即保存",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                        )
                     } else {
                         Text(
                             "没有已登录的网盘，请先在设置里登录",
