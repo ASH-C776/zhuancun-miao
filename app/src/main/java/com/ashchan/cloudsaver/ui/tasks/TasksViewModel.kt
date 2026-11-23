@@ -63,7 +63,6 @@ class TasksViewModel(
     private val _progress = MutableStateFlow<String?>(null)
     val progress: StateFlow<String?> = _progress.asStateFlow()
 
-    private var autoSynced = false
 
     fun clearError() {
         _error.value = null
@@ -88,6 +87,7 @@ class TasksViewModel(
         savePathLabel: String = "网盘根目录",
         ruleKey: String = "",
         seasonNo: Int = 0,
+        folderWithTmdbId: Boolean = false,
         driveOverride: DriveType? = null,
     ) {
         val title = name.trim()
@@ -113,6 +113,7 @@ class TasksViewModel(
                         airTime = airTime.trim(),
                         ruleKey = ruleKey,
                         seasonNo = seasonNo,
+                        folderWithTmdbId = folderWithTmdbId,
                         updateMode = if (weekdays.isBlank()) {
                             TaskEntity.UPDATE_MODE_TMDB
                         } else {
@@ -202,13 +203,6 @@ class TasksViewModel(
         }
     }
 
-    /** App 打开时自动同步一轮（只跑一次） */
-    fun syncOnStartOnce() {
-        if (autoSynced) return
-        autoSynced = true
-        runAll(RunRecordEntity.TRIGGER_BACKGROUND)
-    }
-
     // ---------------- 内部 ----------------
 
     private suspend fun execute(task: TaskEntity, trigger: String) {
@@ -227,4 +221,6 @@ class TasksViewModel(
         }
     }
 }
+
+
 

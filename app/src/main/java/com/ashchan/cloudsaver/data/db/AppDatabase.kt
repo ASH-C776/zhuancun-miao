@@ -13,7 +13,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  */
 @Database(
     entities = [TaskEntity::class, SnapshotEntity::class, RunRecordEntity::class],
-    version = 5,
+    version = 6,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -82,6 +82,19 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v6：tasks 加 `folderWithTmdbId`（网盘文件夹名是否带 TMDB ID）。
+         *
+         * 默认 false = 只用剧名当文件夹名，老任务不受影响。
+         */
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE tasks ADD COLUMN folderWithTmdbId INTEGER NOT NULL DEFAULT 0"
+                )
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -93,6 +106,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_2_3,
                     MIGRATION_3_4,
                     MIGRATION_4_5,
+                    MIGRATION_5_6,
                 ).build().also { instance = it }
             }
     }

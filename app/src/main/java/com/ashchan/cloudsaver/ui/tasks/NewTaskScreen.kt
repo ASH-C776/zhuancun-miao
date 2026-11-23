@@ -88,6 +88,7 @@ fun NewTaskScreen(
     var saveFid by remember { mutableStateOf("0") }
     var savePathLabel by remember { mutableStateOf("网盘根目录") }
     var seasonNo by remember { mutableStateOf(0) }
+    var folderWithTmdbId by remember { mutableStateOf(false) }
     var ruleKey by remember { mutableStateOf("") }
     var tmdbId by remember { mutableStateOf("") }
     var tmdbTitle by remember { mutableStateOf("") }
@@ -143,6 +144,7 @@ fun NewTaskScreen(
                                         savePathLabel = savePathLabel,
                                         ruleKey = ruleKey,
                                         seasonNo = seasonNo,
+                                        folderWithTmdbId = folderWithTmdbId,
                                         driveOverride = drive,
                                     )
                                     onDone()
@@ -266,6 +268,17 @@ fun NewTaskScreen(
                         label = { Text(magic.name, style = MaterialTheme.typography.labelMedium) },
                     )
                 }
+            }
+            // 目录命名开关：勾了就是「剧名 tmdb-123」（单独一行，文字不换行）
+            Row {
+                FilterChip(
+                    selected = folderWithTmdbId,
+                    onClick = { folderWithTmdbId = !folderWithTmdbId },
+                    enabled = tmdbId.isNotBlank(),
+                    label = {
+                        Text("文件夹加 TMDB ID", style = MaterialTheme.typography.labelMedium)
+                    },
+                )
             }
 
             // 更新日：七个排一排

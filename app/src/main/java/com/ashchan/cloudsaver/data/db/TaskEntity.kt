@@ -65,6 +65,11 @@ data class TaskEntity(
      * 一部用「SxxExx」、另一部要「剧名.SxxEyy」，全局开关做不到。
      */
     val ruleKey: String = "",
+    /**
+     * 网盘文件夹名是否带 TMDB ID。
+     * true 且绑定了 TMDB 时，目录名是「剧名 tmdb-12345」，否则就是纯剧名。
+     */
+    val folderWithTmdbId: Boolean = false,
     val enabled: Boolean = true,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),

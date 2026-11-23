@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.List
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
@@ -91,7 +92,6 @@ fun TaskListScreen(
     var pendingDelete by remember { mutableStateOf<TaskEntity?>(null) }
 
     // 打开 App 自动同步一轮（每个 ViewModel 生命周期一次）
-    LaunchedEffect(Unit) { viewModel.syncOnStartOnce() }
 
     // 调试/外部分享入口仍可直达新建页（openNewTask extra）
     LaunchedEffect(startWithNewTaskDialog) {
@@ -360,6 +360,12 @@ private fun TaskRow(
                         Spacer(Modifier.width(6.dp))
                         Text("同步中")
                     } else {
+                        Icon(
+                            Icons.Default.PlayArrow,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(2.dp))
                         Text("检测转存")
                     }
                 }
@@ -487,3 +493,4 @@ private fun syncText(millis: Long): String {
     val fmt = SimpleDateFormat("MM/dd HH:mm", Locale.getDefault())
     return fmt.format(Date(millis))
 }
+

@@ -123,8 +123,10 @@ class TaskRunner(
 
         // 每个任务在自己的保存位置下建一个「剧名」目录：
         // 多剧混在同一层会让集数统计把整盘视频算作一个任务，必须隔离。
+        // 勾了「文件夹加 TMDB ID」时目录名变成「剧名 tmdb-12345」。
+        val folderName = taskNameOf(task)
         val nameFid = retryOnce("创建任务目录") {
-            adapter.ensureFolder(baseFid, task.name.trim())
+            adapter.ensureFolder(baseFid, folderName)
         }.getOrElse { baseFid }
 
         // 选了季度就再多一层 `Season N`；不选则视频直接平铺在剧名目录下
@@ -290,6 +292,16 @@ class TaskRunner(
                 "tv=$tvId season=$season latest=${it.latestEpisode} weekday=${it.weekday}",
             )
         }
+    }
+
+    /**
+     * 任务在网盘里的文件夹名。
+     * 勾了「文件夹加 TMDB ID」且绑定了 TMDB → 「剧名 tmdb-123」；否则就是剧名本身。
+     */
+    private fun taskNameOf(task: TaskEntity): String {
+        val base = task.name.trim()
+        val id = task.tmdbId
+        return if (task.folderWithTmdbId && id != null) "$base tmdb-$id" else base
     }
 
     /** 目标侧季目录名（选了季度才建） */
