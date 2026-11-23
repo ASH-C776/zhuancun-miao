@@ -302,31 +302,29 @@ fun NewTaskScreen(
                 }
             }
 
-            // 命名规则：默认 / 通用命名（每项占一行）
+            // 命名规则：默认 / 通用命名 / tmdb id，三项并排一行
             SectionLabel("命名规则")
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                FilterChip(
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                SmallChoice(
+                    text = "默认",
                     selected = ruleKey.isBlank(),
-                    onClick = {
-                        ruleKey = ""
-                        folderWithTmdbId = false
-                    },
-                    label = { Text("默认", style = MaterialTheme.typography.labelMedium) },
-                )
-                if (magic != null) {
-                    FilterChip(
-                        selected = ruleKey == magic.key,
-                        onClick = { ruleKey = magic.key },
-                        label = { Text("通用命名", style = MaterialTheme.typography.labelMedium) },
-                    )
+                    modifier = Modifier.weight(1f),
+                ) {
+                    ruleKey = ""
+                    folderWithTmdbId = false
                 }
+                SmallChoice(
+                    text = "通用命名",
+                    selected = ruleKey == magic?.key,
+                    modifier = Modifier.weight(1f),
+                ) { if (magic != null) ruleKey = magic.key }
                 // 只有选了「通用命名」、且绑定了 TMDB 才能用：文件夹名变成 剧名 + tmdb-ID
-                FilterChip(
+                SmallChoice(
+                    text = "tmdb id",
                     selected = folderWithTmdbId,
-                    onClick = { folderWithTmdbId = !folderWithTmdbId },
+                    modifier = Modifier.weight(1f),
                     enabled = canUseTmdbFolder,
-                    label = { Text("tmdb id", style = MaterialTheme.typography.labelMedium) },
-                )
+                ) { folderWithTmdbId = !folderWithTmdbId }
             }
 
             // 更新日：七个排一排
@@ -531,6 +529,7 @@ private fun SmallChoice(
     text: String,
     selected: Boolean,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
     onClick: () -> Unit,
 ) {
     Box(
@@ -538,22 +537,22 @@ private fun SmallChoice(
             .height(38.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(
-                if (selected) {
-                    MaterialTheme.colorScheme.primaryContainer
-                } else {
-                    MaterialTheme.colorScheme.surfaceContainerLow
+                when {
+                    !enabled -> MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.5f)
+                    selected -> MaterialTheme.colorScheme.primaryContainer
+                    else -> MaterialTheme.colorScheme.surfaceContainerLow
                 },
             )
-            .clickableRow(onClick = onClick),
+            .clickableRow { if (enabled) onClick() },
         contentAlignment = Alignment.Center,
     ) {
         Text(
             text,
             style = MaterialTheme.typography.labelMedium,
-            color = if (selected) {
-                MaterialTheme.colorScheme.onPrimaryContainer
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
+            color = when {
+                !enabled -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                selected -> MaterialTheme.colorScheme.onPrimaryContainer
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
             },
             maxLines = 1,
         )
