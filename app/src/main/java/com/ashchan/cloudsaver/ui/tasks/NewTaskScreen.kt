@@ -39,6 +39,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TimePicker
@@ -59,6 +60,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.ashchan.cloudsaver.core.model.DriveFile
 import com.ashchan.cloudsaver.core.model.DriveType
 import com.ashchan.cloudsaver.core.tmdb.TmdbSearchItem
@@ -264,32 +267,21 @@ fun NewTaskScreen(
                 modifier = Modifier.fillMaxWidth(),
             )
 
-            // 网盘
-            SectionLabel("网盘")
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                DriveType.entries.forEach { type ->
-                    val loggedIn = viewModel.isLoggedIn(type)
-                    FilterChip(
-                        selected = drive == type,
-                        onClick = {
-                            drive = type
-                            drivePickedByUser = true
-                        },
-                        label = {
-                            Text(
-                                if (loggedIn) type.displayName else "${type.displayName}（未登录）",
-                                style = MaterialTheme.typography.labelMedium,
-                            )
-                        },
-                    )
-                }
-            }
-
-            // 保存路径
-            SectionLabel("保存路径")
+            // 保存位置：网盘 + 目录合成一行，点进去从网盘根开始逐层下钻
+            SectionLabel("保存位置")
             SettingRow(
                 icon = { Icon(Icons.Default.Home, null, tint = MaterialTheme.colorScheme.primary) },
-                title = savePathLabel,
+                title = buildString {
+                    val type = drive
+                    if (type == null) {
+                        append("选择网盘 / 目录")
+                    } else {
+                        append(type.displayName)
+                        if (!viewModel.isLoggedIn(type)) append("（未登录）")
+                        append(" / ")
+                        append(savePathLabel)
+                    }
+                },
                 onClick = { showPathPicker = true },
             )
 
@@ -400,11 +392,13 @@ fun NewTaskScreen(
     }
 
     if (showPathPicker) {
-        PathPickerDialog(
+        SaveLocationDialog(
             viewModel = viewModel,
-            drive = drive,
+            initialDrive = drive,
             onDismiss = { showPathPicker = false },
-            onPick = { fid, label ->
+            onPick = { pickedDrive, fid, label ->
+                drive = pickedDrive
+                drivePickedByUser = true
                 saveFid = fid
                 savePathLabel = label
                 showPathPicker = false
@@ -567,110 +561,188 @@ private fun SmallChoice(
 }
 
 /**
- * 目录选择弹层：从网盘根开始逐层下钻，底部确认当前目录。
- * 与旧 `FolderPickerScreen` 的区别是不占导航栈 —— 选完直接把 fid 带回表单。
+ * 保存位置选择器（全屏）：顶部切网盘，面包屑逐级跳转，中间列子目录。
+ * 确认后把「网盘 + 目录 fid + 可读路径」一起带回表单。
  */
 @Composable
-private fun PathPickerDialog(
+private fun SaveLocationDialog(
     viewModel: TasksViewModel,
-    drive: DriveType?,
+    initialDrive: DriveType?,
     onDismiss: () -> Unit,
-    onPick: (fid: String, label: String) -> Unit,
+    onPick: (drive: DriveType, fid: String, label: String) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
+    var drive by remember {
+        mutableStateOf(initialDrive ?: DriveType.entries.firstOrNull { viewModel.isLoggedIn(it) })
+    }
     var dirs by remember { mutableStateOf<List<DriveFile>>(emptyList()) }
     var crumb by remember { mutableStateOf(listOf<Pair<String, String>>()) }
     var currentFid by remember { mutableStateOf("0") }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
 
-    suspend fun load(fid: String) {
-        if (drive == null) return
+    suspend fun load(type: DriveType?, fid: String) {
+        if (type == null) return
         loading = true
-        viewModel.listDirs(drive, fid)
+        viewModel.listDirs(type, fid)
             .onSuccess { dirs = it; error = null }
             .onFailure { error = it.message ?: "加载目录失败" }
         loading = false
     }
 
+    suspend fun jumpTo(target: List<Pair<String, String>>) {
+        crumb = target
+        val fid = target.lastOrNull()?.first ?: "0"
+        currentFid = fid
+        load(drive, fid)
+    }
+
     LaunchedEffect(drive) {
-        if (drive != null) load("0")
+        dirs = emptyList()
+        if (drive != null) load(drive, "0")
     }
 
     val label = if (crumb.isEmpty()) "网盘根目录" else crumb.joinToString(" / ") { it.second }
+    val type = drive
 
-    AlertDialog(
+    Dialog(
         onDismissRequest = onDismiss,
-        title = { Text("选择保存路径") },
-        text = {
-            Column(Modifier.heightIn(max = 420.dp)) {
-                if (drive == null) {
-                    Text("请先选择网盘")
-                    return@Column
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(
-                        onClick = {
-                            val parent = crumb.dropLast(1)
-                            crumb = parent
-                            val fid = parent.lastOrNull()?.first ?: "0"
-                            currentFid = fid
-                            scope.launch { load(fid) }
-                        },
-                        enabled = crumb.isNotEmpty(),
-                    ) { Text(".. 上级") }
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+            Column(Modifier.fillMaxSize()) {
+                // 顶栏：返回 / 标题 / 选这里
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "返回")
+                    }
                     Text(
-                        label,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
+                        "保存位置",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.weight(1f),
                     )
+                    TextButton(
+                        onClick = { if (type != null) onPick(type, currentFid, label) },
+                        enabled = type != null && !loading,
+                    ) { Text("选这里", fontWeight = FontWeight.SemiBold) }
                 }
+
+                // 网盘切换：未登录的置灰，点了给提示
+                Row(
+                    Modifier.padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    DriveType.entries.forEach { candidate ->
+                        val loggedIn = viewModel.isLoggedIn(candidate)
+                        FilterChip(
+                            selected = drive == candidate,
+                            onClick = { if (loggedIn) drive = candidate },
+                            enabled = loggedIn,
+                            label = {
+                                Text(
+                                    if (loggedIn) candidate.displayName else "${candidate.displayName}（未登录）",
+                                    style = MaterialTheme.typography.labelMedium,
+                                )
+                            },
+                        )
+                    }
+                }
+
+                // 面包屑：每段都能点，点第一段回根目录
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (type != null) {
+                        CrumbText("${type.displayName}") {
+                            scope.launch { jumpTo(emptyList()) }
+                        }
+                        crumb.forEachIndexed { index, (_, name) ->
+                            Text(
+                                "›",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 4.dp),
+                            )
+                            CrumbText(name, selected = index == crumb.lastIndex) {
+                                scope.launch { jumpTo(crumb.take(index + 1)) }
+                            }
+                        }
+                    } else {
+                        Text(
+                            "没有已登录的网盘，请先在设置里登录",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                }
+
                 if (loading) LinearProgressIndicator(Modifier.fillMaxWidth())
                 error?.let {
-                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        it,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                    )
                 }
                 HorizontalDivider()
-                LazyColumn(Modifier.weight(1f, fill = false)) {
+
+                LazyColumn(Modifier.weight(1f)) {
                     items(dirs, key = { it.fid }) { dir ->
                         Row(
                             Modifier
                                 .fillMaxWidth()
                                 .clickableRow {
-                                    crumb = crumb + (dir.fid to dir.name)
-                                    currentFid = dir.fid
-                                    scope.launch { load(dir.fid) }
+                                    scope.launch { jumpTo(crumb + (dir.fid to dir.name)) }
                                 }
-                                .padding(vertical = 12.dp, horizontal = 4.dp),
+                                .padding(vertical = 14.dp, horizontal = 20.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Text(dir.name, style = MaterialTheme.typography.bodyMedium)
+                            Text("📁", style = MaterialTheme.typography.bodyMedium)
+                            Spacer(Modifier.width(10.dp))
+                            Text(dir.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1)
                         }
                     }
-                    if (dirs.isEmpty() && !loading) {
+                    if (dirs.isEmpty() && !loading && error == null) {
                         item {
                             Text(
-                                "这个目录下没有子文件夹",
+                                "这个目录下没有子文件夹，可以直接用当前目录",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(vertical = 12.dp),
+                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
                             )
                         }
                     }
                 }
             }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = { onPick(currentFid, label) },
-                enabled = drive != null,
-            ) { Text("选这个目录") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
-    )
+        }
+    }
 }
 
+/** 面包屑里的一段，可点跳转 */
+@Composable
+private fun CrumbText(text: String, selected: Boolean = false, onClick: () -> Unit) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodyMedium,
+        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+        maxLines = 1,
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .clickableRow(onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+    )
+}
 @Composable
 private fun TmdbSearchDialog(
     viewModel: TasksViewModel,

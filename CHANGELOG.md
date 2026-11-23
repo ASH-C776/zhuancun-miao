@@ -438,3 +438,14 @@
 
 - `:app:compileDebugKotlin` / `:app:assembleDebug` / `:app:testDebugUnitTest` 均通过（74 项单测全绿）
 - 未装机验证：本机 adb 当前无设备（USB 未插、无线 `192.168.31.144:5555` 连不上），真机截图与「运行一次」实际日志待接上手机后补
+
+### Stage 13.1 · 保存位置合并成一行（2026-11-23）
+
+- 表单里原来的「网盘」chips + 「保存路径」两行合成一行 **保存位置**：`光鸭云盘 / 网盘根目录`，未登录的网盘在行内直接标 `（未登录）`
+- 点这行进 **全屏选择器**（`SaveLocationDialog`，`Dialog(usePlatformDefaultWidth = false)` 铺满）：
+  - 顶部返回 / 标题 / `选这里`；下面一排网盘 chip（未登录置灰不可点）
+  - 面包屑每段可点：点网盘名回根目录、点中间某级直接跳回那级
+  - 切网盘时目录从根重新拉、选中路径清空（不同盘 fid 不通用）
+  - 子目录列表带 📁 前缀，空目录给「可以直接用当前目录」提示
+- 选完把 `drive + saveFid + 可读 label` 一起带回表单，并标记「网盘是用户手选的」，链接识别不再覆盖它
+- `:app:compileDebugKotlin` / `:app:assembleDebug` / 单测通过；真机仍未连接（adb 无设备），截图待补
