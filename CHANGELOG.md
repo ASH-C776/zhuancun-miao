@@ -477,3 +477,27 @@
 - 夸克仍是 Cookie 机制：只能检测有效性并提示「Cookie 已失效，请到设置重新粘贴」，无法凭空续期
 
 **验收**：`:app:assembleDebug` + 74 项单测通过；真机装包后 `debugRunAll` 跑一轮，两张卡均刷新到 13:03「已是最新」，说明正常路径未受影响（`docs/home13.png`）
+### Stage 15 · 更新日推断对齐 CASX 原项目（多天更新，2026-11-23）
+
+**对比结论（为什么原来不准）**
+
+| | CASX 原项目 | 我们改之前 |
+| --- | --- | --- |
+| 样本 | 最后一季**逐集播出日期**（去重、按日期排序、最多 100 条）+ last_episode + next_episode | 只取 `next_episode_to_air`（null 时退回 last_episode）**单条** |
+| 算法 | 按时间加权投票：越新权重 0.9^年龄；≥4 条且主日 ≥60% → 单日；否则取「出现 ≥2 次且权重 ≥20%」的日子，最多 3 个；天天播兜底全返回 | 直接 `weekdayOf(日期)`，永远只有一个 |
+
+结果：一周播两天（周一+周二）、周更+周末加更、天天播的短剧（如《鉴定》每天更 4 集）都被压成单日。
+
+**改动**
+
+- `TmdbClient.inferWeekdaysFromSamples(samples)`：**完整移植**原项目 `_infer_weekdays_from_weekday_samples`（0.9 衰减权重、60% 单日阈值、20%/2 次规则、天天播兜底、最多 3 个）
+- `TmdbClient.inferWeekdays(tvId, info)`：按原项目口径取样本——`last_episode_to_air` 的季号（无则取总季数）→ 拉该季集表 → 播出日期去重排序取最近 100 条 → 追加 last/next → 权重投票
+- `TaskRunner.resolveTmdb` 改返回「多天列表」；`updateMode == TMDB`（用户从没手动点过更新日）时**每次跑都用最新推断覆盖**，修掉历史单日错误值；手动点过切 MANUAL，不再被覆盖
+- 新建页选剧后自动点亮**多天**（`viewModel.tmdbWeekdays`）；更新日那一行新增「按 TMDB 重算」，点一下直接按新口径重算（自动置为 TMDB 模式）
+- `updateModeAuto` 参数打通 `createTask / saveEdit`
+
+**验证**
+
+- 新增单测 `TmdbWeekdayInferenceTest`（7 例：单日、两天、三天、天天播、样本过少、改档、空样本），全绿
+- 真机日志：`tv=307106 weekdays=[1, 2]`（恋爱博士 周一+周二）、`tv=259785 weekdays=[1, 2, 3, 4, 5, 6, 7]`（鉴定 每日更新，与优酷「每天更 4 集」一致）
+- 现有两条任务是 MANUAL 模式（早前手点过星期），不会自动覆盖；编辑页点「按 TMDB 重算」再保存即可更新

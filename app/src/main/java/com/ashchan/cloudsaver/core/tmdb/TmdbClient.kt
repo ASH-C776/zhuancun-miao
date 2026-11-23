@@ -58,8 +58,36 @@ class TmdbClient(
         arr.mapNotNull { el -> el.takeIf { it.isJsonObject }?.let { parseEpisode(it.asJsonObject, season) } }
     }
 
-    /** 设置页「测试」：拿一个稳定存在的剧（1399 = 权力的游戏）探活 */
-    suspend fun ping(): Result<String> = runCatching {
+    /**
+     * 推断一週里的更新日（可多天），对齐原项目口径。
+     *
+     * 样本来源：最后一季的逐集播出日期（去重、按日期排序、最多取最近 100 条）
+     * + `last_episode_to_air` + `next_episode_to_air`，
+     * 再交给 [inferWeekdaysFromSamples] 按时间加权投票。
+     *
+     * 注意：这里会额外请求一次 `/tv/{id}/season/{n}`，只在「需要推断更新日」时调用。
+     */
+    suspend fun inferWeekdays(
+        tvId: Long,
+        info: TmdbTvInfo? = null,
+        language: String = "zh-CN",
+    ): List<Int> = runCatching {
+        val tv = info ?: fetchTv(tvId, language).getOrThrow()
+        // 原项目优先用 last_episode_to_air 的季号，拿不到就用总季数
+        val season = tv.lastEpisode?.season?.takeIf { it > 0 } ?: tv.numberOfSeasons
+        val dates = mutableListOf<String>()
+        if (season > 0) {
+            fetchSeason(tvId, season, language).getOrNull()?.forEach { ep ->
+                ep.airDate?.takeIf { it.isNotBlank() }?.let { dates += it }
+            }
+        }
+        dates += listOfNotNull(tv.lastEpisode?.airDate, tv.nextEpisode?.airDate)
+        val sorted = dates.filter { it.isNotBlank() }.distinct().sorted()
+        val tail = if (sorted.size > 100) sorted.takeLast(100) else sorted
+        inferWeekdaysFromSamples(tail.mapNotNull { weekdayOf(it) })
+    }.getOrDefault(emptyList())
+
+    /** 设置页「测试」：拿一个稳定存在的剧（1399 = 权力的游戏）探活 */    suspend fun ping(): Result<String> = runCatching {
         val body = get("/3/tv/1399", "zh-CN")
         body.get("name")?.asString?.takeIf { it.isNotBlank() }
             ?: throw IllegalStateException("TMDB 返回内容异常")
@@ -191,11 +219,65 @@ data class TmdbTvInfo(
         return lastEpisode?.episode ?: 0
     }
 
-    /** 推断更新日：优先下周播出日，其次上一集播出日 */
+    /** 推断更新日：优先下周播出日，其次上一集播出日（单日；多天更新请用 [inferWeekdays]） */
     fun weekdayHint(): Int? {
         val date = nextEpisode?.airDate ?: lastEpisode?.airDate ?: return null
         return weekdayOf(date)
     }
+}
+
+/**
+ * 更新日推断（与 CASX 原项目 `_infer_weekdays_from_weekday_samples` 同口径）。
+ *
+ * 为什么不是一个星期几：很多剧/综艺一周播多天（周一+周二）或天天播，
+ * 只取 `next_episode_to_air` 会被压成单日，于是「每周几更新」不准。
+ *
+ * 口径：
+ * 1. 样本按时间顺序排（旧 → 新），越新权重越高（0.9 的年龄次方）
+ * 2. 样本 ≥4 且最高权重占比 ≥60% → 单日
+ * 3. 否则取「出现次数 ≥2 且权重占比 ≥20%」的日子，按权重降序，最多 3 个
+ * 4. 一个都不满足 → 全部出现过的日子
+ * 5. 兜底：样本 ≥7、出现 ≥5 个不同日子、最高占比 ≤40% → 全返回（天天播）
+ */
+fun inferWeekdaysFromSamples(samples: List<Int>): List<Int> {
+    val valid = samples.filter { it in 1..7 }
+    if (valid.isEmpty()) return emptyList()
+    val unique = valid.toSortedSet()
+    val total = valid.size
+    val decay = 0.9
+
+    val rawCounts = mutableMapOf<Int, Int>()
+    val weightedCounts = mutableMapOf<Int, Double>()
+    var weightedTotal = 0.0
+    valid.forEachIndexed { index, day ->
+        val age = (total - 1) - index
+        val weight = Math.pow(decay, age.toDouble())
+        weightedTotal += weight
+        rawCounts[day] = (rawCounts[day] ?: 0) + 1
+        weightedCounts[day] = (weightedCounts[day] ?: 0.0) + weight
+    }
+
+    val mostDay = weightedCounts.maxByOrNull { it.value }
+    val mostWeight = mostDay?.value ?: 0.0
+    val picked = mutableListOf<Int>()
+    if (total >= 4 && weightedTotal > 0 && mostWeight / weightedTotal >= 0.6) {
+        mostDay?.let { picked += it.key }
+    } else {
+        weightedCounts.entries
+            .sortedByDescending { it.value }
+            .forEach { (day, weight) ->
+                if ((rawCounts[day] ?: 0) >= 2 && weightedTotal > 0 && weight / weightedTotal >= 0.2) {
+                    picked += day
+                }
+            }
+        if (picked.isEmpty()) picked += unique
+    }
+
+    val sorted = picked.filter { it in 1..7 }.toSortedSet().toList()
+    if (total >= 7 && unique.size >= 5 && weightedTotal > 0 && mostWeight / weightedTotal <= 0.4) {
+        return unique.toList()
+    }
+    return sorted.take(3)
 }
 
 /** yyyy-MM-dd → ISO 星期（1=周一 … 7=周日），无法解析返回 null */

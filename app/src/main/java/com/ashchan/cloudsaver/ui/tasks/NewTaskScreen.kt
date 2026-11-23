@@ -108,6 +108,10 @@ fun NewTaskScreen(
     }
     // 用户手动点过星期后，就不再让 TMDB 的播出日覆盖
     var weekdaysManual by remember { mutableStateOf(!editingTask?.weekdays.isNullOrBlank()) }
+    // 更新日是否交给 TMDB 自动（新建默认自动；编辑时看原任务模式）
+    var updateModeAuto by remember {
+        mutableStateOf(editingTask?.updateMode != TaskEntity.UPDATE_MODE_MANUAL)
+    }
 
     var showPathPicker by remember { mutableStateOf(false) }
     var showTmdbSearch by remember { mutableStateOf(false) }
@@ -166,6 +170,7 @@ fun NewTaskScreen(
                         seasonNo = seasonNo,
                         folderWithTmdbId = effectiveFolder,
                         driveOverride = drive,
+                        updateModeAuto = updateModeAuto,
                     )
 
                     else -> viewModel.createTask(
@@ -180,6 +185,7 @@ fun NewTaskScreen(
                         seasonNo = seasonNo,
                         folderWithTmdbId = effectiveFolder,
                         driveOverride = drive,
+                        updateModeAuto = updateModeAuto,
                     )
                 }
                 if (mode == SubmitMode.SAVE) onDone()
@@ -338,8 +344,28 @@ fun NewTaskScreen(
                 )
             }
 
-            // 更新日：七个排一排
-            SectionLabel("更新日")
+            // 更新日：七个排一排；绑了 TMDB 可以一键重算
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                SectionLabel("更新日")
+                Spacer(Modifier.weight(1f))
+                if (tmdbId.isNotBlank()) {
+                    TextButton(
+                        onClick = {
+                            scope.launch {
+                                val days = viewModel.tmdbWeekdays(tmdbId.toLong())
+                                if (days.isNotEmpty()) {
+                                    weekdays = days.toSet()
+                                    weekdaysManual = false
+                                    updateModeAuto = true
+                                    error = null
+                                } else {
+                                    error = "没能推断更新日，检查 TMDB 凭证或网络后再试"
+                                }
+                            }
+                        },
+                    ) { Text("按 TMDB 重算", style = MaterialTheme.typography.bodySmall) }
+                }
+            }
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -360,6 +386,7 @@ fun NewTaskScreen(
                             )
                             .clickableRow {
                                 weekdaysManual = true
+                                updateModeAuto = false
                                 weekdays = if (on) weekdays - day else weekdays + day
                             },
                         contentAlignment = Alignment.Center,
@@ -435,10 +462,10 @@ fun NewTaskScreen(
                 tmdbId = item.id.toString()
                 tmdbTitle = item.title()
                 showTmdbSearch = false
-                // 选完剧就按 TMDB 的播出星期点亮更新日；用户手动点过就不覆盖
+                // 选完剧就按 TMDB 推断的播出日点亮更新日（可能多天）；用户手动点过就不覆盖
                 scope.launch {
-                    val day = viewModel.tmdbWeekday(item.id)
-                    if (day != null && !weekdaysManual) weekdays = setOf(day)
+                    val days = viewModel.tmdbWeekdays(item.id)
+                    if (days.isNotEmpty() && !weekdaysManual) weekdays = days.toSet()
                 }
             },
         )

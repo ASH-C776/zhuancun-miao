@@ -178,9 +178,13 @@ class TaskRunner(
 
         // 更新日按 TMDB 自动推断：只在「任务设成自动」且还没手动设过更新日时写入，
         // 不覆盖用户手动点选的星期，避免下次打开 App 被悄改。
-        if (task.updateMode == TaskEntity.UPDATE_MODE_TMDB && task.weekdays.isBlank()) {
-            tmdb.weekday?.let { day ->
-                repo.update(task.copy(weekdays = Weekdays.format(setOf(day))))
+        // 更新日按 TMDB 自动推断：`updateMode == TMDB` 表示「用户从没手动点过更新日」，
+        // 这种情况每次都用最新推断结果覆盖（原项目也是每次现算），
+        // 修掉老数据里因「只取下一集」而被压成单日的错误值；用户手点过就会切成 MANUAL，不再被覆盖。
+        if (task.updateMode == TaskEntity.UPDATE_MODE_TMDB && tmdb.weekdays.isNotEmpty()) {
+            val formatted = Weekdays.format(tmdb.weekdays.toSet())
+            if (formatted != task.weekdays) {
+                repo.update(task.copy(weekdays = formatted))
             }
         }
 
@@ -244,7 +248,7 @@ class TaskRunner(
     }
 
     /** TMDB 解析结果（失败一律回 0/null，不影响转存主流程） */
-    private data class TmdbLatest(val latestEpisode: Int, val weekday: Int?)
+    private data class TmdbLatest(val latestEpisode: Int, val weekdays: List<Int>)
 
     /**
      * 生成改名映射（分享文件 fid → 转存时要用的新文件名）。
@@ -284,25 +288,28 @@ class TaskRunner(
      * - 任何网络/解析异常都吞掉，只当没绑定，绝不让 TMDB 挂掉整个同步
      */
     private suspend fun resolveTmdb(task: TaskEntity): TmdbLatest {
-        val tvId = task.tmdbId ?: return TmdbLatest(0, null).also {
+        val tvId = task.tmdbId ?: return TmdbLatest(0, emptyList()).also {
             android.util.Log.i("TmdbResolve", "任务「${task.name}」没有 tmdbId，卡片按 UNKNOWN")
         }
         val credential = tmdbStore?.loadCredential()?.takeIf { it.isNotBlank() }
-            ?: return TmdbLatest(0, null).also {
+            ?: return TmdbLatest(0, emptyList()).also {
                 android.util.Log.i("TmdbResolve", "任务「${task.name}」tmdbId=$tvId 但读不到凭证")
             }
-        val info = TmdbClient(credential, tmdbStore.loadBaseUrl()).fetchTv(tvId).getOrElse { e ->
+        val client = TmdbClient(credential, tmdbStore.loadBaseUrl())
+        val info = client.fetchTv(tvId).getOrElse { e ->
             android.util.Log.w("TmdbResolve", "fetchTv($tvId) 失败：${e.message}")
-            return TmdbLatest(0, null)
+            return TmdbLatest(0, emptyList())
         }
         val season = SeasonParser.parse(task.seasonName)
+        // 更新日走原项目同一套「多天加权投票」（会多拉一次该季集表）
+        val weekdays = client.inferWeekdays(tvId, info)
         return TmdbLatest(
             latestEpisode = info.latestEpisodeNumber(season),
-            weekday = info.weekdayHint(),
+            weekdays = weekdays,
         ).also {
             android.util.Log.i(
                 "TmdbResolve",
-                "tv=$tvId season=$season latest=${it.latestEpisode} weekday=${it.weekday}",
+                "tv=$tvId season=$season latest=${it.latestEpisode} weekdays=${it.weekdays}",
             )
         }
     }

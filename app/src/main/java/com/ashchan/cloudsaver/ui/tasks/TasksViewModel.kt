@@ -89,6 +89,8 @@ class TasksViewModel(
         seasonNo: Int = 0,
         folderWithTmdbId: Boolean = false,
         driveOverride: DriveType? = null,
+        /** true = 更新日交给 TMDB 自动推断（用户没手动点过星期） */
+        updateModeAuto: Boolean = false,
     ) {
         val title = name.trim()
         if (title.isBlank()) {
@@ -114,7 +116,7 @@ class TasksViewModel(
                         ruleKey = ruleKey,
                         seasonNo = seasonNo,
                         folderWithTmdbId = folderWithTmdbId,
-                        updateMode = if (weekdays.isBlank()) {
+                        updateMode = if (updateModeAuto || weekdays.isBlank()) {
                             TaskEntity.UPDATE_MODE_TMDB
                         } else {
                             TaskEntity.UPDATE_MODE_MANUAL
@@ -161,6 +163,8 @@ class TasksViewModel(
         seasonNo: Int,
         folderWithTmdbId: Boolean,
         driveOverride: DriveType?,
+        /** true = 更新日交给 TMDB 自动推断（用户没手动点过星期） */
+        updateModeAuto: Boolean = false,
     ) {
         val base = editing.value ?: return
         val title = name.trim()
@@ -188,7 +192,7 @@ class TasksViewModel(
                             ruleKey = ruleKey,
                             seasonNo = seasonNo,
                             folderWithTmdbId = folderWithTmdbId,
-                            updateMode = if (weekdays.isBlank()) {
+                            updateMode = if (updateModeAuto || weekdays.isBlank()) {
                                 TaskEntity.UPDATE_MODE_TMDB
                             } else {
                                 TaskEntity.UPDATE_MODE_MANUAL
@@ -283,12 +287,12 @@ class TasksViewModel(
         }
     }
 
-    /** 取某部剧的播出星期（1..7），用于选完剧后自动点亮更新日 */
-    suspend fun tmdbWeekday(tvId: Long): Int? = runCatching {
-        val store = tmdbStore ?: return null
-        val credential = store.loadCredential()?.takeIf { it.isNotBlank() } ?: return null
-        TmdbClient(credential, store.loadBaseUrl()).fetchTv(tvId).getOrNull()?.weekdayHint()
-    }.getOrNull()
+    /** 取某部剧的播出日（可能多个），用于选完剧后自动点亮更新日；口径与原项目一致 */
+    suspend fun tmdbWeekdays(tvId: Long): List<Int> = runCatching {
+        val store = tmdbStore ?: return emptyList()
+        val credential = store.loadCredential()?.takeIf { it.isNotBlank() } ?: return emptyList()
+        TmdbClient(credential, store.loadBaseUrl()).inferWeekdays(tvId)
+    }.getOrDefault(emptyList())
 
     /** TMDB 搜索（新建页选剧用）。未配置凭证时直接给出可读原因 */    suspend fun searchTv(query: String): Result<List<TmdbSearchItem>> {
         val store = tmdbStore ?: return Result.failure(IllegalStateException("TMDB 不可用"))
