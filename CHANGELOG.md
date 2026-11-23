@@ -27,7 +27,7 @@
 | Stage 5 | TMDB 凭证 + 更新日 / 播出时刻 | ✅ 已完成（5.1-5.4，含真机 UI 验证） |
 | Stage 6 | 稳定性（重试 / 幂等 / 日志） | ✅ 已完成（6.1 / 6.2 / 6.3） |
 | Stage 7 | 表现层统一 | ✅ 已完成（7.1 / 7.2） |
-| Stage 8 | 发布 | 待开始 |
+| Stage 8 | 发布 | ✅ 已完成（8.1 / 8.2） |
 
 ### Stage 1 完成记录
 
@@ -297,3 +297,33 @@
 
 - 设置页「外观」三个 FilterChip 未做真机点击验证（HyperOS 拒绝 `input tap` 注入，只能靠 `am start` extras 进页；截图验证需要手动操作一次）
 - 主题切换从首页搬到设置页属于交互位置变化，如果希望保留在首页顶栏，我可以加回图标（一个 IconButton 的事）
+
+### Stage 8 完成记录
+
+**8.1 版本号与混淆规则（✅）**
+
+- `versionCode 23 → 30`，`versionName 0.6.0 → 0.7.0`（debug 包自动带 `-debug` 后缀，关于页能一眼区分）
+- **补一条 R8 规则**：`-keep class com.ashchan.cloudsaver.core.tmdb.** { *; }`
+  - 理由：TMDB 响应模型（`TmdbTvInfo` / `TmdbEpisode`）字段名就是 JSON key（`last_episode_to_air` 等），混淆后 Gson 找不到字段，最新集会静默变 0 —— 这种 bug 不会报错，只会让卡片一直显示「未绑定 TMDB」，极难排查
+  - 原有规则只 keep 了 `drive.**` 与 `core.model.**`，新包 `core.tmdb` 是 Stage 5 才加的，属于规则遗漏
+- 沿用项目原有签名方案：release 复用 debug keystore，正式包与调试包可互相覆盖安装、数据不丢
+
+**8.2 双包交付（✅）**
+
+| 包 | 体积 | 说明 |
+| --- | --- | --- |
+| `app-release.apk` | **1.96 MB** | R8 混淆 + 资源收缩，日常使用 |
+| `app-debug.apk` | 11.62 MB | 排查用（`run-as` 可读数据库） |
+
+- 真机（Xiaomi Civi 3，USB 连接）覆盖安装 release 包：`versionName=0.7.0` 生效，首页正常渲染 4 张卡片，跑一轮同步后快照时间从 07:49 更新到 09:21，卡片无「上次失败」红字 —— 说明 **R8 没有破坏光鸭/夸克的 Gson 解析、Room 读写与 Compose 渲染**
+- 新增 `RELEASE-0.7.0.md`：安装说明、功能范围、TMDB 反代部署步骤、已知限制
+- 截图 `docs/s8a.png`
+
+**一个必须记住的运维差异**
+
+- release 包 `debuggable=false`，`adb run-as` 直接报 `package not debuggable`，导不出数据库。**排查数据一律装 debug 包**，`tools/read_tasks.py` 只对 debug 有效。
+
+**全部阶段完成**
+
+- 8 阶段 29 步全部落地；单测 74 项、12 个 suite 全绿；数据库 v3（两次迁移均在真机上验证过）
+- 累计提交见 `git log`，`dev` 分支

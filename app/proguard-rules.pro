@@ -5,6 +5,9 @@
 # Gson 使用的模型类
 -keep class com.ashchan.cloudsaver.drive.** { *; }
 -keep class com.ashchan.cloudsaver.core.model.** { *; }
+# TMDB 响应模型（TmdbTvInfo / TmdbEpisode）：字段名就是 JSON key（last_episode_to_air 等），
+# 被混淆后 Gson 找不到对应字段，最新集会静默变 0 —— 必须 keep
+-keep class com.ashchan.cloudsaver.core.tmdb.** { *; }
 
 # security-crypto -> tink 引用的可选注解，运行时不需要
 -dontwarn com.google.errorprone.annotations.**
