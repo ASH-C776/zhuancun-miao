@@ -61,6 +61,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ashchan.cloudsaver.data.TaskCard
@@ -120,6 +121,20 @@ fun TaskListScreen(
             TopAppBar(
                 title = { Text("转存喵", fontWeight = FontWeight.SemiBold) },
                 actions = {
+                    // 全部检测：跟日志、设置同一行，省掉原来独立的一行
+                    IconButton(
+                        onClick = { viewModel.runAll() },
+                        enabled = cards.isNotEmpty() && running.isEmpty(),
+                    ) {
+                        if (running.isEmpty()) {
+                            Icon(Icons.Filled.Refresh, contentDescription = "全部检测")
+                        } else {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                            )
+                        }
+                    }
                     IconButton(onClick = onOpenHistory) {
                         Icon(Icons.Filled.List, contentDescription = "运行日志")
                     }
@@ -145,34 +160,10 @@ fun TaskListScreen(
                 .padding(padding),
         ) {
             if (cards.isNotEmpty()) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.End,
-                ) {
-                    IconButton(
-                        onClick = { viewModel.runAll() },
-                        enabled = running.isEmpty(),
-                    ) {
-                        if (running.isEmpty()) {
-                            Icon(
-                                Icons.Filled.Refresh,
-                                contentDescription = "全部检测",
-                            )
-                        } else {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp,
-                            )
-                        }
-                    }
-                }
                 progress?.let {
                     Text(
                         text = it,
-                        modifier = Modifier.padding(horizontal = 16.dp),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary,
                     )
@@ -243,7 +234,7 @@ private fun TaskRow(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         ),
     ) {
-        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
             // 第一行：剧名 + 状态
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -308,66 +299,55 @@ private fun TaskRow(
                 Spacer(Modifier.height(6.dp))
             }
 
-            // 第三行：更新日 · 网盘 · 时间
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = updateLabel(task),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Dot()
-                Text(
-                    text = driveLabel(task.driveType),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Dot()
-                Text(
-                    text = syncText(snap.lastSyncAt),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.weight(1f))
-                if (!task.enabled) {
-                    Text(
-                        text = "已暂停",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-            }
-
-            HorizontalDivider(
-                modifier = Modifier.padding(top = 10.dp),
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-            )
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            // 第三行：左边刷新（手动检测），右边「更新日 · 网盘 · 时间」右对齐
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 if (!isRunning) {
-                    IconButton(onClick = onRun) {
+                    IconButton(
+                        onClick = onRun,
+                        modifier = Modifier.size(36.dp),
+                    ) {
                         Icon(
                             Icons.Filled.Refresh,
                             contentDescription = "检测转存",
                             tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp),
                         )
                     }
                 } else {
                     Box(
-                        modifier = Modifier.size(48.dp),
+                        modifier = Modifier.size(36.dp),
                         contentAlignment = Alignment.Center,
                     ) {
                         CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
+                            modifier = Modifier.size(16.dp),
                             strokeWidth = 2.dp,
                         )
                     }
                 }
-                Spacer(Modifier.weight(1f))
-                if (!task.enabled) {
+                Spacer(Modifier.width(6.dp))
+                Row(
+                    Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    // 左段可能变长（如「周五 · TMDB 自动 · 光鸭」），过长只挤压自己，时间始终完整显示
                     Text(
-                        text = "已暂停",
+                        text = if (task.enabled) metaLeft(task) else "${metaLeft(task)} · 已暂停",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    Dot()
+                    Text(
+                        text = syncText(snap.lastSyncAt),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
                     )
                 }
             }
@@ -444,12 +424,12 @@ private fun EmptyTasks(modifier: Modifier = Modifier, onAdd: () -> Unit) {
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            text = "点「新建任务」粘贴夸克或光鸭分享链接，",
+            text = "点「+」新建任务粘贴夸克或光鸭分享链接，",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
-            text = "之后打开 App 就会自动检测并补齐集数。",
+            text = "之后点卡片上的刷新图标才会检测补齐集数。",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -475,6 +455,8 @@ private fun missingText(snap: SnapshotEntity): String = when (snap.status) {
     SnapshotEntity.STATUS_UP_TO_DATE -> ""
     else -> "未绑定 TMDB"
 }
+
+private fun metaLeft(task: TaskEntity): String = "${updateLabel(task)} · ${driveLabel(task.driveType)}"
 
 private fun driveLabel(driveType: String): String = when (driveType) {
     "QUARK" -> "夸克"
