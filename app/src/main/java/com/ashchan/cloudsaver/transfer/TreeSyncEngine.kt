@@ -128,6 +128,15 @@ class TreeSyncEngine(
         const val RENAME_CONCURRENCY: Int = 4
 
         /**
+         * 单个改名最多尝试几次。光鸭连续改名十几个后会开始限流（返回失败），
+         * 隔 1s / 2s 重发一次基本就过了，没必要让整集留在原名上。
+         */
+        const val RENAME_ATTEMPTS: Int = 3
+
+        /** 重试退避基数：第 1 次等 1s、第 2 次等 2s */
+        const val RENAME_RETRY_DELAY_MS: Long = 1000L
+
+        /**
          * 把分享根切成转存单元（纯函数，便于单测）。
          * 目录按自然序，根下散文件归入 [Units.looseFiles]。
          */
@@ -335,14 +344,15 @@ class TreeSyncEngine(
             // 「已有原名、只差改名」的一批一起发，别一个一个排队
             if (inPlace.isNotEmpty()) {
                 val results = renameMany(inPlace)
-                results.forEach { (item, ok) ->
-                    if (ok) {
+                results.forEach { outcome ->
+                    val item = outcome.item
+                    if (outcome.ok) {
                         renamedItems++
                         index.remove(item.oldName)
                         index[item.newName] = item.file.copy(name = item.newName)
                     } else {
                         skippedFiles++
-                        failures += "改名失败：${item.oldName} -> ${item.newName}"
+                        failures += "改名失败：${item.oldName} -> ${item.newName}（${outcome.reason}）"
                     }
                 }
                 reportRename()
@@ -392,13 +402,14 @@ class TreeSyncEngine(
             }
             if (items.isEmpty()) return
 
-            renameMany(items).forEach { (item, ok) ->
+            renameMany(items).forEach { outcome ->
+                val item = outcome.item
                 index.remove(item.oldName)
-                if (ok) {
+                if (outcome.ok) {
                     renamedItems++
                     index[item.newName] = item.file.copy(name = item.newName)
                 } else {
-                    failures += "改名失败：${item.oldName} -> ${item.newName}"
+                    failures += "改名失败：${item.oldName} -> ${item.newName}（${outcome.reason}）"
                 }
             }
             reportRename()
@@ -430,15 +441,16 @@ class TreeSyncEngine(
             reportRestore(restoredFiles)
 
             if (expected == node.name) return true
-            val ok = renameMany(listOf(RenameItem(newFile.fid, node.name, expected, newFile)))
-                .firstOrNull()?.second == true
+            val outcome = renameMany(listOf(RenameItem(newFile.fid, node.name, expected, newFile)))
+                .firstOrNull()
+            val ok = outcome?.ok == true
             index.remove(node.name)
             if (ok) {
                 renamedItems++
                 index[expected] = newFile.copy(name = expected)
                 reportRename()
             } else {
-                failures += "改名失败：${node.name} -> $expected"
+                failures += "改名失败：${node.name} -> $expected（${outcome?.reason.orEmpty()}）"
             }
             return true
         }
@@ -463,13 +475,14 @@ class TreeSyncEngine(
                 }
             }
             if (items.isEmpty()) return
-            renameMany(items).forEach { (item, ok) ->
+            renameMany(items).forEach { outcome ->
+                val item = outcome.item
                 destChildren.remove(item.oldName)
-                if (ok) {
+                if (outcome.ok) {
                     renamedItems++
                     destChildren[item.newName] = item.file.copy(name = item.newName)
                 } else {
-                    failures += "改名失败：${item.oldName} -> ${item.newName}"
+                    failures += "改名失败：${item.oldName} -> ${item.newName}（${outcome.reason}）"
                 }
             }
             reportRename()
@@ -485,23 +498,46 @@ class TreeSyncEngine(
             val file: DriveFile,
         )
 
+        /** 改名结果：成功与否 + 失败原因（原因要写进运行日志，不然只看到「改名失败」没法查） */
+        private data class RenameOutcome(
+            val item: RenameItem,
+            val ok: Boolean,
+            val reason: String = "",
+        )
+
         /**
-         * 并发改名：一次最多 [RENAME_CONCURRENCY] 个在飞。
-         * 返回「改名项 → 是否成功」，计数与失败文案由调用方按顺序更新，避免多协程抢着改计数。
+         * 并发改名：一次最多 [RENAME_CONCURRENCY] 个在飞，失败的重试 [RENAME_ATTEMPTS] 次。
+         *
+         * 重试是必须的：光鸭在一轮里连续改名十几个之后会开始拒绝（限流），
+         * 隔 1s / 2s 再发一次多半就过了；真失败时把服务器原话带出来。
          */
-        private suspend fun renameMany(items: List<RenameItem>): List<Pair<RenameItem, Boolean>> {
+        private suspend fun renameMany(items: List<RenameItem>): List<RenameOutcome> {
             if (items.isEmpty()) return emptyList()
             return coroutineScope {
                 val slots = Semaphore(RENAME_CONCURRENCY)
                 items.map { item ->
                     async(Dispatchers.IO) {
-                        val ok = runCatching {
-                            slots.withPermit { adapter.renameFile(item.fid, item.newName).isSuccess }
-                        }.getOrDefault(false)
-                        item to ok
+                        slots.withPermit { renameWithRetry(item) }
                     }
                 }.awaitAll()
             }
+        }
+
+        private suspend fun renameWithRetry(item: RenameItem): RenameOutcome {
+            var reason = ""
+            var attempt = 0
+            while (attempt < RENAME_ATTEMPTS) {
+                val result = runCatching { adapter.renameFile(item.fid, item.newName) }.getOrNull()
+                if (result?.isSuccess == true) return RenameOutcome(item, true)
+                reason = result?.exceptionOrNull()?.message
+                    ?: "改名请求异常（${item.newName}）"
+                attempt++
+                if (attempt < RENAME_ATTEMPTS) {
+                    onProgress(0, 0, "改名 $renamedItems/$renameTotal")
+                    kotlinx.coroutines.delay(RENAME_RETRY_DELAY_MS * attempt)
+                }
+            }
+            return RenameOutcome(item, false, reason)
         }
 
         /** 目标目录索引（文件名 → 条目），同一目录只列一次；`refresh` 用于刚转存完的新目录 */
