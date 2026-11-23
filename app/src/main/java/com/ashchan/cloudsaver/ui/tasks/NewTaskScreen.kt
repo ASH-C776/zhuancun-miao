@@ -746,8 +746,9 @@ fun NewTaskScreen(
             onPick = { item ->
                 tmdbId = item.id.toString()
                 tmdbTitle = item.title()
-                // 绑定 TMDB 后任务名直接用官方名（用户要求：覆盖手填名），避免两边名字不一致
-                name = item.name.ifBlank { item.title() }
+                // 绑定 TMDB 后任务名直接用「官方名 (年份)」：目录名、文件名都跟着带年份，
+                // 同名翻拍（征途 2019 / 征途 2026）不会在同一个保存位置里混成一堆
+                name = item.title()
                 error = null
                 showTmdbSearch = false
                 // 选完剧就按 TMDB 推断的播出日点亮更新日（可能多天）；用户手动点过就不覆盖
