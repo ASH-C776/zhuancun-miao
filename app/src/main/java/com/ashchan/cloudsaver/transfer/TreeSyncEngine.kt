@@ -202,41 +202,68 @@ class TreeSyncEngine(
             renameInside(newFid, node, depth)
         }
 
-        /** 同步一批散文件到 [destFid]：已存在的按文件名跳过，缺的才转存 */
+        /**
+         * 同步一批散文件到 [destFid]：按**改名后的目标名**判断是否已存在，缺的才转存。
+         *
+         * 这里必须用目标名而不是分享原名：上一轮已经按规则把 `01丨4K.mp4` 改名成
+         * `剧名.S01E01.mp4`，如果还拿原名比对，就会判定"全都没转过"→ 整批重下 →
+         * 再改名时撞上已有文件（光鸭直接返回 `code:160 文件名已存在`），
+         * 表现为同步一直在转圈、目录条目越滚越多。
+         */
         private suspend fun syncFiles(files: List<ShareNode>, destFid: String) {
-            val names = destList(destFid).filter { !it.isDir }.map { it.name }.toMutableSet()
+            val existing = destList(destFid).filter { !it.isDir }.map { it.name }.toMutableSet()
             files.sortedWith(NATURAL).forEach { node ->
-                if (!names.add(node.name)) {
+                val expected = expectedName(node)
+                if (expected in existing) {
                     skippedFiles++
                     return@forEach
                 }
-                syncFile(node, destFid)
+                // 本地已有原名文件但还没改名 → 就地改名，不重复转存
+                if (node.name in existing) {
+                    val fid = destList(destFid).firstOrNull { !it.isDir && it.name == node.name }?.fid
+                    if (fid != null && expected != node.name &&
+                        adapter.renameFile(fid, expected).isSuccess
+                    ) {
+                        renamedItems++
+                        existing += expected
+                        existing -= node.name
+                        destCache.remove(destFid)
+                    } else {
+                        skippedFiles++
+                    }
+                    return@forEach
+                }
+                if (syncFile(node, destFid, expected)) existing += expected
             }
         }
 
-        /** 转存单个文件并改名为计划名 */
-        private suspend fun syncFile(node: ShareNode, destFid: String) {
+        /** 分享文件按命名规则应有的最终文件名（没配规则就是原名） */
+        private fun expectedName(node: ShareNode): String =
+            renamePlan[node.fid]?.trim()?.takeIf { it.isNotBlank() } ?: node.name
+
+        /** 转存单个文件并按计划改名；成功返回 true（调用方据此更新已存在集合） */
+        private suspend fun syncFile(node: ShareNode, destFid: String, expected: String): Boolean {
             val saved = adapter.restoreShare(share, listOf(node.file), destFid)
                 .getOrElse {
                     failures += "转存「${node.name}」失败：${it.message ?: "未知错误"}"
-                    return
+                    return false
                 }
             val newFile = saved.firstOrNull()?.file
             if (newFile == null) {
                 failures += "「${node.name}」转存后未定位到新文件"
-                return
+                return false
             }
             restoredFiles++
             destCache.remove(destFid)
 
-            val newName = renamePlan[node.fid]?.trim()?.takeIf { it.isNotBlank() } ?: return
-            if (newName == node.name) return
-            if (adapter.renameFile(newFile.fid, newName).isSuccess) {
+            if (expected == node.name) return true
+            if (adapter.renameFile(newFile.fid, expected).isSuccess) {
                 renamedItems++
                 destCache.remove(destFid)
-            } else {
-                failures += "改名失败：${node.name} -> $newName"
+                return true
             }
+            failures += "改名失败：${node.name} -> $expected"
+            return true
         }
 
         /**

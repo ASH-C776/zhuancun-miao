@@ -264,16 +264,27 @@ class TaskRunner(
      * - 任何网络/解析异常都吞掉，只当没绑定，绝不让 TMDB 挂掉整个同步
      */
     private suspend fun resolveTmdb(task: TaskEntity): TmdbLatest {
-        val tvId = task.tmdbId ?: return TmdbLatest(0, null)
+        val tvId = task.tmdbId ?: return TmdbLatest(0, null).also {
+            android.util.Log.i("TmdbResolve", "任务「${task.name}」没有 tmdbId，卡片按 UNKNOWN")
+        }
         val credential = tmdbStore?.loadCredential()?.takeIf { it.isNotBlank() }
-            ?: return TmdbLatest(0, null)
-        val info = TmdbClient(credential, tmdbStore.loadBaseUrl()).fetchTv(tvId).getOrNull()
-            ?: return TmdbLatest(0, null)
+            ?: return TmdbLatest(0, null).also {
+                android.util.Log.i("TmdbResolve", "任务「${task.name}」tmdbId=$tvId 但读不到凭证")
+            }
+        val info = TmdbClient(credential, tmdbStore.loadBaseUrl()).fetchTv(tvId).getOrElse { e ->
+            android.util.Log.w("TmdbResolve", "fetchTv($tvId) 失败：${e.message}")
+            return TmdbLatest(0, null)
+        }
         val season = SeasonParser.parse(task.seasonName)
         return TmdbLatest(
             latestEpisode = info.latestEpisodeNumber(season),
             weekday = info.weekdayHint(),
-        )
+        ).also {
+            android.util.Log.i(
+                "TmdbResolve",
+                "tv=$tvId season=$season latest=${it.latestEpisode} weekday=${it.weekday}",
+            )
+        }
     }
 
     private fun buildAdapter(drive: DriveType, credential: String): CloudDriveAdapter =

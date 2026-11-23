@@ -45,8 +45,8 @@ class TmdbClient(
         TmdbTvInfo(
             id = tvId,
             name = body.get("name")?.asString.orEmpty(),
-            lastEpisode = parseEpisode(body.getAsJsonObject("last_episode_to_air")),
-            nextEpisode = parseEpisode(body.getAsJsonObject("next_episode_to_air")),
+            lastEpisode = parseEpisode(body.obj("last_episode_to_air")),
+            nextEpisode = parseEpisode(body.obj("next_episode_to_air")),
             numberOfSeasons = body.get("number_of_seasons")?.asInt ?: 0,
         )
     }
@@ -93,6 +93,17 @@ class TmdbClient(
     }
 
     // ---------------- 内部 --------------
+
+    /**
+     * 取子对象，容忍 `null`。
+     *
+     * Gson 里字段值是 JSON `null` 时得到的是 [JsonNull]，`asJsonObject` 会直接抛
+     * `JsonNull cannot be cast to JsonObject`。剧集完结（没有下一集）时
+     * `next_episode_to_air` 就是 null，之前正是这里把整次 fetchTv 打挂，
+     * 任务卡片于是永远显示"未绑定 TMDB"。
+     */
+    private fun JsonObject.obj(key: String): JsonObject? =
+        get(key)?.takeIf { it.isJsonObject }?.asJsonObject
 
     private suspend fun get(path: String, language: String, extra: String = ""): JsonObject = kotlinx.coroutines.withContext(
         kotlinx.coroutines.Dispatchers.IO

@@ -163,6 +163,7 @@ fun NewTaskScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
+            // 任务名称：右侧直接搜 TMDB（按当前输入的名字去搜，选中就绑上）
             OutlinedTextField(
                 value = name,
                 onValueChange = {
@@ -171,8 +172,32 @@ fun NewTaskScreen(
                 },
                 placeholder = { Text("任务名称") },
                 singleLine = true,
+                trailingIcon = {
+                    IconButton(
+                        onClick = {
+                            if (viewModel.hasTmdb()) showTmdbSearch = true else showTmdbHint = true
+                        },
+                    ) {
+                        Icon(Icons.Default.Search, contentDescription = "搜索剧集")
+                    }
+                },
                 modifier = Modifier.fillMaxWidth(),
             )
+            if (tmdbId.isNotBlank()) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "已绑定：${tmdbTitle.ifBlank { tmdbId }}",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 1,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = {
+                        tmdbId = ""
+                        tmdbTitle = ""
+                    }) { Text("取消绑定") }
+                }
+            }
 
             OutlinedTextField(
                 value = link,
@@ -231,16 +256,6 @@ fun NewTaskScreen(
                     )
                 }
             }
-
-            // TMDB
-            SectionLabel("TMDB")
-            SettingRow(
-                icon = { Icon(Icons.Default.Search, null, tint = MaterialTheme.colorScheme.primary) },
-                title = tmdbTitle.ifBlank { "未选择" },
-                onClick = {
-                    if (viewModel.hasTmdb()) showTmdbSearch = true else showTmdbHint = true
-                },
-            )
 
             // 更新日：七个排一排
             SectionLabel("更新日")
@@ -330,6 +345,7 @@ fun NewTaskScreen(
     if (showTmdbSearch) {
         TmdbSearchDialog(
             viewModel = viewModel,
+            initialQuery = name.trim(),
             onDismiss = { showTmdbSearch = false },
             onPick = { item ->
                 tmdbId = item.id.toString()
@@ -509,14 +525,26 @@ private fun PathPickerDialog(
 @Composable
 private fun TmdbSearchDialog(
     viewModel: TasksViewModel,
+    initialQuery: String,
     onDismiss: () -> Unit,
     onPick: (TmdbSearchItem) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
-    var query by remember { mutableStateOf("") }
+    var query by remember { mutableStateOf(initialQuery) }
     var results by remember { mutableStateOf<List<TmdbSearchItem>?>(null) }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+
+    // 带着任务名进来自动搜一次，省一次点击
+    LaunchedEffect(Unit) {
+        if (query.isNotBlank()) {
+            loading = true
+            viewModel.searchTv(query)
+                .onSuccess { results = it; error = null }
+                .onFailure { error = it.message ?: "搜索失败"; results = null }
+            loading = false
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
