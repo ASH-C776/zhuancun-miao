@@ -229,14 +229,15 @@ fun TaskListScreen(
 
     pendingDelete?.let { task ->
         AlertDialog(
+            shape = RoundedCornerShape(24.dp),
             onDismissRequest = { pendingDelete = null },
-            title = { Text("删除任务") },
-            text = { Text("「${task.name}」将从列表移除，网盘里已转存的文件不受影响。") },
+            title = { Text("删除任务", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold) },
+            text = { Text("「${task.name}」将从列表移除，网盘里已转存的文件不受影响。", style = MaterialTheme.typography.bodyMedium) },
             confirmButton = {
                 TextButton(onClick = {
                     viewModel.deleteTask(task.id)
                     pendingDelete = null
-                }) { Text("删除") }
+                }) { Text("删除", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = {
                 TextButton(onClick = { pendingDelete = null }) { Text("取消") }
@@ -451,23 +452,25 @@ private fun EmptyTasks(modifier: Modifier = Modifier, onAdd: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
+        Icon(
+            Icons.Filled.List,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.outlineVariant,
+            modifier = Modifier.size(32.dp),
+        )
+        Spacer(Modifier.height(12.dp))
         Text(
             text = "还没有追剧任务",
             style = MaterialTheme.typography.titleMedium,
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            text = "点「+」新建任务粘贴夸克或光鸭分享链接，",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            text = "之后点卡片上的刷新图标才会检测补齐集数。",
+            text = "点「+」粘贴夸克或光鸭分享链接即可新建",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Spacer(Modifier.height(16.dp))
-        OutlinedButton(onClick = onAdd) { Text("新建第一个任务") }
+        OutlinedButton(onClick = onAdd) { Text("新建任务") }
     }
 }
 

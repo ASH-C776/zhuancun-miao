@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -19,6 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -89,8 +91,9 @@ fun RunLogScreen(
     ) { padding ->
         if (confirmClear) {
             androidx.compose.material3.AlertDialog(
+                shape = RoundedCornerShape(24.dp),
                 onDismissRequest = { confirmClear = false },
-                title = { Text("清除全部运行日志？") },
+                title = { Text("清除全部运行日志？", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold) },
                 text = { Text("共 ${runs.size} 条记录会被删除，任务和集数进度不受影响。") },
                 confirmButton = {
                     TextButton(onClick = {
@@ -121,11 +124,18 @@ fun RunLogScreen(
                     verticalArrangement = Arrangement.Center,
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
+                    Icon(
+                        Icons.Filled.Refresh,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.outlineVariant,
+                        modifier = Modifier.size(32.dp),
+                    )
+                    Spacer(Modifier.height(12.dp))
                     Text("还没有运行记录", style = MaterialTheme.typography.titleMedium)
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "点一次「检测转存」或「全部检测」就会留下一条",
-                        style = MaterialTheme.typography.bodySmall,
+                        "点「检测」或一次性「全部检测」就会留下一条",
+                        style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -168,8 +178,9 @@ private fun CrashLogBar(modifier: Modifier = Modifier) {
 
     if (showDialog) {
         androidx.compose.material3.AlertDialog(
+            shape = RoundedCornerShape(24.dp),
             onDismissRequest = { showDialog = false },
-            title = { Text("崩溃日志") },
+            title = { Text("崩溃日志", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold) },
             text = {
                 Column(
                     Modifier

@@ -414,7 +414,7 @@ fun NewTaskScreen(
                                 }
                             }
                         },
-                    ) { Text("按 TMDB 重算", style = MaterialTheme.typography.bodySmall) }
+                    ) { Text("重算", style = MaterialTheme.typography.bodySmall) }
                 }
             }
             Row(
@@ -496,8 +496,9 @@ fun NewTaskScreen(
 
     if (showTmdbHint) {
         AlertDialog(
+            shape = RoundedCornerShape(24.dp),
             onDismissRequest = { showTmdbHint = false },
-            title = { Text("TMDB") },
+            title = { Text("TMDB", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold) },
             text = { Text("请先配置 TMDB") },
             confirmButton = {
                 TextButton(onClick = { showTmdbHint = false }) { Text("知道了") }
@@ -525,8 +526,9 @@ fun NewTaskScreen(
 
     if (showCustomSeason) {
         AlertDialog(
+            shape = RoundedCornerShape(24.dp),
             onDismissRequest = { showCustomSeason = false },
-            title = { Text("季度") },
+            title = { Text("季度", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold) },
             text = {
                 OutlinedTextField(
                     value = seasonInput,
@@ -557,8 +559,9 @@ fun NewTaskScreen(
             is24Hour = true,
         )
         AlertDialog(
+            shape = RoundedCornerShape(24.dp),
             onDismissRequest = { showTimePicker = false },
-            title = { Text("播出时刻") },
+            title = { Text("播出时刻", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold) },
             text = { TimePicker(state = state) },
             confirmButton = {
                 TextButton(onClick = {
@@ -888,8 +891,9 @@ private fun TmdbSearchDialog(
     }
 
     AlertDialog(
+        shape = RoundedCornerShape(24.dp),
         onDismissRequest = onDismiss,
-        title = { Text("搜索剧集") },
+        title = { Text("搜索剧集", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold) },
         text = {
             Column(Modifier.heightIn(max = 460.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -914,7 +918,7 @@ private fun TmdbSearchDialog(
                         enabled = query.isNotBlank() && !loading,
                     ) {
                         if (loading) {
-                            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                         } else {
                             Icon(Icons.Default.Search, contentDescription = "搜索")
                         }

@@ -470,7 +470,7 @@ fun HomeScreen(
                                         Icons.Filled.Check,
                                         contentDescription = null,
                                         tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(14.dp),
+                                        modifier = Modifier.size(16.dp),
                                     )
                                 }
                                 Text(
@@ -573,7 +573,7 @@ fun HomeScreen(
                 enabled = !busy && link.isNotBlank() && account != null,
                 modifier = Modifier.fillMaxWidth().height(48.dp),
             ) {
-                if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                if (busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                 else Text("开始转存", fontWeight = FontWeight.SemiBold)
             }
             Spacer(Modifier.height(24.dp))
@@ -599,8 +599,9 @@ fun HomeScreen(
         val tvMagicOn = rules.firstOrNull { it.key == "\$TV_MAGIC" }?.enabled == true
         val customOn = rules.firstOrNull { it.key == AppViewModel.CUSTOM_RULE_KEY }?.enabled == true
         AlertDialog(
+            shape = RoundedCornerShape(24.dp),
             onDismissRequest = { showRuleDialog = false },
-            title = { Text("选择重命名规则") },
+            title = { Text("选择重命名规则", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold) },
             text = {
                 Column {
                     Row(
@@ -678,8 +679,9 @@ private fun CustomRuleDialog(
     val customSeasonValid = customSeasonInput.toIntOrNull()?.let { it in 1..99 } == true
 
     AlertDialog(
+        shape = RoundedCornerShape(24.dp),
         onDismissRequest = onDismiss,
-        title = { Text("自定义命名格式") },
+        title = { Text("自定义命名格式", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold) },
         text = {
             Column(Modifier.fillMaxWidth()) {
                 // 效果预览卡片
@@ -779,15 +781,16 @@ private fun CustomRuleDialog(
             TextButton(onClick = onDismiss) { Text("取消") }
         },
         dismissButton = {
-            Button(onClick = { onApply(useTaskName, season) }) { Text("使用此格式") }
+            Button(onClick = { onApply(useTaskName, season) }) { Text("用此格式") }
         },
     )
 
     // 自定义季度数字输入弹框
     if (showCustomSeason) {
         AlertDialog(
+            shape = RoundedCornerShape(24.dp),
             onDismissRequest = { showCustomSeason = false },
-            title = { Text("自定义季度") },
+            title = { Text("自定义季度", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold) },
             text = {
                 Column(Modifier.fillMaxWidth()) {
                     Text(
@@ -953,7 +956,7 @@ fun SettingsScreen(
                         enabled = !loading && (account != null || refreshToken.isNotBlank()),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        if (loading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        if (loading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                         else Text(if (account != null) "退出登录" else "登录")
                     }
                 }
@@ -991,7 +994,7 @@ fun SettingsScreen(
                         enabled = !loading && (account != null || cookie.isNotBlank()),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        if (loading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                        if (loading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                         else Text(if (account != null) "退出登录" else "登录")
                     }
                 }
@@ -1114,7 +1117,7 @@ fun GuangYaSmsDialog(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("光鸭验证码登录", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.weight(1f))
-                    IconButton(onClick = onClose, modifier = Modifier.size(40.dp)) {
+                    IconButton(onClick = onClose, modifier = Modifier.size(48.dp)) {
                         Icon(Icons.Default.Close, contentDescription = "关闭", modifier = Modifier.size(20.dp))
                     }
                 }
@@ -1158,7 +1161,7 @@ private fun SmsDeclaration(onAgree: () -> Unit) {
     }
     Spacer(Modifier.height(16.dp))
     Button(onClick = onAgree, modifier = Modifier.fillMaxWidth()) {
-        Text("我已了解，开始", maxLines = 1)
+        Text("我已了解", maxLines = 1)
     }
 }
 
@@ -1225,7 +1228,7 @@ private fun SmsCodeInput(
     if (!state.loading) {
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             TextButton(onClick = { onResend(state.phone) }, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)) {
-                Text("收不到验证码？重新获取", maxLines = 1, style = MaterialTheme.typography.labelMedium)
+                Text("重新获取", maxLines = 1, style = MaterialTheme.typography.labelMedium)
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -1241,7 +1244,7 @@ private fun SmsCodeInput(
             enabled = !state.loading && code.length >= 4,
             modifier = Modifier.weight(1.2f),
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-        ) { Text("登录并获取", maxLines = 1, style = MaterialTheme.typography.labelMedium) }
+        ) { Text("登录获取", maxLines = 1, style = MaterialTheme.typography.labelMedium) }
     }
 }
 
@@ -1303,7 +1306,7 @@ private fun SmsHumanVerify(
             onClick = onClose,
             modifier = Modifier.weight(1f),
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-        ) { Text("改用手动粘贴", maxLines = 1, style = MaterialTheme.typography.labelMedium) }
+        ) { Text("手动粘贴", maxLines = 1, style = MaterialTheme.typography.labelMedium) }
     }
 }
 
@@ -1471,7 +1474,7 @@ private fun QuarkCookieDialog(
                 ) {
                     Text(
                         "获取 Quark Cookie",
-                        style = MaterialTheme.typography.titleLarge,
+                        style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.weight(1f),
                     )
                     IconButton(onClick = onClose) {
@@ -1502,7 +1505,7 @@ private fun QuarkCookieDialog(
                     }
                     Spacer(Modifier.height(16.dp))
                     Button(onClick = { agreed = true }, modifier = Modifier.fillMaxWidth().height(48.dp)) {
-                        Text("我已了解，开始", maxLines = 1)
+                        Text("我已了解", maxLines = 1)
                     }
                 } else {
                     if (loadingUrl.isNotBlank()) {
@@ -1756,7 +1759,7 @@ fun AboutScreen(viewModel: AppViewModel) {
                     Modifier.fillMaxWidth().padding(vertical = 24.dp, horizontal = 16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Text("转存喵", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text("转存喵", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(4.dp))
                     Text(
                         "作者：基耶杰",
@@ -1932,7 +1935,7 @@ fun DonateScreen(viewModel: AppViewModel) {
                 enabled = !saving,
                 modifier = Modifier.fillMaxWidth().height(48.dp),
             ) {
-                if (saving) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                if (saving) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
                 else Text("保存图片", fontWeight = FontWeight.SemiBold)
             }
             Spacer(Modifier.height(24.dp))
@@ -2091,6 +2094,7 @@ private fun FolderRow(name: String, selected: Boolean, onClick: () -> Unit) {
 @Composable
 private fun TransferDialog(state: TransferDialogState, onClose: () -> Unit) {
     AlertDialog(
+        shape = RoundedCornerShape(24.dp),
         onDismissRequest = { if (!state.running) onClose() },
         title = { Text(if (state.running) "正在转存" else "转存完成") },
         text = {
@@ -2193,7 +2197,7 @@ private fun PreviewDialog(
                 ) {
                     Text(
                         "预览",
-                        style = MaterialTheme.typography.titleLarge,
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.weight(1f),
                     )
@@ -2393,10 +2397,10 @@ fun HistoryScreen(viewModel: AppViewModel) {
                 )
                 Spacer(Modifier.height(12.dp))
                 Text("还没有转存记录", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(8.dp))
                 Text(
-                    "回主页粘贴分享链接，完成一次转存后就会出现在这里",
-                    style = MaterialTheme.typography.bodySmall,
+                    "回主页粘贴分享链接，转存一次后就会出现在这里",
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                 )
@@ -2420,8 +2424,9 @@ fun HistoryScreen(viewModel: AppViewModel) {
 
     if (showClearConfirm) {
         AlertDialog(
+            shape = RoundedCornerShape(24.dp),
             onDismissRequest = { showClearConfirm = false },
-            title = { Text("清空全部记录？") },
+            title = { Text("清空全部记录？", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold) },
             text = { Text("将删除全部 ${records.size} 条转存记录，不影响网盘里已转存的文件。") },
             confirmButton = {
                 TextButton(onClick = {
