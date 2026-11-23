@@ -100,31 +100,80 @@ object VideoTypes {
 }
 
 /**
- * 自然序比较：让 `EP2` 排在 `EP10` 前面（字符串序会排反）。
- * 规则：数字段按数值比较，非数字段按字典序；数字段优先于非数字段。
+ * 文件名排序（国内网盘习惯序）：**数字开头 → 汉字开头 → 字母开头**，同类里数字按数值大小。
+ *
+ * 为什么要自己定序：
+ * - 默认字符串序会把 `EP10` 排在 `EP2` 前面；
+ * - 纯字符码序又让汉字（U+4E00 起）全部排到字母后面，中文剧集的目录显得支离破碎。
+ *
+ * 落地后的效果：
+ * `1-200` < `20-4K` < `第01集` < `第10集` < `EP01` < `EP10` < `S01E02`
+ * （数字段按数值比；汉字之间、字母之间各按字典序；数字段整体排在文字前面）
  */
 object NaturalOrder : Comparator<String> {
-    private val TOKEN = Regex("(\\d+)")
+
+    private data class Token(val text: String, val isNumber: Boolean)
 
     override fun compare(a: String, b: String): Int {
-        val sa = TOKEN.split(a).filter { it.isNotEmpty() }
-        val sb = TOKEN.split(b).filter { it.isNotEmpty() }
-        val na = TOKEN.findAll(a).map { it.value }.toList()
-        val nb = TOKEN.findAll(b).map { it.value }.toList()
-
-        val minSeg = minOf(sa.size, sb.size)
-        for (i in 0 until minSeg) {
-            val c = sa[i].compareTo(sb[i], ignoreCase = true)
+        val ta = tokens(a)
+        val tb = tokens(b)
+        val shared = minOf(ta.size, tb.size)
+        for (i in 0 until shared) {
+            val c = compareToken(ta[i], tb[i])
             if (c != 0) return c
         }
-        val minNum = minOf(na.size, nb.size)
-        for (i in 0 until minNum) {
-            val c = na[i].toLongOrNull()?.compareTo(nb[i].toLongOrNull() ?: 0L) ?: 0
-            if (c != 0) return c
-        }
-        // 段数不同时，先短后长（EP1 在 EP1-番外 之前）
-        if (sa.size != sb.size) return sa.size - sb.size
-        if (na.size != nb.size) return na.size - nb.size
+        if (ta.size != tb.size) return ta.size - tb.size
         return a.compareTo(b, ignoreCase = true)
     }
+
+    /** 切成「数字段 / 文字段」的序列：`EP10.mkv` → [EP][10][.mkv] */
+    private fun tokens(s: String): List<Token> {
+        val out = mutableListOf<Token>()
+        var i = 0
+        while (i < s.length) {
+            val digit = s[i].isDigit()
+            var j = i
+            while (j < s.length && s[j].isDigit() == digit) j++
+            out += Token(s.substring(i, j), digit)
+            i = j
+        }
+        return out
+    }
+
+    private fun compareToken(x: Token, y: Token): Int {
+        // 数字段整体优先于文字段
+        if (x.isNumber != y.isNumber) return if (x.isNumber) -1 else 1
+        if (x.isNumber) return compareNumber(x.text, y.text)
+        val rx = rank(x.text.firstOrNull())
+        val ry = rank(y.text.firstOrNull())
+        if (rx != ry) return rx - ry
+        return x.text.compareTo(y.text, ignoreCase = true)
+    }
+
+    /** 前导零去掉后先比长度再比字典：`9` < `10` < `0100` == `100` */
+    private fun compareNumber(x: String, y: String): Int {
+        val sx = x.trimStart('0').ifEmpty { "0" }
+        val sy = y.trimStart('0').ifEmpty { "0" }
+        if (sx.length != sy.length) return sx.length - sy.length
+        val c = sx.compareTo(sy)
+        if (c != 0) return c
+        // 数值相同（`01` 与 `1`）：位数少的先
+        return x.length - y.length
+    }
+
+    /** 文字段的类别：数字(0) → 汉字(1) → 字母(2) → 其它(3) */
+    private fun rank(ch: Char?): Int = when {
+        ch == null -> 0
+        ch.isDigit() -> 0
+        isCjk(ch) -> 1
+        ch.isLetter() -> 2
+        else -> 3
+    }
+
+    private fun isCjk(ch: Char): Boolean {
+        val code = ch.code
+        return code in 0x3400..0x4DBF || code in 0x4E00..0x9FFF ||
+            code in 0xF900..0xFAFF || code in 0xFF00..0xFFEF
+    }
 }
+
