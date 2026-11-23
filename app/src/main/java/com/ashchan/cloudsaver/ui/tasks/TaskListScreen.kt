@@ -10,9 +10,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -58,6 +60,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -257,24 +260,41 @@ private fun TaskRow(
 
             Spacer(Modifier.height(8.dp))
 
-            // 第二行：盘里集数 → 最新集；右侧放上次同步时间（时间独占右端，永远不被压缩）
+            // 第二行：盘里集数 → 最新集（共N） ；右侧放上次同步时间（时间独占右端，永远不被压缩）
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = episodeText(snap.localLastEpisode),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    text = "  →  ",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.outline,
-                )
-                Text(
-                    text = episodeText(snap.tmdbLatest),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-                Spacer(Modifier.weight(1f))
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = episodeText(snap.localLastEpisode),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                    )
+                    Text(
+                        text = "  →  ",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.outline,
+                        maxLines = 1,
+                    )
+                    Text(
+                        text = episodeText(snap.tmdbLatest),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                    )
+                    // 全剧总集数：只有绑了 TMDB 才知道
+                    if (snap.tmdbTotal > 0) {
+                        Text(
+                            text = "（共${snap.tmdbTotal}）",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
                 Text(
                     text = syncText(snap.lastSyncAt),
                     style = MaterialTheme.typography.bodySmall,
@@ -285,18 +305,7 @@ private fun TaskRow(
 
             Spacer(Modifier.height(8.dp))
 
-            // 进度：盘里集数 / 目标集数（有总集数就按全集算，否则退回按最新集算）
-            val denominator = if (snap.tmdbTotal > 0) snap.tmdbTotal else snap.tmdbLatest
-            val numerator = if (snap.tmdbTotal > 0) snap.localEpisodes else snap.localLastEpisode
-            val fraction = if (denominator > 0) {
-                (numerator.toFloat() / denominator).coerceIn(0f, 1f)
-            } else 0f
-            LinearProgressIndicator(
-                progress = { fraction },
-                modifier = Modifier.fillMaxWidth().height(4.dp),
-                color = statusColor(snap),
-                trackColor = MaterialTheme.colorScheme.surfaceVariant,
-            )
+            EpisodeBar(snap)
 
             Spacer(Modifier.height(8.dp))
 
@@ -448,6 +457,55 @@ private fun EmptyTasks(modifier: Modifier = Modifier, onAdd: () -> Unit) {
 }
 
 // ---------------- 小工具 ----------------
+
+/**
+ * 三段进度条，分母统一为 TMDB 总集数，铺满整条：
+ *  绿 = 盘里已有（已转存）；黄 = 已播出但盘里还没有（缺集）；浅橘粉 = 还没播出。
+ * 没绑 TMDB（拿不到总集数）时退回单段绿条，分母用最新集号，避免画出一条「假的三段」。
+ */
+@Composable
+private fun EpisodeBar(snap: SnapshotEntity) {
+    val total = snap.tmdbTotal
+    if (total <= 0) {
+        val denom = snap.tmdbLatest
+        val frac = if (denom > 0) {
+            (snap.localLastEpisode.toFloat() / denom).coerceIn(0f, 1f)
+        } else 0f
+        LinearProgressIndicator(
+            progress = { frac },
+            modifier = Modifier.fillMaxWidth().height(4.dp),
+            color = statusColor(snap),
+            trackColor = MaterialTheme.colorScheme.surfaceVariant,
+        )
+        return
+    }
+    val seg = com.ashchan.cloudsaver.data.episodeSegments(
+        localEpisodes = snap.localEpisodes,
+        tmdbLatest = snap.tmdbLatest,
+        tmdbTotal = total,
+    )
+    val parts = listOf(
+        seg.have to TaskColors.ok(),
+        seg.missing to TaskColors.behind(),
+        seg.unaired to MaterialTheme.colorScheme.primaryContainer,
+    ).filter { it.first > 0 }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(4.dp)
+            .clip(RoundedCornerShape(2.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        parts.forEach { (count, color) ->
+            Box(
+                modifier = Modifier
+                    .weight(count.toFloat())
+                    .fillMaxHeight()
+                    .background(color),
+            )
+        }
+    }
+}
 
 private fun episodeText(ep: Int): String = if (ep > 0) "E$ep" else "E—"
 

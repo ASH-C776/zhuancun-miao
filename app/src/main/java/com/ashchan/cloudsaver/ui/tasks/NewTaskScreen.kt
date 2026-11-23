@@ -520,6 +520,9 @@ fun NewTaskScreen(
             onPick = { item ->
                 tmdbId = item.id.toString()
                 tmdbTitle = item.title()
+                // 绑定 TMDB 后任务名直接用官方名（用户要求：覆盖手填名），避免两边名字不一致
+                name = item.name.ifBlank { item.title() }
+                error = null
                 showTmdbSearch = false
                 // 选完剧就按 TMDB 推断的播出日点亮更新日（可能多天）；用户手动点过就不覆盖
                 scope.launch {

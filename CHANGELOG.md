@@ -711,3 +711,24 @@
 - `:app:compileDebugKotlin` / `:app:assembleDebug` 通过。
 - 截图：`docs/t_home.png`（任务栏选中）、`docs/t_add.png`（添加栏选中，动作行在底栏之上）、`docs/t_log2.png`（日志栏选中）、`docs/t_set.png`（设置栏选中）。
 - 注意：HyperOS 仍禁止 adb 注入点击，栏间切换需人工点验。
+
+## Stage 23 — 卡片显示总集数 + 三段进度条 + 绑定 TMDB 自动改名（2026-11-23）
+
+### 1) 第二行改成三个集数
+`E10 → E20（共30）`：左端盘里到第几集，箭头后 TMDB 最新已播集，括号是全剧总集数（只有绑了 TMDB 才显示）。右端同步时间保留，左侧集数区改为 `weight(1f)`，空间不够时由「（共N）」省略，时间永不被压缩。
+
+### 2) 进度条改为三段、按总集数配比
+- 分母统一为 **TMDB 总集数**：
+  绿段 = 盘里已有（`localEpisodes`）、黄段 = 已播未转（`tmdbLatest - have`）、浅橘粉段 = 尚未播出（`total - max(have, aired)`）。
+- 例：已有 10 / 已播 20 / 共 30 → 绿 1/3 + 黄 1/3 + 粉 1/3（真机截图 `docs/bar2.png` 已确认）。
+- 未绑 TMDB（无总集数）时退回原来的单段绿条，分母用最新集号，不画假的三段。
+- 盘里集数超过总集数时只画绿到底；集号超过已播时黄段为 0。
+- 计算抽成纯函数 `data/EpisodeSegments.kt`（`episodeSegments()`），新增 `EpisodeSegmentsTest` 7 例覆盖：三等分、全绿、超前、超总数、全黄、无总数、负数。
+- 颜色：绿 `TaskColors.ok()`、黄 `TaskColors.behind()`、粉 `primaryContainer`（深色模式自动取深色版）。
+
+### 3) 绑定 TMDB 后任务名改成官方名
+「添加」页搜索选中某剧后，任务名直接覆盖为 TMDB 官方名（`item.name`，取不到退回「名称 (年份)」），同时清掉旧报错。用户确认口径是「直接覆盖，包括手打的名字」。
+
+### 验证
+- `:app:testDebugUnitTest` + `:app:assembleDebug` 通过（单测由 84 增至 91 项，全绿）。
+- 真机：`docs/bar2.png` 三段条与「（共30）」正常；为截这张图临时往数据库插入了一行「演示用·恋爱博士」，截完已还原原库（当前任务列表为空，与操作前一致）。
