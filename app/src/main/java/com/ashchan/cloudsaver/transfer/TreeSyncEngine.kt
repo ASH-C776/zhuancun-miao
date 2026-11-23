@@ -221,29 +221,44 @@ class TreeSyncEngine(
 
         /**
          * 找不到视频时把「实际看到了什么」写出来，不然只有一句「没有可转存的视频文件」，
-         * 分不清是分享是空的、深度不够、还是文件扩展名不认。
+         * 分不清是分享是空的、季度填错了、深度不够、还是扩展名不认。
          */
         private fun noVideoMessage(tree: ShareNode, seasonNo: Int): String {
+            val seasons = mutableSetOf<Int>()
+            collectSeasonNumbers(tree, depth = 0, out = seasons)
+            if (seasonNo > 0 && seasons.isNotEmpty() && seasonNo !in seasons) {
+                val found = seasons.sorted().joinToString("、") { "第 $it 季" }
+                return "只取第 $seasonNo 季，但分享里只有 $found；" +
+                    "把任务里的「季度」改成 ${if (seasons.size == 1) seasons.first() else "对应季号（0 = 全部）"} 再跑"
+            }
             val top = tree.children.take(6).joinToString("、") { child ->
                 if (child.isDir) "${child.name}/" else child.name
             }
-            val dirs = countDirs(tree, 0)
-            val note = buildString {
+            val dirs = countDirs(tree)
+            return buildString {
                 append("分享中没有找到可转存的视频文件")
                 append("（根下 ${tree.children.size} 项")
                 if (top.isNotBlank()) append("：").append(top)
                 if (tree.children.size > 6) append("…")
-                append("；共 ${dirs} 个目录，最深 ${minOf(maxDepth, tree.maxDepth())} 层")
+                append("；共 $dirs 个目录，最深 ${minOf(maxDepth, tree.maxDepth())} 层")
                 if (seasonNo > 0) append("，只取了第 $seasonNo 季")
                 append("）")
             }
-            return note
         }
 
-        private fun countDirs(node: ShareNode, depth: Int): Int =
-            node.children.sumOf { child ->
-                if (child.isDir) 1 + countDirs(child, depth + 1) else 0
+        /** 分享里出现过的季号（目录名能解析出季号的都算） */
+        private fun collectSeasonNumbers(node: ShareNode, depth: Int, out: MutableSet<Int>) {
+            if (depth > maxDepth) return
+            node.children.forEach { child ->
+                if (child.isDir) {
+                    SeasonParser.parse(child.name)?.let { out += it }
+                    collectSeasonNumbers(child, depth + 1, out)
+                }
             }
+        }
+
+        private fun countDirs(node: ShareNode): Int =
+            node.children.sumOf { child -> if (child.isDir) 1 + countDirs(child) else 0 }
 
         /**
          * 递归收集视频文件。
