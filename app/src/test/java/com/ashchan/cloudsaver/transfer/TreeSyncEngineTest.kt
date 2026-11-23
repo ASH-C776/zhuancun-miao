@@ -320,7 +320,8 @@ class TreeSyncEngineTest {
 
         assertEquals(2, report.restoredFiles)
         assertEquals(0, report.restoredDirs)          // 不新建文件夹
-        assertEquals(2, adapter.restoreShareCalls)     // 只有 2 个视频各发一次，子目录没碰
+        // 两个视频合成一次转存请求（RESTORE_BATCH 内），子目录没碰
+        assertEquals(1, adapter.restoreShareCalls)
         assertEquals(2, adapter.mine["m_show"]!!.size)
         assertTrue(report.ok)
     }

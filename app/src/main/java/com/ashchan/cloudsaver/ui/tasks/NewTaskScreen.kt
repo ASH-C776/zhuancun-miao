@@ -87,6 +87,7 @@ fun NewTaskScreen(
     var drivePickedByUser by remember { mutableStateOf(false) }
     var saveFid by remember { mutableStateOf("0") }
     var savePathLabel by remember { mutableStateOf("网盘根目录") }
+    var seasonNo by remember { mutableStateOf(0) }
     var ruleKey by remember { mutableStateOf("") }
     var tmdbId by remember { mutableStateOf("") }
     var tmdbTitle by remember { mutableStateOf("") }
@@ -141,6 +142,7 @@ fun NewTaskScreen(
                                         saveFid = saveFid,
                                         savePathLabel = savePathLabel,
                                         ruleKey = ruleKey,
+                                        seasonNo = seasonNo,
                                         driveOverride = drive,
                                     )
                                     onDone()
@@ -239,6 +241,15 @@ fun NewTaskScreen(
                 title = savePathLabel,
                 onClick = { showPathPicker = true },
             )
+
+            // 季度：不选 = 剧名/视频平铺；选第N季 = 剧名/Season N/视频平铺
+            SectionLabel("季度")
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                SmallChoice("不选", seasonNo == 0, Modifier.weight(1f)) { seasonNo = 0 }
+                (1..4).forEach { n ->
+                    SmallChoice("第$n 季", seasonNo == n, Modifier.weight(1f)) { seasonNo = n }
+                }
+            }
 
             // 命名规则
             SectionLabel("命名规则")
@@ -626,6 +637,41 @@ private fun TmdbSearchDialog(
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
     )
+}
+
+/** 等宽小选项（季度/星期这种一排多个），避免 chip 挤成竖排文字 */
+@Composable
+private fun SmallChoice(
+    text: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier
+            .height(38.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(
+                if (selected) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    MaterialTheme.colorScheme.surfaceContainerLow
+                },
+            )
+            .clickableRow(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelMedium,
+            color = if (selected) {
+                MaterialTheme.colorScheme.onPrimaryContainer
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            maxLines = 1,
+        )
+    }
 }
 
 /** 行级点击（带 enabled 控制），避免每处都写 .clickable + interactionSource */

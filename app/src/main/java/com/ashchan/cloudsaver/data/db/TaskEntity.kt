@@ -31,6 +31,14 @@ data class TaskEntity(
     val seasonFid: String = "",
     /** 目标季目录名，如「第 2 季 - 2160p WEB-DL HEVC AAC」 */
     val seasonName: String = "",
+    /**
+     * 季度编号：0 = 不建季目录（直接 剧名/视频文件 平铺）；
+     * 1..N = 转存到 剧名/Season N/ 下平铺。
+     *
+     * 与 [seasonFid] 的区别：seasonFid 指分享里某个已存在的季目录（用来限定来源），
+     * 这里只是目标侧要不要多一层季文件夹，两者互不影响。
+     */
+    val seasonNo: Int = 0,
     /** 分享内扫描起点 fid，空 = 分享根；实际执行时优先用 seasonFid */
     val startFid: String = "",
     /**

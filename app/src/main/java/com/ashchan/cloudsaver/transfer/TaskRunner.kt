@@ -123,9 +123,18 @@ class TaskRunner(
 
         // 每个任务在自己的保存位置下建一个「剧名」目录：
         // 多剧混在同一层会让集数统计把整盘视频算作一个任务，必须隔离。
-        val destFid = retryOnce("创建任务目录") {
+        val nameFid = retryOnce("创建任务目录") {
             adapter.ensureFolder(baseFid, task.name.trim())
         }.getOrElse { baseFid }
+
+        // 选了季度就再多一层 `Season N`；不选则视频直接平铺在剧名目录下
+        val destFid = if (task.seasonNo > 0) {
+            retryOnce("创建季目录") {
+                adapter.ensureFolder(nameFid, seasonFolderName(task.seasonNo))
+            }.getOrElse { nameFid }
+        } else {
+            nameFid
+        }
 
         val rootId = task.seasonFid.ifBlank { task.startFid }.ifBlank { resolved.pdirFid }
         val tree = retryOnce("拉取分享目录树") {
@@ -136,17 +145,13 @@ class TaskRunner(
             )
         }.getOrThrow()
 
-        val scope = resolveScope(task, tree)
         val plan = buildRenamePlan(task, tree)
-        val report = TreeSyncEngine(adapter).sync(
+        val report = TreeSyncEngine(adapter).syncFlat(
             share = resolved,
             tree = tree,
             destRootFid = destFid,
-            // destFid 已经是「剧名」目录，这里不再用任务名二次建层，
-            // 让引擎沿用分享里的真实目录名（如「第 1 季 - 1080p」）
-            taskName = "",
             renamePlan = plan,
-            scope = scope,
+            seasonNo = task.seasonNo,
         ).getOrThrow()
 
         // 光鸭的 access_token 会在刷新后轮换，必须回写，否则下次登录失效
@@ -286,6 +291,9 @@ class TaskRunner(
             )
         }
     }
+
+    /** 目标侧季目录名（选了季度才建） */
+    private fun seasonFolderName(no: Int): String = "Season $no"
 
     private fun buildAdapter(drive: DriveType, credential: String): CloudDriveAdapter =
         CloudAdapterFactory.create(drive, credential)

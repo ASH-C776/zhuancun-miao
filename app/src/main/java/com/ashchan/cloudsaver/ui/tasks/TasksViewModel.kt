@@ -87,6 +87,7 @@ class TasksViewModel(
         saveFid: String = "0",
         savePathLabel: String = "网盘根目录",
         ruleKey: String = "",
+        seasonNo: Int = 0,
         driveOverride: DriveType? = null,
     ) {
         val title = name.trim()
@@ -111,6 +112,7 @@ class TasksViewModel(
                         tmdbId = tmdbIdText.trim().toLongOrNull(),
                         airTime = airTime.trim(),
                         ruleKey = ruleKey,
+                        seasonNo = seasonNo,
                         updateMode = if (weekdays.isBlank()) {
                             TaskEntity.UPDATE_MODE_TMDB
                         } else {
@@ -225,3 +227,4 @@ class TasksViewModel(
         }
     }
 }
+

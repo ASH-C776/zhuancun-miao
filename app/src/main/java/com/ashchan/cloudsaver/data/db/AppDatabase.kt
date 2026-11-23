@@ -13,7 +13,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  */
 @Database(
     entities = [TaskEntity::class, SnapshotEntity::class, RunRecordEntity::class],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -69,6 +69,19 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v5：tasks 加 `seasonNo`（目标侧季度编号）。
+         *
+         * 默认 0 = 不建季文件夹（剧名/视频平铺），老任务保持原来的单层结构不动。
+         */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE tasks ADD COLUMN seasonNo INTEGER NOT NULL DEFAULT 0"
+                )
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -79,6 +92,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_1_2,
                     MIGRATION_2_3,
                     MIGRATION_3_4,
+                    MIGRATION_4_5,
                 ).build().also { instance = it }
             }
     }

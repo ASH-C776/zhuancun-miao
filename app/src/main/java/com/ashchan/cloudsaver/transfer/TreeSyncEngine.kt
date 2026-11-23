@@ -5,6 +5,7 @@ import com.ashchan.cloudsaver.core.model.DriveFile
 import com.ashchan.cloudsaver.core.model.NaturalOrder
 import com.ashchan.cloudsaver.core.model.ShareInfo
 import com.ashchan.cloudsaver.core.model.ShareNode
+import com.ashchan.cloudsaver.data.SeasonParser
 
 /**
  * 目录级同步引擎（1.5 转存粒度 / 1.6 深层改名）。
@@ -71,10 +72,38 @@ class TreeSyncEngine(
         session.report()
     }
 
+    /**
+     * 扁平同步：把分享里（可选指定季）的所有视频**直接平铺**到 [destRootFid]，
+     * 不再把分享方的目录名带进网盘。
+     *
+     * 这是主路径：用户要的是 `剧名/视频文件` 或 `剧名/Season N/视频文件`，
+     * 分享里那层「鉴定 4K」「[高清]xxx」之类的文件夹名对用户没有意义，只会多一层嵌套，
+     * 也让集数统计和改名都多绕一层。
+     *
+     * @param seasonNo >0 时只取名字里能解析出同一季号的目录（如「第 2 季」「Season 2」），
+     *                 其它季的子树直接跳过；0 = 全部收进来。
+     */
+    suspend fun syncFlat(
+        share: ShareInfo,
+        tree: ShareNode,
+        destRootFid: String,
+        renamePlan: Map<String, String> = emptyMap(),
+        seasonNo: Int = 0,
+        maxDepth: Int = DEFAULT_MAX_DEPTH,
+        onProgress: (stage: Int, percent: Int, message: String) -> Unit = { _, _, _ -> },
+    ): Result<Report> = runCatching {
+        val session = Session(adapter, share, renamePlan, maxDepth.coerceAtMost(MAX_DEPTH), onProgress)
+        session.runFlat(tree, destRootFid, seasonNo)
+        session.report()
+    }
+
     companion object {
         /** 与接口的树扫描默认深度保持一致：根的直接子级 = 1。 */
         const val DEFAULT_MAX_DEPTH: Int = 3
         const val MAX_DEPTH: Int = 5
+
+        /** 一次转存请求最多带多少个文件（太多容易被判超时/限流） */
+        const val RESTORE_BATCH: Int = 8
 
         /**
          * 把分享根切成转存单元（纯函数，便于单测）。
@@ -123,6 +152,40 @@ class TreeSyncEngine(
             if (videos.isEmpty()) throw IllegalStateException("该目录下没有可转存的视频文件")
             onProgress(0, 0, "正在处理 ${videos.size} 个视频文件")
             syncFiles(videos, destRootFid)
+        }
+
+        /** 扁平同步：收集视频（可按季过滤）→ 批量转存 → 逐个按规则改名 */
+        suspend fun runFlat(tree: ShareNode, destRootFid: String, seasonNo: Int) {
+            val videos = mutableListOf<ShareNode>()
+            collectVideos(tree, videos, seasonNo, depth = 0)
+            if (videos.isEmpty()) throw IllegalStateException("分享中没有找到可转存的视频文件")
+            onProgress(0, 0, "共 ${videos.size} 个视频，正在比对")
+            syncFiles(videos, destRootFid)
+        }
+
+        /**
+         * 递归收集视频文件。
+         * @param seasonNo >0 时，遇到「看起来是别的季」的目录整棵跳过
+         */
+        private fun collectVideos(
+            node: ShareNode,
+            out: MutableList<ShareNode>,
+            seasonNo: Int,
+            depth: Int,
+        ) {
+            node.children.sortedWith(NATURAL).forEach { child ->
+                if (child.isDir) {
+                    if (depth + 1 > maxDepth) {
+                        failures += "深度超限，跳过「${child.name}」"
+                        return@forEach
+                    }
+                    val season = SeasonParser.parse(child.name)
+                    if (seasonNo > 0 && season != null && season != seasonNo) return@forEach
+                    collectVideos(child, out, seasonNo, depth + 1)
+                } else if (child.isVideo) {
+                    out += child
+                }
+            }
         }
 
         suspend fun run(tree: ShareNode, destRootFid: String, taskName: String) {
@@ -203,37 +266,74 @@ class TreeSyncEngine(
         }
 
         /**
-         * 同步一批散文件到 [destFid]：按**改名后的目标名**判断是否已存在，缺的才转存。
+         * 同步一批视频到 [destFid]：按**改名后的目标名**判断是否已存在，缺的才转存。
          *
-         * 这里必须用目标名而不是分享原名：上一轮已经按规则把 `01丨4K.mp4` 改名成
+         * 判断必须用目标名而不是分享原名：上一轮已经按规则把 `01丨4K.mp4` 改名成
          * `剧名.S01E01.mp4`，如果还拿原名比对，就会判定"全都没转过"→ 整批重下 →
          * 再改名时撞上已有文件（光鸭直接返回 `code:160 文件名已存在`），
          * 表现为同步一直在转圈、目录条目越滚越多。
+         *
+         * 缺的按 [RESTORE_BATCH] 个一批转存：光鸭/夸克都支持一次传多个 fileId，
+         * 一集一次请求会把几十集拖成好几分钟。
          */
         private suspend fun syncFiles(files: List<ShareNode>, destFid: String) {
             val existing = destList(destFid).filter { !it.isDir }.map { it.name }.toMutableSet()
+            val missing = mutableListOf<ShareNode>()
+
             files.sortedWith(NATURAL).forEach { node ->
                 val expected = expectedName(node)
-                if (expected in existing) {
-                    skippedFiles++
-                    return@forEach
-                }
-                // 本地已有原名文件但还没改名 → 就地改名，不重复转存
-                if (node.name in existing) {
-                    val fid = destList(destFid).firstOrNull { !it.isDir && it.name == node.name }?.fid
-                    if (fid != null && expected != node.name &&
-                        adapter.renameFile(fid, expected).isSuccess
-                    ) {
-                        renamedItems++
-                        existing += expected
-                        existing -= node.name
-                        destCache.remove(destFid)
-                    } else {
-                        skippedFiles++
+                when {
+                    expected in existing -> skippedFiles++
+                    // 本地已有原名文件但还没改名 → 就地改名，不重复转存
+                    node.name in existing -> {
+                        val fid = destList(destFid).firstOrNull { !it.isDir && it.name == node.name }?.fid
+                        if (fid != null && adapter.renameFile(fid, expected).isSuccess) {
+                            renamedItems++
+                            existing += expected
+                            existing -= node.name
+                            destCache.remove(destFid)
+                        } else {
+                            skippedFiles++
+                        }
                     }
-                    return@forEach
+                    else -> missing += node
                 }
-                if (syncFile(node, destFid, expected)) existing += expected
+            }
+
+            if (missing.isEmpty()) return
+            missing.chunked(RESTORE_BATCH).forEach { chunk ->
+                restoreChunk(chunk, destFid, existing)
+            }
+        }
+
+        /** 一批转存 + 逐个改名；批次的 diff 对不上时退回逐个转存 */
+        private suspend fun restoreChunk(
+            chunk: List<ShareNode>,
+            destFid: String,
+            existing: MutableSet<String>,
+        ) {
+            val saved = adapter.restoreShare(share, chunk.map { it.file }, destFid).getOrNull()
+            if (saved == null || saved.size != chunk.size) {
+                chunk.forEach { node ->
+                    if (syncFile(node, destFid, expectedName(node))) existing += expectedName(node)
+                }
+                return
+            }
+            val byShareFid = chunk.associateBy { it.fid }
+            restoredFiles += saved.size
+            destCache.remove(destFid)
+            saved.forEach { restored ->
+                val node = byShareFid[restored.shareFileId]
+                val expected = node?.let { expectedName(it) } ?: restored.file.name
+                if (node != null && expected != node.name) {
+                    if (adapter.renameFile(restored.file.fid, expected).isSuccess) {
+                        renamedItems++
+                    } else {
+                        failures += "改名失败：${node.name} -> $expected"
+                    }
+                }
+                existing += expected
+                destCache.remove(destFid)
             }
         }
 
@@ -241,7 +341,7 @@ class TreeSyncEngine(
         private fun expectedName(node: ShareNode): String =
             renamePlan[node.fid]?.trim()?.takeIf { it.isNotBlank() } ?: node.name
 
-        /** 转存单个文件并按计划改名；成功返回 true（调用方据此更新已存在集合） */
+        /** 单个文件转存（批量失败时的兜底）；成功返回 true */
         private suspend fun syncFile(node: ShareNode, destFid: String, expected: String): Boolean {
             val saved = adapter.restoreShare(share, listOf(node.file), destFid)
                 .getOrElse {
