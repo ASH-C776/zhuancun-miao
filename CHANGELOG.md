@@ -839,3 +839,34 @@ Stage 27 在链接行右侧放了 8dp 状态圆点，虽然固定占位，但它
 - `:app:assembleDebug` 通过，已装机。
 - 真机 `docs/s5.png`：三行链接框等宽对齐，第 1 行正常无划线，第 2 行红色划线 + 红字原因，
   第 3 行琥珀划线 + 琥珀原因；演示数据已回滚。
+
+## Stage 29 未绑 TMDB 的卡片状态（修「永远未同步」）
+
+### 问题
+`SnapshotCalc.status` 只看 TMDB：没有 tmdbLatest / tmdbTotal 就一律返回 UNKNOWN，
+`StatusBadge` 把 UNKNOWN 画成「未同步」。于是没绑 TMDB 的任务，即使盘里已经是最新的，
+卡片也永远挂着一个灰标「未同步」——状态从来没去看「这一轮跑成功没、转进来多少集」。
+
+### 口径（用户确认）
+- 没绑 TMDB 不谈「缺几集」，只讲这一轮的结果，文案要短：
+  `LOCAL_ADDED` → 「已转存」（绿）、`LOCAL_LATEST` → 「已是最新」（绿）、从未跑过仍是「未同步」（灰）。
+- 没绑 TMDB 的进度条改画**一条蓝色整条**（不是绿、不是黄）：既不是缺集也不是收齐，
+  只表示「跑通且正常」；未同步才留空条。
+- 卡片第二行：没 TMDB 时不再画「E12 → E—」，改成「E12 共12集」。
+- 底行「未绑定 TMDB」缩成「无 TMDB」，避免把整行挤出卡片。
+- 集数行判断绑没绑 TMDB 改用 `tmdbLatest > 0 || tmdbTotal > 0`，与引擎一致。
+
+### 代码
+- `SnapshotEntity` 加 `addedEpisodes` 列 + 两个状态常量 `STATUS_LOCAL_ADDED / STATUS_LOCAL_LATEST`。
+- `AppDatabase` 9 → 10 + `MIGRATION_9_10`（只给 snapshots 加 `addedEpisodes INTEGER DEFAULT 0`）。
+- `SnapshotCalc.status(...)` 增 `addedEpisodes` 参数，`build(...)` 同步透传。
+- `TaskRepository.finishRun`：无 TMDB 时用「本次集数 - 上次快照集数」算出本轮新增。
+- `TaskListScreen`：`StatusBadge` 两个新分支；`TaskColors.local()` 蓝色；
+  `EpisodeBar` 无 TMDB 分支改蓝色整条；集数行与底行文案调整。
+- 单测 104 → 106 全绿（SnapCalcTest 新增「跑过有集数=已是最新」「有新增=已转存」「一集都没有=未同步」）。
+
+### 验证
+- `:app:assembleDebug` 通过，已装机（v10 迁移在真机上跑通，`user_version=10`、`addedEpisodes` 列存在）。
+- 真机 `docs/s6.png` / `docs/s7.png`：两张演示卡分别为「已是最新」「已转存」+ 蓝色整条；
+  真实任务（缺 1 集 / 转存完）不受影响。
+- 演示数据已回滚（`docs/s8.png`）：主页与装之前一致。

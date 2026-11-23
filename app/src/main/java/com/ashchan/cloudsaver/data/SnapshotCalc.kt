@@ -22,10 +22,18 @@ object SnapshotCalc {
         return (target - localEpisodes).coerceAtLeast(0)
     }
 
-    fun status(localEpisodes: Int, tmdbLatest: Int, tmdbTotal: Int): String = when {
+    fun status(
+        localEpisodes: Int,
+        tmdbLatest: Int,
+        tmdbTotal: Int,
+        addedEpisodes: Int = 0,
+    ): String = when {
         tmdbTotal > 0 && localEpisodes >= tmdbTotal -> SnapshotEntity.STATUS_FINISHED
         tmdbLatest > 0 && localEpisodes >= tmdbLatest -> SnapshotEntity.STATUS_UP_TO_DATE
         tmdbLatest > 0 || tmdbTotal > 0 -> SnapshotEntity.STATUS_BEHIND
+        // 没绑 TMDB：没有「最新集」这个尺子，只讲这一轮的结果，不再一律判「未同步」
+        addedEpisodes > 0 -> SnapshotEntity.STATUS_LOCAL_ADDED
+        localEpisodes > 0 -> SnapshotEntity.STATUS_LOCAL_LATEST
         else -> SnapshotEntity.STATUS_UNKNOWN
     }
 
@@ -36,6 +44,7 @@ object SnapshotCalc {
         localLastEpisode: Int,
         tmdbLatest: Int,
         tmdbTotal: Int = 0,
+        addedEpisodes: Int = 0,
         now: Long = System.currentTimeMillis(),
         message: String = "",
     ): SnapshotEntity = SnapshotEntity(
@@ -45,7 +54,8 @@ object SnapshotCalc {
         tmdbLatest = tmdbLatest,
         missing = missing(localEpisodes, tmdbLatest, tmdbTotal),
         tmdbTotal = tmdbTotal,
-        status = status(localEpisodes, tmdbLatest, tmdbTotal),
+        addedEpisodes = addedEpisodes,
+        status = status(localEpisodes, tmdbLatest, tmdbTotal, addedEpisodes),
         lastSyncAt = now,
         lastMessage = message,
     )

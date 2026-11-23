@@ -18,6 +18,11 @@ data class SnapshotEntity(
     val tmdbLatest: Int = 0,
     /** 缺集数 = tmdbLatest - localEpisodes，负数归零 */
     val missing: Int = 0,
+    /**
+     * 本轮新转进来的集数（跟上一份快照的集数相比）。
+     * 只给「没绑 TMDB」的卡片用：那种任务没有「最新集」可比，只能讲这一轮干了多少活。
+     */
+    val addedEpisodes: Int = 0,
     /** TMDB 的总集数（指定了季度就取该季集数，否则全剧）；0 = 未知 */
     val tmdbTotal: Int = 0,
     /** UP_TO_DATE / BEHIND / FINISHED / UNKNOWN */
@@ -40,5 +45,9 @@ data class SnapshotEntity(
         /** 全集都到齐了（总集数已满）：这部剧没得补，用户可自行删任务 */
         const val STATUS_FINISHED: String = "FINISHED"
         const val STATUS_UNKNOWN: String = "UNKNOWN"
+        /** 没绑 TMDB 但跑过、且这一轮转进来了新集 → 卡片显示「已转存」 */
+        const val STATUS_LOCAL_ADDED: String = "LOCAL_ADDED"
+        /** 没绑 TMDB 但跑过、这一轮没有新集 → 卡片显示「已是最新」 */
+        const val STATUS_LOCAL_LATEST: String = "LOCAL_LATEST"
     }
 }

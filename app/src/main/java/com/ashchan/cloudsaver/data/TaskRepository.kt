@@ -159,6 +159,13 @@ class TaskRepository(private val db: AppDatabase) {
         if (!saveSnapshot) {
             // 试跑只记日志，卡片保持不动
         } else if (report != null && ok) {
+            // 没绑 TMDB（两个集数都是 0）时，「这一轮转进来多少集」靠跟上一份快照比
+            val old = snapshotDao.getByTask(task.id)
+            val added = if (tmdbLatest <= 0 && tmdbTotal <= 0 && old != null) {
+                (localEpisodes - old.localEpisodes).coerceAtLeast(0)
+            } else {
+                0
+            }
             saveSnapshot(
                 SnapshotCalc.build(
                     taskId = task.id,
@@ -166,6 +173,7 @@ class TaskRepository(private val db: AppDatabase) {
                     localLastEpisode = localLastEpisode,
                     tmdbLatest = tmdbLatest,
                     tmdbTotal = tmdbTotal,
+                    addedEpisodes = added,
                     now = now,
                     message = msg,
                 ).copy(lastOk = true)

@@ -13,7 +13,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  */
 @Database(
     entities = [TaskEntity::class, SnapshotEntity::class, RunRecordEntity::class, TaskSourceEntity::class],
-    version = 9,
+    version = 10,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -164,6 +164,20 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v10：`snapshots` 加 `addedEpisodes`（本轮新增集数）。
+         *
+         * 目的：没绑 TMDB 的任务没有「最新集」可比，以前一律判 UNKNOWN → 卡片永远显示「未同步」，
+         * 明明盘里已经是最新的。加上这一列后，这类任务能区分「这轮转进来 N 集」与「没有新集」。
+         */
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE snapshots ADD COLUMN addedEpisodes INTEGER NOT NULL DEFAULT 0"
+                )
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -179,6 +193,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_6_7,
                     MIGRATION_7_8,
                     MIGRATION_8_9,
+                    MIGRATION_9_10,
                 ).build().also { instance = it }
             }
     }

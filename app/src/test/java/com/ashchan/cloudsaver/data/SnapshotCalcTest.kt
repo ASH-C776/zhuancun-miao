@@ -61,11 +61,28 @@ class SnapshotCalcTest {
     }
 
     @Test
-    fun `未绑定 TMDB 时状态未知 不报缺集`() {
+    fun `未绑定 TMDB 时 跑过且有集数算已是最新`() {
         assertEquals(0, SnapshotCalc.missing(5, 0))
+        // 以前这里一律判 UNKNOWN → 卡片永远显示「未同步」，即使盘里已经是最新的
+        assertEquals(
+            SnapshotEntity.STATUS_LOCAL_LATEST,
+            SnapshotCalc.status(localEpisodes = 5, tmdbLatest = 0, tmdbTotal = 0)
+        )
+    }
+
+    @Test
+    fun `未绑定 TMDB 但本轮转进新集 算已转存`() {
+        assertEquals(
+            SnapshotEntity.STATUS_LOCAL_ADDED,
+            SnapshotCalc.status(localEpisodes = 8, tmdbLatest = 0, tmdbTotal = 0, addedEpisodes = 3)
+        )
+    }
+
+    @Test
+    fun `未绑定 TMDB 且盘里一集都没有 仍是未同步`() {
         assertEquals(
             SnapshotEntity.STATUS_UNKNOWN,
-            SnapshotCalc.status(localEpisodes = 5, tmdbLatest = 0, tmdbTotal = 0)
+            SnapshotCalc.status(localEpisodes = 0, tmdbLatest = 0, tmdbTotal = 0, addedEpisodes = 0)
         )
     }
 

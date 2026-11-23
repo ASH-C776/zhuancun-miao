@@ -269,33 +269,45 @@ private fun TaskRow(
                     modifier = Modifier.weight(1f),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    val hasTmdb = snap.tmdbLatest > 0 || snap.tmdbTotal > 0
                     Text(
                         text = episodeText(snap.localLastEpisode),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                     )
-                    Text(
-                        text = "  →  ",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.outline,
-                        maxLines = 1,
-                    )
-                    Text(
-                        text = episodeText(snap.tmdbLatest),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                    )
-                    // 全剧总集数：只有绑了 TMDB 才知道
-                    if (snap.tmdbTotal > 0) {
+                    if (!hasTmdb) {
+                        // 没绑 TMDB：没有「最新集」可比，只报盘里有多少集，别再画一个「→ E—」
                         Text(
-                            text = "（共${snap.tmdbTotal}）",
+                            text = "  共${snap.localEpisodes}集",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
+                    } else {
+                        Text(
+                            text = "  →  ",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.outline,
+                            maxLines = 1,
+                        )
+                        Text(
+                            text = episodeText(snap.tmdbLatest),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                        )
+                        // 全剧总集数：只有绑了 TMDB 才知道
+                        if (snap.tmdbTotal > 0) {
+                            Text(
+                                text = "（共${snap.tmdbTotal}）",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                 }
                 Text(
@@ -398,6 +410,10 @@ private object TaskColors {
     @Composable
     fun unknown(): Color = MaterialTheme.colorScheme.onSurfaceVariant
 
+    /** 没绑 TMDB 的任务用蓝色整条进度条：不是「缺集」也不是「收齐」，只是「这一轮干过活」 */
+    @Composable
+    fun local(): Color = if (isSystemInDarkTheme()) Color(0xFF6FA8FF) else Color(0xFF1A6DD6)
+
     @Composable
     fun badgeBg(color: Color): Color = color.copy(alpha = 0.12f)
 }
@@ -409,6 +425,9 @@ private fun StatusBadge(snap: SnapshotEntity) {
         SnapshotEntity.STATUS_FINISHED -> "转存完" to TaskColors.ok()
         SnapshotEntity.STATUS_UP_TO_DATE -> "最新了" to TaskColors.ok()
         SnapshotEntity.STATUS_BEHIND -> "缺 ${snap.missing} 集" to TaskColors.behind()
+        // 没绑 TMDB：不讲「缺几集」，只讲这一轮的结果
+        SnapshotEntity.STATUS_LOCAL_ADDED -> "已转存" to TaskColors.ok()
+        SnapshotEntity.STATUS_LOCAL_LATEST -> "已是最新" to TaskColors.ok()
         else -> "未同步" to TaskColors.unknown()
     }
     Surface(
@@ -437,6 +456,8 @@ private fun Dot() {
 private fun statusColor(snap: SnapshotEntity): Color = when (snap.status) {
     SnapshotEntity.STATUS_FINISHED,
     SnapshotEntity.STATUS_UP_TO_DATE -> TaskColors.ok()
+    SnapshotEntity.STATUS_LOCAL_ADDED,
+    SnapshotEntity.STATUS_LOCAL_LATEST -> TaskColors.local()
     SnapshotEntity.STATUS_BEHIND -> TaskColors.behind()
     else -> MaterialTheme.colorScheme.outline
 }
@@ -481,14 +502,14 @@ private fun EmptyTasks(modifier: Modifier = Modifier, onAdd: () -> Unit) {
 private fun EpisodeBar(snap: SnapshotEntity) {
     val total = snap.tmdbTotal
     if (total <= 0) {
-        val denom = snap.tmdbLatest
-        val frac = if (denom > 0) {
-            (snap.localLastEpisode.toFloat() / denom).coerceIn(0f, 1f)
-        } else 0f
+        // 没绑 TMDB：没有总集数当分母，画一条蓝色整条表示「跑过、正常」；
+        // 从未跑过（UNKNOWN）才留空条，避免把空白伪装成「已同步」。
+        val done = snap.status == SnapshotEntity.STATUS_LOCAL_ADDED ||
+            snap.status == SnapshotEntity.STATUS_LOCAL_LATEST
         LinearProgressIndicator(
-            progress = { frac },
+            progress = { if (done) 1f else 0f },
             modifier = Modifier.fillMaxWidth().height(4.dp),
-            color = statusColor(snap),
+            color = if (done) TaskColors.local() else MaterialTheme.colorScheme.outline,
             trackColor = MaterialTheme.colorScheme.surfaceVariant,
         )
         return
@@ -532,7 +553,8 @@ private fun metaLeft(task: TaskEntity, sourceCount: Int = 1): String {
     // 多源：源只是多几个链接入口，规则仍是同一套，所以这里只报个数
     if (sourceCount > 1) parts += "$sourceCount 源"
     if (task.tmdbId == null) {
-        parts += "未绑定 TMDB"
+        // 太长的「未绑定 TMDB」会把底行挤出卡片边界，缩成 4 个字
+        parts += "无 TMDB"
     } else if (task.updateMode == TaskEntity.UPDATE_MODE_TMDB) {
         parts += if (task.weekdays.isBlank()) "待推断" else "自动"
     }
