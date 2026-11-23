@@ -19,11 +19,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Search
@@ -38,16 +36,14 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberTimePickerState
-import androidx.compose.material3.TimePicker
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -59,11 +55,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.ashchan.cloudsaver.core.model.DriveFile
 import com.ashchan.cloudsaver.core.model.DriveType
-import com.ashchan.cloudsaver.core.model.RenameRule
 import com.ashchan.cloudsaver.core.tmdb.TmdbSearchItem
 import com.ashchan.cloudsaver.data.TaskDraftParser
 import com.ashchan.cloudsaver.data.Weekdays
@@ -73,11 +67,10 @@ import java.util.Locale
 /**
  * 新建追剧任务（全屏页）。
  *
- * 为什么从弹窗改成整页：字段从 5 个涨到 8 个（含目录浏览、规则下拉、TMDB 搜索），
- * 窄屏 AlertDialog 里既放不下也滚不顺；而且「保存路径 / TMDB 搜索」都要二级弹层，
- * 弹窗套弹窗在手机上很难用。
+ * 为什么从弹窗改成整页：字段多（含目录浏览、TMDB 搜索），窄屏 AlertDialog 里既放不下也滚不顺，
+ * 而且「保存路径 / TMDB 搜索」都要二级弹层，弹窗套弹窗在手机上很难用。
  *
- * 所有输入框的说明文案都放进 `placeholder`，不再单独占一行 `label`，一屏能多放两个字段。
+ * 文案策略：能省的都省，输入框说明只放 `placeholder`，不单独占 `label` 行，也不写解释性副标题。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -101,16 +94,14 @@ fun NewTaskScreen(
     var weekdays by remember { mutableStateOf(emptySet<Int>()) }
 
     var showPathPicker by remember { mutableStateOf(false) }
-    var showRulePicker by remember { mutableStateOf(false) }
     var showTmdbSearch by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
-    var manualTmdbId by remember { mutableStateOf(false) }
+    var showTmdbHint by remember { mutableStateOf(false) }
 
     var error by remember { mutableStateOf<String?>(null) }
 
-    val rules = remember { viewModel.renameRules() }
-    val ruleLabel = rules.firstOrNull { it.key == ruleKey }?.let { it.name }
-        ?: "不改名（保持原文件名）"
+    // 命名规则只留两项：不改名 / 通用视频命名；后者在设置页被禁用时不出现
+    val magic = remember { viewModel.renameRules().firstOrNull { it.key == "\$TV_MAGIC" && it.enabled } }
 
     // 链接变化时自动识别网盘（用户手动选过则不覆盖）
     LaunchedEffect(link) {
@@ -178,7 +169,7 @@ fun NewTaskScreen(
                     name = it
                     error = null
                 },
-                placeholder = { Text("剧名（同时作为网盘文件夹名）") },
+                placeholder = { Text("任务名称") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -189,7 +180,7 @@ fun NewTaskScreen(
                     link = it
                     error = null
                 },
-                placeholder = { Text("夸克 / 光鸭分享链接，可带提取码") },
+                placeholder = { Text("分享链接") },
                 minLines = 2,
                 maxLines = 3,
                 modifier = Modifier.fillMaxWidth(),
@@ -221,98 +212,72 @@ fun NewTaskScreen(
             SettingRow(
                 icon = { Icon(Icons.Default.Home, null, tint = MaterialTheme.colorScheme.primary) },
                 title = savePathLabel,
-                subtitle = "任务会在该目录下建「剧名」文件夹",
                 onClick = { showPathPicker = true },
             )
 
             // 命名规则
             SectionLabel("命名规则")
-            SettingRow(
-                icon = { Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.primary) },
-                title = ruleLabel,
-                subtitle = if (ruleKey.isBlank()) {
-                    "分享里叫什么就存什么，一个文件都不改"
-                } else {
-                    "只重命名视频文件，目录层级保持不变"
-                },
-                onClick = { showRulePicker = true },
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    selected = ruleKey.isBlank(),
+                    onClick = { ruleKey = "" },
+                    label = { Text("不改名", style = MaterialTheme.typography.labelMedium) },
+                )
+                if (magic != null) {
+                    FilterChip(
+                        selected = ruleKey == magic.key,
+                        onClick = { ruleKey = magic.key },
+                        label = { Text(magic.name, style = MaterialTheme.typography.labelMedium) },
+                    )
+                }
+            }
 
             // TMDB
-            SectionLabel("TMDB（用于算最新集与更新日）")
-            if (!manualTmdbId) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(
-                        value = if (showTmdbSearch) "" else tmdbTitle,
-                        onValueChange = {},
-                        readOnly = true,
-                        placeholder = { Text("点右侧搜索，按剧名选剧") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    OutlinedButton(
-                        onClick = { showTmdbSearch = true },
-                        enabled = viewModel.hasTmdb(),
-                    ) { Text("搜索") }
-                }
-                if (!viewModel.hasTmdb()) {
-                    Text(
-                        text = "还没配置 TMDB：到「设置 → TMDB」填凭证（国内需自建反代），或改用下面的手填 ID",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    TextButton(onClick = { manualTmdbId = true }) { Text("改为手填 TMDB ID") }
-                } else if (tmdbId.isNotBlank()) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "已绑定：$tmdbTitle（ID $tmdbId）",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                        Spacer(Modifier.weight(1f))
-                        TextButton(onClick = {
-                            tmdbId = ""
-                            tmdbTitle = ""
-                        }) { Text("清除") }
-                    }
-                }
-            } else {
-                OutlinedTextField(
-                    value = tmdbId,
-                    onValueChange = { tmdbId = it },
-                    placeholder = { Text("手填 TMDB ID（纯数字，如 1399）") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                TextButton(onClick = { manualTmdbId = false }) { Text("改用搜索") }
-            }
+            SectionLabel("TMDB")
+            SettingRow(
+                icon = { Icon(Icons.Default.Search, null, tint = MaterialTheme.colorScheme.primary) },
+                title = tmdbTitle.ifBlank { "未选择" },
+                onClick = {
+                    if (viewModel.hasTmdb()) showTmdbSearch = true else showTmdbHint = true
+                },
+            )
 
-            // 更新日
+            // 更新日：七个排一排
             SectionLabel("更新日")
-            listOf(1..4, 5..7).forEach { range ->
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    range.forEach { day ->
-                        FilterChip(
-                            selected = day in weekdays,
-                            onClick = {
-                                weekdays = if (day in weekdays) weekdays - day else weekdays + day
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                (1..7).forEach { day ->
+                    val on = day in weekdays
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .height(40.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(
+                                if (on) {
+                                    MaterialTheme.colorScheme.primaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceContainerLow
+                                },
+                            )
+                            .clickableRow {
+                                weekdays = if (on) weekdays - day else weekdays + day
                             },
-                            label = {
-                                Text(
-                                    Weekdays.nameOf(day).removePrefix("周"),
-                                    style = MaterialTheme.typography.labelSmall,
-                                )
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            Weekdays.nameOf(day).removePrefix("周"),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (on) {
+                                MaterialTheme.colorScheme.onPrimaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.onSurfaceVariant
                             },
                         )
                     }
                 }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = { weekdays = Weekdays.everyDay() }) { Text("每天") }
-                TextButton(onClick = { weekdays = Weekdays.workdays() }) { Text("工作日 1-5") }
-                TextButton(onClick = { weekdays = emptySet() }) { Text("清空（按 TMDB 推断）") }
             }
 
             // 播出时刻
@@ -320,12 +285,8 @@ fun NewTaskScreen(
             SettingRow(
                 icon = { Icon(Icons.Default.DateRange, null, tint = MaterialTheme.colorScheme.primary) },
                 title = airTime.ifBlank { "未设置" },
-                subtitle = "点一下选几点几分（仅记录，提醒逻辑在二期）",
                 onClick = { showTimePicker = true },
             )
-            if (airTime.isNotBlank()) {
-                TextButton(onClick = { airTime = "" }) { Text("清除播出时刻") }
-            }
 
             error?.let {
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
@@ -338,12 +299,6 @@ fun NewTaskScreen(
                 }
             }
 
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = "保存后会先扫一遍分享，确认盘里已有多少集。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
             Spacer(Modifier.height(24.dp))
         }
     }
@@ -361,14 +316,13 @@ fun NewTaskScreen(
         )
     }
 
-    if (showRulePicker) {
-        RulePickerDialog(
-            rules = rules,
-            selected = ruleKey,
-            onDismiss = { showRulePicker = false },
-            onPick = {
-                ruleKey = it
-                showRulePicker = false
+    if (showTmdbHint) {
+        AlertDialog(
+            onDismissRequest = { showTmdbHint = false },
+            title = { Text("TMDB") },
+            text = { Text("请先配置 TMDB") },
+            confirmButton = {
+                TextButton(onClick = { showTmdbHint = false }) { Text("知道了") }
             },
         )
     }
@@ -420,12 +374,11 @@ private fun SectionLabel(text: String) {
     )
 }
 
-/** 一行可点的设置项（标题 + 说明），用来省掉输入框的 label 行 */
+/** 一行可点的设置项，用来省掉输入框的 label 行 */
 @Composable
 private fun SettingRow(
     icon: @Composable () -> Unit,
     title: String,
-    subtitle: String,
     onClick: () -> Unit,
 ) {
     Box(
@@ -438,19 +391,12 @@ private fun SettingRow(
         Row(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .padding(horizontal = 12.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             icon()
             Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.bodyLarge)
-                Text(
-                    subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
         }
     }
 }
@@ -494,7 +440,7 @@ private fun PathPickerDialog(
         text = {
             Column(Modifier.heightIn(max = 420.dp)) {
                 if (drive == null) {
-                    Text("请先选择网盘（或先粘贴链接让它自动识别）")
+                    Text("请先选择网盘")
                     return@Column
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -561,87 +507,6 @@ private fun PathPickerDialog(
 }
 
 @Composable
-private fun RulePickerDialog(
-    rules: List<RenameRule>,
-    selected: String,
-    onDismiss: () -> Unit,
-    onPick: (String) -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("命名规则") },
-        text = {
-            Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
-                OptionRow(
-                    title = "不改名（保持原文件名）",
-                    subtitle = "转存进来是什么名字就是什么名字",
-                    selected = selected.isBlank(),
-                    onClick = { onPick("") },
-                )
-                HorizontalDivider()
-                rules.forEach { rule ->
-                    OptionRow(
-                        title = rule.name,
-                        subtitle = if (rule.enabled) {
-                            "替换模板：${rule.replace}"
-                        } else {
-                            "已在设置页禁用，选了也不会生效"
-                        },
-                        selected = selected == rule.key,
-                        enabled = rule.enabled,
-                        onClick = { onPick(rule.key) },
-                    )
-                    HorizontalDivider()
-                }
-                if (rules.isEmpty()) {
-                    Text(
-                        "还没有可用规则，可在设置页添加",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("关闭") } },
-    )
-}
-
-@Composable
-private fun OptionRow(
-    title: String,
-    subtitle: String,
-    selected: Boolean,
-    enabled: Boolean = true,
-    onClick: () -> Unit,
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickableRow(enabled = enabled, onClick = onClick)
-            .padding(vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                title,
-                style = MaterialTheme.typography.bodyLarge,
-                color = if (enabled) {
-                    MaterialTheme.colorScheme.onSurface
-                } else {
-                    MaterialTheme.colorScheme.outline
-                },
-            )
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        if (selected) Icon(Icons.Default.Check, null, tint = MaterialTheme.colorScheme.primary)
-    }
-}
-
-@Composable
 private fun TmdbSearchDialog(
     viewModel: TasksViewModel,
     onDismiss: () -> Unit,
@@ -662,7 +527,7 @@ private fun TmdbSearchDialog(
                     OutlinedTextField(
                         value = query,
                         onValueChange = { query = it; error = null },
-                        placeholder = { Text("输入剧名，如 斗破苍穹") },
+                        placeholder = { Text("剧名") },
                         singleLine = true,
                         modifier = Modifier.weight(1f),
                     )
@@ -692,7 +557,7 @@ private fun TmdbSearchDialog(
                 results?.let { list ->
                     if (list.isEmpty()) {
                         Text(
-                            "没搜到，换个名字试试（英文名往往更准）",
+                            "没搜到",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -719,18 +584,10 @@ private fun TmdbSearchDialog(
                                                 if (isNotEmpty()) append(" · ")
                                                 append("${item.seasons} 季")
                                             }
-                                            append(" · TMDB ${item.id}")
                                         },
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
-                                    if (item.overview.isNotBlank()) {
-                                        Text(
-                                            item.overview.take(60),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.outline,
-                                        )
-                                    }
                                 }
                                 HorizontalDivider()
                             }
