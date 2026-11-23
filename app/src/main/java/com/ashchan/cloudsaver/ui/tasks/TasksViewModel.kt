@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
@@ -62,6 +63,13 @@ class TasksViewModel(
      */
     private val _running = MutableStateFlow<Map<Long, String>>(emptyMap())
     val running: StateFlow<Map<Long, String>> = _running.asStateFlow()
+
+    /**
+     * 刚刚跑完的任务：id → 是否成功。卡片在原位置闪一句「完成」（绿）/「失败」（红），
+     * 1.5 秒后自动回到静止的刷新图标，不在卡片上留常驻字样。
+     */
+    private val _finished = MutableStateFlow<Map<Long, Boolean>>(emptyMap())
+    val finished: StateFlow<Map<Long, Boolean>> = _finished.asStateFlow()
 
     /** 「全部/自动」执行时的整体进度文案 */
     private val _progress = MutableStateFlow<String?>(null)
@@ -434,15 +442,24 @@ class TasksViewModel(
 
     private suspend fun runOnce(task: TaskEntity, trigger: String): Boolean {
         _running.update { it + (task.id to "准备中") }
+        _finished.update { it - task.id }
+        var ok = false
         return try {
             val result = runner.run(
                 task = task,
                 trigger = trigger,
                 onPhase = { phase -> _running.update { it + (task.id to phase) } },
             )
-            result.isSuccess && (result.getOrNull()?.ok == true)
+            ok = result.isSuccess && (result.getOrNull()?.ok == true)
+            ok
         } finally {
             _running.update { it - task.id }
+            // 跑完在同一个位置闪一句：成功绿「完成」、失败红「失败」，1.5 秒后收回成图标
+            _finished.update { it + (task.id to ok) }
+            viewModelScope.launch {
+                delay(1500)
+                _finished.update { it - task.id }
+            }
         }
     }
 }

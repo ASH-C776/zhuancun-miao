@@ -894,3 +894,23 @@ Stage 27 在链接行右侧放了 8dp 状态圆点，虽然固定占位，但它
 - `:app:assembleDebug` + 单测通过。
 - 真机抓到的中间态：`docs/r1.png`「准备中…」、`docs/r3.png`「比对文件…」、`docs/r5.png`「转存 6/7…」；
   同时另一张卡（未在跑）仍是静止刷新图标。
+
+## Stage 31 运行态文字配色：正常蓝 / 成功绿 / 失败红
+
+### 问题
+阶段文字原来用 `colorScheme.primary`，而本主题的 primary 是橙棕色，看起来像报错红字。
+
+### 口径
+- 正常进度（准备中 / 读取目录 / 比对文件 / 转存 n/总 / 改名 n/总 / 统计中）**一律蓝色**（复用 `TaskColors.local()` 的蓝，深浅色各一套）。
+- 跑完在同一个位置闪一句结果：成功绿「完成」、失败红「失败」，1.5 秒后自动收回成静止刷新图标。
+- 失败的具体原因仍由底行那行红字「上次失败 · 原因」表达，不重复。
+
+### 代码
+- `TasksViewModel`：新增 `_finished: Map<Long, Boolean>`；`runOnce` 的 `finally` 里写入结果并 `delay(1500)` 后清除。
+- `TaskListScreen`：`RunPhaseText(text, color, animated)` 接受颜色；运行时传蓝、完成态传绿/红且不做呼吸动画；
+  `TaskRow` 增 `justFinished` 参数，屏幕收集 `finished` 流。
+
+### 验证
+- `:app:assembleDebug` 通过，已装机。
+- 真机截屏这次没取到：手机处于 doze（`mWakefulness=Dozing`），HyperOS 拦截 `input keyevent WAKEUP`（INJECT_EVENTS），
+  应用内的 wakelock 这次也没点亮屏幕。等手机解锁后再补运行态与完成态的截图。

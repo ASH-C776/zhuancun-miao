@@ -106,6 +106,7 @@ fun TaskListScreen(
     val toast by viewModel.toast.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val running by viewModel.running.collectAsStateWithLifecycle()
+    val finished by viewModel.finished.collectAsStateWithLifecycle()
     val progress by viewModel.progress.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var pendingDelete by remember { mutableStateOf<TaskEntity?>(null) }
@@ -204,6 +205,7 @@ fun TaskListScreen(
                             card = card,
                             isRunning = card.task.id in running,
                             runText = running[card.task.id] ?: "准备中",
+                            justFinished = finished[card.task.id],
                             onRun = { viewModel.runTask(card.task) },
                             onEdit = { onOpenEdit(card.task) },
                             onRequestDelete = { pendingDelete = card.task },
@@ -241,6 +243,7 @@ private fun TaskRow(
     card: TaskCard,
     isRunning: Boolean,
     runText: String = "准备中",
+    justFinished: Boolean? = null,
     onRun: () -> Unit,
     onEdit: () -> Unit,
     onRequestDelete: () -> Unit,
@@ -350,21 +353,30 @@ private fun TaskRow(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (!isRunning) {
-                    IconButton(
-                        onClick = onRun,
-                        modifier = Modifier.size(48.dp),
-                    ) {
-                        Icon(
-                            Icons.Filled.Refresh,
-                            contentDescription = "检测转存",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp),
+                    if (justFinished != null) {
+                        // 刚跑完：同一位置闪一句结果，绿=成功、红=失败，1.5 秒后收回成图标
+                        RunPhaseText(
+                            text = if (justFinished) "完成" else "失败",
+                            color = if (justFinished) TaskColors.ok() else MaterialTheme.colorScheme.error,
+                            animated = false,
                         )
+                    } else {
+                        IconButton(
+                            onClick = onRun,
+                            modifier = Modifier.size(48.dp),
+                        ) {
+                            Icon(
+                                Icons.Filled.Refresh,
+                                contentDescription = "检测转存",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
                     }
                 } else {
-                    // 跑的时候不显示图标，也不加胶囊底：就在原位置写一句阶段文字，
-                    // 省略号做呼吸（宽度不变，不会把右边的字挤走）
-                    RunPhaseText(text = runText)
+                    // 跑的时候不显示图标，也不加胶囊底：就在原位置写一句阶段文字。
+                    // 正常进度一律蓝色（不再是主题那个橙棕），只有出错才会变红。
+                    RunPhaseText(text = runText, color = TaskColors.local())
                 }
                 Spacer(Modifier.width(8.dp))
                 Row(
@@ -447,7 +459,7 @@ private fun StatusBadge(snap: SnapshotEntity) {
 }
 
 @Composable
-private fun RunPhaseText(text: String) {
+private fun RunPhaseText(text: String, color: Color, animated: Boolean = true) {
     // 省略号单独一个 Text 只做透明度呼吸（0.35 ↔ 1，1.2s 来回）：
     // 字数不变 → 宽度不变，右边「周二 · 光鸭 · 自动」不会被推来推去。
     val transition = rememberInfiniteTransition(label = "runPhase")
@@ -460,19 +472,22 @@ private fun RunPhaseText(text: String) {
         ),
         label = "dots",
     )
+    val alpha = if (animated) dotsAlpha else 1f
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
             text = text,
             style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
+            color = color,
             maxLines = 1,
         )
-        Text(
-            text = "…",
-            modifier = Modifier.graphicsLayer { this.alpha = dotsAlpha },
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.primary,
-        )
+        if (animated) {
+            Text(
+                text = "…",
+                modifier = Modifier.graphicsLayer { this.alpha = alpha },
+                style = MaterialTheme.typography.labelMedium,
+                color = color,
+            )
+        }
     }
 }
 
