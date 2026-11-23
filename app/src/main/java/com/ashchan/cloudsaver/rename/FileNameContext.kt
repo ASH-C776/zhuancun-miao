@@ -28,33 +28,35 @@ class FileNameContext(fileName: String) {
         // 季号：S01（后接 E/X 或独立）
         private val SEASON = Regex("""(?i)[sS]\d{1,2}""")
 
-        // 集数：按优先级依次尝试（严格格式优先，宽松格式最后）
-        // 1. SxxExx（从 S 开始整体匹配，避免 "S01E02" 被 "S01" 抢先）
-        // 2. EPxx / Exx
-        // 3. 第X集/期/话/部/篇
-        // 4. 开头纯数字（01.mkv）
-        // 5. 分隔符包裹数字（.02.、_02_）
-        // 6. 孤立数字（前后非字母数字，宽松兜底；需排除年份/分辨率这类 >=1000 的数字）
-        private val EPISODE = Regex(
-            """(?i)(?:s\d{1,2}e(\d{1,3}))|""" +
-                """(?i)(?:ep(\d{1,3}))|""" +
-                """(?i)(?:e(\d{1,3}))|""" +
-                """(?:第(\d{1,3})[集期话部篇])|""" +
-                """(?:^(\d{1,3})(?=\.\w))|""" +
-                """(?:[._-](\d{1,3})[._-])|""" +
-                """(?:(?<![0-9A-Za-z])(\d{1,3})(?![0-9A-Za-z])(?!$)(?<!\d{4}))"""
+        // 集数：**按优先级逐个去全文找**，不能把几种格式塞进一个正则里用 alternation ——
+        // `Regex.find` 取的是「全文最靠前的匹配」，不是「最靠前的候选分支」。
+        // 真实踩到的坑：`Sword.and.Fairy.3.2025.S01E02.2160p...` 里片名那个 "3" 位置比 S01E02 靠前，
+        // 结果一整季 26 集全被解析成第 3 集，改名时全部指向同一个文件名，服务器逐个拒绝。
+        private val EP_SXXEXX = Regex("""(?i)s\d{1,2}\s*[ ,._\-]*e[Pp]?\s*(\d{1,3})""")
+        private val EP_CN = Regex("""第\s*(\d{1,3})\s*[集期话話部篇]""")
+        private val EP_PREFIX = Regex("""(?i)(?:^|[^a-z])(?:ep|e)[Pp]?\s*[._\- ]?\s*(\d{1,3})(?!\d)""")
+        private val EP_LEADING = Regex("""^\s*(\d{1,3})(?=\.\w)""")
+        private val EP_SEPARATED = Regex("""[._\-](\d{1,3})[._\-]""")
+        private val EP_LOOSE = Regex("""(?<![0-9A-Za-z])(\d{1,3})(?![0-9A-Za-z])(?!$)""")
+
+        private val EP_ORDER = listOf(
+            EP_SXXEXX to 1,
+            EP_CN to 1,
+            EP_PREFIX to 1,
+            EP_LEADING to 1,
+            EP_SEPARATED to 1,
+            EP_LOOSE to 1,
         )
 
-        /** 取 EPISODE 第一个实际参与匹配的捕获组（或用整个匹配值） */
+        /** 按优先级依次尝试；命中即返回（排除 1080/2160 这类分辨率以外的三位以内数字） */
         private fun episodeOf(name: String): String? {
-            val m = EPISODE.find(name) ?: return null
-            for (g in 1..m.groupValues.size - 1) {
-                val v = m.groupValues[g]
-                if (v.isNotBlank()) {
-                    val num = v.toIntOrNull() ?: return v
-                    // 排除年份/分辨率等大数字（>=1000 视为非集数）
-                    if (num < 1000) return v
-                }
+            EP_ORDER.forEach { (regex, group) ->
+                val m = regex.find(name) ?: return@forEach
+                val v = m.groupValues.getOrNull(group) ?: return@forEach
+                if (v.isBlank()) return@forEach
+                val num = v.toIntOrNull()
+                if (num != null && num >= 1000) return@forEach
+                return v
             }
             return null
         }

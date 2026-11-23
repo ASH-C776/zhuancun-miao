@@ -397,11 +397,15 @@ class TaskRunner(
         if (files.isEmpty()) return emptyMap()
 
         val previews = RenameEngine().preview(files, listOf(rule), task.name.trim())
+        // 同一轮里「两个文件算出同一个新名」是解析出错的信号：宁可保留原名，
+        // 也不要把一整季都往同一个名字上撞（服务器会逐个拒绝，日志刷一屏「改名失败」）。
+        val used = mutableSetOf<String>()
         return previews
             .mapNotNull { p ->
                 val newName = p.newName?.trim()
                 if (newName.isNullOrEmpty() || newName == p.originName) return@mapNotNull null
                 if (p.filtered) return@mapNotNull null
+                if (!used.add(newName)) return@mapNotNull null
                 p.file.fid to newName
             }
             .toMap()
