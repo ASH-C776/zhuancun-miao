@@ -6,6 +6,12 @@ import com.ashchan.cloudsaver.core.model.NaturalOrder
 import com.ashchan.cloudsaver.core.model.ShareInfo
 import com.ashchan.cloudsaver.core.model.ShareNode
 import com.ashchan.cloudsaver.data.SeasonParser
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 
 /**
  * 目录级同步引擎（1.5 转存粒度 / 1.6 深层改名）。
@@ -19,6 +25,9 @@ import com.ashchan.cloudsaver.data.SeasonParser
  * 3. 目标目录已有同名目录 → **不重复转存**，进入该目录递归补缺失文件。
  * 4. 目标缺同名目录 → 整目录转存一次（保留其内部层级），再递归把内部文件按重命名计划改名。
  * 5. 深度超过 [DEFAULT_MAX_DEPTH] 不再下钻，避免异常数据把请求打爆。
+ *
+ * 性能（Stage 34）：目标目录只列一次，之后**在内存索引里就地记账**（改名成功不重新列目录）；
+ * 改名请求按 [RENAME_CONCURRENCY] 并发发出，几十集不再一个一个排队。
  */
 class TreeSyncEngine(
     private val adapter: CloudDriveAdapter,
@@ -112,6 +121,13 @@ class TreeSyncEngine(
         const val RESTORE_BATCH: Int = 8
 
         /**
+         * 改名同时发几个请求。改名是「一个文件一次请求」的纯网络操作，
+         * 串行发几十个就是几十个 RTT；4 路并发在光鸭/夸克上都实测不触发限流，
+         * 再高容易撞到「文件操作太频繁」。
+         */
+        const val RENAME_CONCURRENCY: Int = 4
+
+        /**
          * 把分享根切成转存单元（纯函数，便于单测）。
          * 目录按自然序，根下散文件归入 [Units.looseFiles]。
          */
@@ -151,8 +167,12 @@ class TreeSyncEngine(
         private var renameTotal = 0
         private val failures = mutableListOf<String>()
 
-        /** 目标目录内容缓存：同一次同步里同一目录只列一次 */
-        private val destCache = mutableMapOf<String, List<DriveFile>>()
+        /**
+         * 目标目录内容缓存：同一次同步里同一目录只列一次。
+         * 改名成功后**不**清缓存，而是在这张表里改键——否则每改一个文件都要重新列一次目录，
+         * 几十集的目录就是几十次多余请求（这是之前「转存+改名」慢的主因之一）。
+         */
+        private val destCache = mutableMapOf<String, MutableMap<String, DriveFile>>()
 
         fun report() = Report(restoredDirs, restoredFiles, renamedItems, skippedFiles, failures.toList())
 
@@ -237,8 +257,8 @@ class TreeSyncEngine(
                 return
             }
             val wantedName = nameOverride?.takeIf { it.isNotBlank() } ?: node.name
-            val siblings = destList(destParentFid)
-            val existing = siblings.firstOrNull { it.isDir && it.name == wantedName }
+            val siblings = indexOf(destParentFid)
+            val existing = siblings[wantedName]?.takeIf { it.isDir }
 
             if (existing != null) {
                 // 目标已有同名目录：不重复转存，逐层补齐
@@ -255,25 +275,26 @@ class TreeSyncEngine(
                     failures += "转存「${node.name}」失败：${it.message ?: "未知错误"}"
                     return
                 }
-            val newFid = saved.firstOrNull()?.file?.fid
-            if (newFid.isNullOrBlank()) {
+            val newDir = saved.firstOrNull()?.file
+            if (newDir == null || newDir.fid.isBlank()) {
                 failures += "「${node.name}」转存后未定位到新目录"
                 return
             }
             restoredDirs++
-            destCache.remove(destParentFid)
+            siblings[newDir.name] = newDir
 
             if (wantedName != node.name) {
-                if (adapter.renameFile(newFid, wantedName).isSuccess) {
+                if (adapter.renameFile(newDir.fid, wantedName).isSuccess) {
                     renamedItems++
-                    destCache.remove(destParentFid)
+                    siblings.remove(newDir.name)
+                    siblings[wantedName] = newDir.copy(name = wantedName)
                 } else {
                     failures += "目录改名失败：${node.name} -> $wantedName"
                 }
             }
 
             // 深层改名：内部文件按重命名计划处理
-            renameInside(newFid, node, depth)
+            renameInside(newDir.fid, node, depth)
         }
 
         /**
@@ -288,35 +309,48 @@ class TreeSyncEngine(
          * 一集一次请求会把几十集拖成好几分钟。
          */
         private suspend fun syncFiles(files: List<ShareNode>, destFid: String) {
-            val existing = destList(destFid).filter { !it.isDir }.map { it.name }.toMutableSet()
+            val index = indexOf(destFid)
             val missing = mutableListOf<ShareNode>()
+            val inPlace = mutableListOf<RenameItem>()
             // 需要改名的文件数：分母只统计「最终名 ≠ 原名」的，避免「改名 0/0」
             renameTotal += files.count { expectedName(it) != it.name }
 
             files.sortedWith(NATURAL).forEach { node ->
                 val expected = expectedName(node)
+                val current = index[node.name]
                 when {
-                    expected in existing -> skippedFiles++
+                    index[expected]?.isDir == false -> skippedFiles++
                     // 本地已有原名文件但还没改名 → 就地改名，不重复转存
-                    node.name in existing -> {
-                        val fid = destList(destFid).firstOrNull { !it.isDir && it.name == node.name }?.fid
-                        if (fid != null && adapter.renameFile(fid, expected).isSuccess) {
-                            renamedItems++
-                            existing += expected
-                            existing -= node.name
-                            destCache.remove(destFid)
-                            reportRename()
-                        } else {
+                    current != null && !current.isDir -> {
+                        if (expected == node.name) {
                             skippedFiles++
+                        } else {
+                            inPlace += RenameItem(current.fid, node.name, expected, current)
                         }
                     }
                     else -> missing += node
                 }
             }
 
+            // 「已有原名、只差改名」的一批一起发，别一个一个排队
+            if (inPlace.isNotEmpty()) {
+                val results = renameMany(inPlace)
+                results.forEach { (item, ok) ->
+                    if (ok) {
+                        renamedItems++
+                        index.remove(item.oldName)
+                        index[item.newName] = item.file.copy(name = item.newName)
+                    } else {
+                        skippedFiles++
+                        failures += "改名失败：${item.oldName} -> ${item.newName}"
+                    }
+                }
+                reportRename()
+            }
+
             if (missing.isEmpty()) return
             missing.chunked(RESTORE_BATCH).forEach { chunk ->
-                restoreChunk(chunk, destFid, existing)
+                restoreChunk(chunk, destFid, index)
             }
         }
 
@@ -331,40 +365,43 @@ class TreeSyncEngine(
             onProgress(0, 0, "转存 $done/$total")
         }
 
-        /** 一批转存 + 逐个改名；批次的 diff 对不上时退回逐个转存 */
+        /** 一批转存 + 并发改名；批次的 diff 对不上时退回逐个转存 */
         private suspend fun restoreChunk(
             chunk: List<ShareNode>,
             destFid: String,
-            existing: MutableSet<String>,
+            index: MutableMap<String, DriveFile>,
         ) {
             val saved = adapter.restoreShare(share, chunk.map { it.file }, destFid).getOrNull()
             if (saved == null || saved.size != chunk.size) {
-                chunk.forEach { node ->
-                    if (syncFile(node, destFid, expectedName(node))) existing += expectedName(node)
-                }
+                chunk.forEach { node -> syncFile(node, destFid, index, expectedName(node)) }
                 return
             }
             val byShareFid = chunk.associateBy { it.fid }
-            val base = restoredFiles
             restoredFiles += saved.size
-            destCache.remove(destFid)
-            var landed = 0
+            // 转存落的是原名：先按原名记账，改完名再改键，全程不用重新列目录
             saved.forEach { restored ->
-                val node = byShareFid[restored.shareFileId]
-                val expected = node?.let { expectedName(it) } ?: restored.file.name
-                landed++
-                reportRestore(base + landed)
-                if (node != null && expected != node.name) {
-                    if (adapter.renameFile(restored.file.fid, expected).isSuccess) {
-                        renamedItems++
-                        reportRename()
-                    } else {
-                        failures += "改名失败：${node.name} -> $expected"
-                    }
-                }
-                existing += expected
-                destCache.remove(destFid)
+                byShareFid[restored.shareFileId]?.let { index[it.name] = restored.file }
             }
+            reportRestore(restoredFiles)
+
+            val items = saved.mapNotNull { restored ->
+                val node = byShareFid[restored.shareFileId] ?: return@mapNotNull null
+                val expected = expectedName(node)
+                if (expected == node.name) null
+                else RenameItem(restored.file.fid, node.name, expected, restored.file)
+            }
+            if (items.isEmpty()) return
+
+            renameMany(items).forEach { (item, ok) ->
+                index.remove(item.oldName)
+                if (ok) {
+                    renamedItems++
+                    index[item.newName] = item.file.copy(name = item.newName)
+                } else {
+                    failures += "改名失败：${item.oldName} -> ${item.newName}"
+                }
+            }
+            reportRename()
         }
 
         /** 分享文件按命名规则应有的最终文件名（没配规则就是原名） */
@@ -372,7 +409,12 @@ class TreeSyncEngine(
             renamePlan[node.fid]?.trim()?.takeIf { it.isNotBlank() } ?: node.name
 
         /** 单个文件转存（批量失败时的兜底）；成功返回 true */
-        private suspend fun syncFile(node: ShareNode, destFid: String, expected: String): Boolean {
+        private suspend fun syncFile(
+            node: ShareNode,
+            destFid: String,
+            index: MutableMap<String, DriveFile>,
+            expected: String,
+        ): Boolean {
             val saved = adapter.restoreShare(share, listOf(node.file), destFid)
                 .getOrElse {
                     failures += "转存「${node.name}」失败：${it.message ?: "未知错误"}"
@@ -384,17 +426,20 @@ class TreeSyncEngine(
                 return false
             }
             restoredFiles++
-            destCache.remove(destFid)
+            index[node.name] = newFile
             reportRestore(restoredFiles)
 
             if (expected == node.name) return true
-            if (adapter.renameFile(newFile.fid, expected).isSuccess) {
+            val ok = renameMany(listOf(RenameItem(newFile.fid, node.name, expected, newFile)))
+                .firstOrNull()?.second == true
+            index.remove(node.name)
+            if (ok) {
                 renamedItems++
+                index[expected] = newFile.copy(name = expected)
                 reportRename()
-                destCache.remove(destFid)
-                return true
+            } else {
+                failures += "改名失败：${node.name} -> $expected"
             }
-            failures += "改名失败：${node.name} -> $expected"
             return true
         }
 
@@ -404,31 +449,68 @@ class TreeSyncEngine(
          */
         private suspend fun renameInside(newDirFid: String, node: ShareNode, depth: Int) {
             if (depth >= maxDepth) return
-            val destChildren = destList(newDirFid, refresh = true)
+            val destChildren = indexOf(newDirFid, refresh = true)
+            val items = mutableListOf<RenameItem>()
             node.children.sortedWith(NATURAL).forEach { child ->
                 if (child.isDir) {
-                    val sub = destChildren.firstOrNull { it.isDir && it.name == child.name }
+                    val sub = destChildren[child.name]?.takeIf { it.isDir }
                     if (sub != null) renameInside(sub.fid, child, depth + 1)
                 } else {
-                    val target = destChildren.firstOrNull { !it.isDir && it.name == child.name } ?: return@forEach
+                    val target = destChildren[child.name]?.takeIf { !it.isDir } ?: return@forEach
                     val newName = renamePlan[child.fid]?.trim()?.takeIf { it.isNotBlank() } ?: return@forEach
                     if (newName == child.name) return@forEach
-                    if (adapter.renameFile(target.fid, newName).isSuccess) {
-                        renamedItems++
-                        destCache.remove(newDirFid)
-                    } else {
-                        failures += "改名失败：${child.name} -> $newName"
-                    }
+                    items += RenameItem(target.fid, child.name, newName, target)
                 }
+            }
+            if (items.isEmpty()) return
+            renameMany(items).forEach { (item, ok) ->
+                destChildren.remove(item.oldName)
+                if (ok) {
+                    renamedItems++
+                    destChildren[item.newName] = item.file.copy(name = item.newName)
+                } else {
+                    failures += "改名失败：${item.oldName} -> ${item.newName}"
+                }
+            }
+            reportRename()
+        }
+
+        // -------- 基础设施 --------
+
+        /** 待改名的一项：fid + 旧名 + 新名 + 目录里的原始条目（改完在索引里换键用） */
+        private data class RenameItem(
+            val fid: String,
+            val oldName: String,
+            val newName: String,
+            val file: DriveFile,
+        )
+
+        /**
+         * 并发改名：一次最多 [RENAME_CONCURRENCY] 个在飞。
+         * 返回「改名项 → 是否成功」，计数与失败文案由调用方按顺序更新，避免多协程抢着改计数。
+         */
+        private suspend fun renameMany(items: List<RenameItem>): List<Pair<RenameItem, Boolean>> {
+            if (items.isEmpty()) return emptyList()
+            return coroutineScope {
+                val slots = Semaphore(RENAME_CONCURRENCY)
+                items.map { item ->
+                    async(Dispatchers.IO) {
+                        val ok = runCatching {
+                            slots.withPermit { adapter.renameFile(item.fid, item.newName).isSuccess }
+                        }.getOrDefault(false)
+                        item to ok
+                    }
+                }.awaitAll()
             }
         }
 
-        private suspend fun destList(fid: String, refresh: Boolean = false): List<DriveFile> {
+        /** 目标目录索引（文件名 → 条目），同一目录只列一次；`refresh` 用于刚转存完的新目录 */
+        private suspend fun indexOf(fid: String, refresh: Boolean = false): MutableMap<String, DriveFile> {
             if (refresh) destCache.remove(fid)
             return destCache.getOrPut(fid) {
                 adapter.listFiles(fid).getOrElse {
                     throw IllegalStateException("读取目标目录失败：${it.message ?: "未知错误"}")
-                }
+                }.associateBy { it.name }.toMutableMap()
             }
         }
     }

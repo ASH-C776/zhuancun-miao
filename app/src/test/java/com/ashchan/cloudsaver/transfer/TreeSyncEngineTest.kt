@@ -32,6 +32,9 @@ class TreeSyncEngineTest {
             private set
         var restoreShareCalls = 0
             private set
+        /** 列目录次数：用来断言「改名不要每次都重列目录」 */
+        var listCalls = 0
+            private set
         val renames = mutableListOf<Pair<String, String>>()
         private var seq = 0
 
@@ -44,8 +47,10 @@ class TreeSyncEngineTest {
         override suspend fun fetchShareChildren(share: ShareInfo, parentId: String?) =
             Result.success(shareTree[parentId].orEmpty())
 
-        override suspend fun listFiles(parentId: String?) =
-            Result.success(mine[parentId ?: "0"]?.toList().orEmpty())
+        override suspend fun listFiles(parentId: String?): Result<List<DriveFile>> {
+            listCalls++
+            return Result.success(mine[parentId ?: "0"]?.toList().orEmpty())
+        }
 
         override suspend fun listFolders(parentId: String?) =
             Result.success(mine[parentId ?: "0"].orEmpty().filter { it.isDir })
@@ -62,17 +67,18 @@ class TreeSyncEngineTest {
             )
         }
 
-        override suspend fun renameFile(fileId: String, newName: String): Result<Unit> {
-            mine.values.forEach { list ->
-                val idx = list.indexOfFirst { it.fid == fileId }
-                if (idx >= 0) {
-                    list[idx] = list[idx].copy(name = newName)
-                    renames += fileId to newName
-                    return Result.success(Unit)
+        override suspend fun renameFile(fileId: String, newName: String): Result<Unit> =
+            synchronized(mine) {
+                mine.values.forEach { list ->
+                    val idx = list.indexOfFirst { it.fid == fileId }
+                    if (idx >= 0) {
+                        list[idx] = list[idx].copy(name = newName)
+                        renames += fileId to newName
+                        return@synchronized Result.success(Unit)
+                    }
                 }
+                Result.failure(IllegalStateException("fid not found: $fileId"))
             }
-            return Result.failure(IllegalStateException("fid not found: $fileId"))
-        }
 
         /** 把分享里的节点复制进我的网盘（模拟转存整目录，含内部层级） */
         private fun copyInto(src: DriveFile, parentFid: String): DriveFile {
@@ -340,6 +346,37 @@ class TreeSyncEngineTest {
         )
         assertTrue(r.isFailure)
         assertTrue(r.exceptionOrNull()?.message?.contains("没有可转存") == true)
+    }
+
+    @Test
+    fun `一批已有原名的文件 只读一次目录 并发改名全部生效`() = runBlocking {
+        val n = 12
+        val shareFiles = (1..n).map {
+            adapterFile("s_$it", "Sword.and.Fairy.3.2025.S01E%02d.2160p.mp4".format(it))
+        }
+        val adapter = FakeDriveAdapter(mapOf(null to shareFiles))
+        // 上一轮已转存成原名，只差改名
+        adapter.mine["0"] = (1..n)
+            .map { adapter.newFile("m_$it", shareFiles[it - 1].name) }
+            .toMutableList()
+        val tree = buildTree(adapter)
+        val plan = shareFiles.mapIndexed { i, f ->
+            f.fid to "仙剑奇侠传三.S01E%02d.mp4".format(i + 1)
+        }.toMap()
+
+        val report = TreeSyncEngine(adapter).sync(
+            share = shareInfo(), tree = tree, destRootFid = "0", renamePlan = plan,
+        ).getOrThrow()
+
+        assertEquals(n, report.renamedItems)
+        assertEquals(n, adapter.renames.size)
+        assertTrue(report.ok)
+        // 只列一次目录：改名成功后在内存索引里改键，不再逐次重列
+        assertTrue("listCalls=${adapter.listCalls}", adapter.listCalls <= 2)
+        assertEquals(
+            (1..n).map { "仙剑奇侠传三.S01E%02d.mp4".format(it) }.toSet(),
+            adapter.mine["0"]!!.map { it.name }.toSet(),
+        )
     }
 
     // ---------- 小工具 ----------

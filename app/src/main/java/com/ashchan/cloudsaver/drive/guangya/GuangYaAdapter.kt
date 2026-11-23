@@ -360,7 +360,7 @@ class GuangYaAdapter(private var accessToken: String = "", private var refreshTo
             var done = false
             var failed = false
             var failMsg = ""
-            repeat(MAX_TASK_POLLS) {
+            repeat(MAX_TASK_POLLS) { attempt ->
                 val status = api.taskStatus(JsonObject().apply { addProperty("taskId", taskId) })
                 if (isTaskFailed(status)) {
                     failed = true
@@ -371,7 +371,8 @@ class GuangYaAdapter(private var accessToken: String = "", private var refreshTo
                     done = true
                     return@repeat
                 }
-                delay(1000)
+                // 转存任务普遍很快，前几轮密一点查，别每轮都硬等 1 秒
+                delay(if (attempt < 5) 400L else 1000L)
             }
             if (failed) throw IllegalStateException("转存任务失败：${failMsg.ifBlank { "未知错误" }}")
             // 大目录（几百集 / 上百 GB）转存任务可能远超 60 秒，此时不直接判失败：
@@ -470,11 +471,12 @@ class GuangYaAdapter(private var accessToken: String = "", private var refreshTo
 
     /** 目录 diff：返回转存后新增的文件（fid + 原名），按传入数量对齐 */
     private suspend fun diffSavedFiles(parentId: String, beforeFids: Set<String>, expectedCount: Int): List<DriveFile> {
-        repeat(MAX_DIFF_RETRIES) {
+        repeat(MAX_DIFF_RETRIES) { attempt ->
             val after = listDirFiles(parentId)
             val newItems = after.filter { it.fid !in beforeFids }
             if (newItems.isNotEmpty()) return newItems.take(expectedCount)
-            delay(1000)
+            // 先快后慢：绝大多数批次 300ms 内目录就齐了，别一律等满 1 秒
+            delay(if (attempt < 5) 300L else 1000L)
         }
         throw IllegalStateException("转存任务完成但未定位到新文件，请在网盘确认后手动重命名")
     }
