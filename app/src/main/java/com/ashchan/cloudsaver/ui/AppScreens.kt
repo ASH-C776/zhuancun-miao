@@ -184,6 +184,12 @@ fun AppRoot(
         )
         Screen.NEW_TASK -> {
             val editingTask by tasksViewModel.editing.collectAsState()
+            // 调试用：adb --ez openPathPicker true 进新建页就直接摊开「保存位置」选择器
+            val ctx = LocalContext.current
+            val autoPathPicker = remember(ctx) {
+                (ctx as? android.app.Activity)
+                    ?.intent?.getBooleanExtra("openPathPicker", false) == true
+            }
             com.ashchan.cloudsaver.ui.tasks.NewTaskScreen(
                 viewModel = tasksViewModel,
                 onDone = {
@@ -191,6 +197,7 @@ fun AppRoot(
                     viewModel.go(Screen.TASKS)
                 },
                 editingTask = editingTask,
+                openPathPickerOnStart = autoPathPicker,
             )
         }
         Screen.RUNLOG -> com.ashchan.cloudsaver.ui.tasks.RunLogScreen(

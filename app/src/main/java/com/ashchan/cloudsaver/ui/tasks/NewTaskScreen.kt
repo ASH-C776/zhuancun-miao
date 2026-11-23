@@ -8,13 +8,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -64,7 +67,6 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.ashchan.cloudsaver.core.model.DriveFile
 import com.ashchan.cloudsaver.core.model.DriveType
 import com.ashchan.cloudsaver.core.tmdb.TmdbSearchItem
@@ -86,6 +88,8 @@ fun NewTaskScreen(
     viewModel: TasksViewModel,
     onDone: () -> Unit,
     editingTask: TaskEntity? = null,
+    /** 调试用：进页直接弹「保存位置」全屏选择（截屏验收沉浸效果） */
+    openPathPickerOnStart: Boolean = false,
 ) {
     val scope = rememberCoroutineScope()
     val editing = editingTask != null
@@ -118,7 +122,7 @@ fun NewTaskScreen(
         mutableStateOf(editingTask?.updateMode != TaskEntity.UPDATE_MODE_MANUAL)
     }
 
-    var showPathPicker by remember { mutableStateOf(false) }
+    var showPathPicker by remember { mutableStateOf(openPathPickerOnStart) }
     var showTmdbSearch by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
     var showTmdbHint by remember { mutableStateOf(false) }
@@ -198,6 +202,7 @@ fun NewTaskScreen(
         }
     }
 
+    Box(Modifier.fillMaxSize()) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -450,6 +455,7 @@ fun NewTaskScreen(
             },
         )
     }
+    }
 
     if (showTmdbHint) {
         AlertDialog(
@@ -651,12 +657,16 @@ private fun SaveLocationDialog(
     val label = if (crumb.isEmpty()) "网盘根目录" else crumb.joinToString(" / ") { it.second }
     val type = drive
 
-    Dialog(
-        onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
-    ) {
-        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
-            Column(Modifier.fillMaxSize()) {
+    // 不再起独立 Dialog 窗口：直接画在 Activity 同一个窗口里，与主页/设置页共用
+    // enableEdgeToEdge，状态栏图标和底部小白条都是同一套沉浸效果（不会再冒出灰带）。
+    BackHandler { onDismiss() }
+    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                // 底色铺满整屏（含系统栏区域），正文让开两端的系统栏
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+        ) {
                 // 顶栏：返回 / 标题 / 选这里
                 Row(
                     Modifier
@@ -771,7 +781,6 @@ private fun SaveLocationDialog(
                 }
             }
         }
-    }
 }
 
 /** 面包屑里的一段，可点跳转 */

@@ -512,3 +512,17 @@
 - 链接输入框从 `minLines=2 / maxLines=3` 改成 `singleLine = true`，高度与「任务名称」一致，不再占三行
 - 超长链接只显示前段：用 `TextFieldValue` 控光标位置，失焦时 selection 归 0，所以编辑页打开时露出的永远是开头（`https://www.guangyapan.com/s/19…`），不会像默认那样把末尾甩出来
 - 新增调试入口 `--es editTaskName 剧名`：按任务名直接进编辑页，验证编辑态 UI 不再受「无法注入点击」限制
+### Stage 16.2 · 「保存位置」全屏选择器沉浸式修正（2026-11-24）
+
+**问题**：这个选择器用的是独立 `Dialog` 窗口，Activity 的 `enableEdgeToEdge` 管不到它，状态栏和底部小白条区域各留了一条灰带，跟主页/设置/新建页的沉浸效果不一致。
+
+**尝试与结论**：先在 Dialog 窗口里手设 `decorFitsSystemWindows=false`、`setLayout(MATCH_PARENT, MATCH_PARENT)`、两条系统栏透明、关掉导航栏对比度遮罩——截图仍然是灰带（弹窗窗口在 Compose 里仍按内容高度/安全区收口，改不动）。
+
+**最终做法**：干掉 Dialog 窗口，改成 Activity 同一窗口里的全屏覆盖层。`NewTaskScreen` 根部包一层 `Box`，选择器画在 `Scaffold` 之上：
+
+- `Surface(fillMaxSize)` 铺满整屏（底色延到状态栏与小白条后面）
+- 正文 `windowInsetsPadding(WindowInsets.safeDrawing)` 让开两端系统栏
+- `BackHandler` 接管返回键
+- 与主页/设置页共用同一套 `enableEdgeToEdge`，状态栏图标深浅也由 Activity 统一管理
+
+**验证**：真机截图 `docs/pk18.png`，状态栏区域与正文同为暖奶油底色，无灰带，无系统栏留白；调试入口 `--ez openPathPicker true` 可直接摊开选择器。
