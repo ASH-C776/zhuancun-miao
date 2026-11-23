@@ -1,6 +1,5 @@
 package com.ashchan.cloudsaver.transfer
 
-import com.ashchan.cloudsaver.core.adapter.CloudAdapterFactory
 import com.ashchan.cloudsaver.core.adapter.CloudDriveAdapter
 import com.ashchan.cloudsaver.core.model.DriveType
 import com.ashchan.cloudsaver.core.model.ShareNode
@@ -11,6 +10,7 @@ import com.ashchan.cloudsaver.data.TaskRepository
 import com.ashchan.cloudsaver.data.Weekdays
 import com.ashchan.cloudsaver.data.db.RunRecordEntity
 import com.ashchan.cloudsaver.data.db.TaskEntity
+import com.ashchan.cloudsaver.drive.DriveSession
 import com.ashchan.cloudsaver.drive.guangya.GuangYaAdapter
 import com.ashchan.cloudsaver.rename.RenameEngine
 import com.ashchan.cloudsaver.storage.CredentialStore
@@ -85,16 +85,27 @@ class TaskRunner(
             return Result.failure(IllegalArgumentException(msg))
         }
 
-        val credential = credentialStore.loadCredential(drive)
-        if (credential.isNullOrBlank()) {
-            val msg = "请先在设置里登录${drive.displayName}"
-            repo.finishRun(task, trigger, startedAt, null, 0, 0, 0, msg)
-            return Result.failure(IllegalStateException(msg))
-        }
-
         val baseFid = task.saveFid.ifBlank { "0" }
         return try {
-            runLock.withLock { executeLocked(task, trigger, startedAt, drive, credential, baseFid, saveSnapshot) }
+            runLock.withLock {
+                // 转存前先「等价于点一次设置页登录」：掉线时自动恢复，别等用户回来手点
+                val adapter = DriveSession.ensure(drive, credentialStore).getOrElse { err ->
+                    val msg = err.message ?: "登录已失效"
+                    repo.finishRun(task, trigger, startedAt, null, 0, 0, 0, msg)
+                    return@withLock Result.failure<TreeSyncEngine.Report>(err)
+                }
+                try {
+                    executeLocked(task, trigger, startedAt, adapter, baseFid, saveSnapshot)
+                } catch (e: Throwable) {
+                    // 跑到一半掉线：强制重新登录一次，再整轮重来（目录 diff 幂等，重跑不重复转存）
+                    if (!DriveSession.isAuthError(e)) throw e
+                    android.util.Log.w("TaskRunner", "执行中登录失效，重新登录后重试：${e.message}")
+                    DriveSession.invalidate(drive)
+                    val retryAdapter = DriveSession.ensure(drive, credentialStore, force = true)
+                        .getOrElse { throw e }
+                    executeLocked(task, trigger, startedAt, retryAdapter, baseFid, saveSnapshot)
+                }
+            }
         } catch (e: Throwable) {
             repo.finishRun(
                 task = task,
@@ -115,12 +126,10 @@ class TaskRunner(
         task: TaskEntity,
         trigger: String,
         startedAt: Long,
-        drive: DriveType,
-        credential: String,
+        adapter: CloudDriveAdapter,
         baseFid: String,
         saveSnapshot: Boolean,
     ): Result<TreeSyncEngine.Report> {
-        val adapter = buildAdapter(drive, credential)
         val share = retryOnce("解析分享链接") { adapter.parseShareLink(task.shareUrl) }.getOrThrow()
         val resolved = retryOnce("获取分享访问令牌") { adapter.resolveShareAccess(share) }.getOrThrow()
 
@@ -310,9 +319,6 @@ class TaskRunner(
 
     /** 目标侧季目录名（选了季度才建） */
     private fun seasonFolderName(no: Int): String = "Season $no"
-
-    private fun buildAdapter(drive: DriveType, credential: String): CloudDriveAdapter =
-        CloudAdapterFactory.create(drive, credential)
 }
 
 

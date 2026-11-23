@@ -463,3 +463,17 @@
 - 卡片：刷新图标从底部独立一行提到信息行**左侧**，与「更新日 · 网盘 · 时间」同一行；删掉分隔线和底部空行，卡片纵向再省约 30dp
 - 信息行整体**右对齐**：左段（周几 / TMDB 自动 / 网盘 / 已暂停）过长时只压缩自身并省略号，时间（`11/23 12:27`）永不挤压
 - 卡片内边距 12 → 10dp；空状态文案改为「点卡片上的刷新图标才会检测补齐集数」（不再提自动同步）
+### Stage 14 · 登录态自动恢复（不用再回设置页手点登录，2026-11-23）
+
+**问题**：网盘会话自己掉线后，凭证其实一直存在加密存储里，但只有「启动时 autoLogin」和「设置页点登录」会重新验证；选目录（`TasksViewModel.listDirs`）和转存（`TaskRunner.run`）都是拿到凭证直接建 adapter 就用，所以掉线后必须回设置页手点一下。
+
+**改动**
+
+- 新增 `drive/DriveSession.kt`：`ensure(drive, store, force)` = 读凭证 → 建 adapter → `validateLogin`（等价于点一次设置页登录）→ **立刻回写最新凭证**（光鸭 token 轮换时不会丢）→ 返回可用 adapter。同盘 5 分钟内验证过就跳过账号接口；`invalidate()` 标记可疑，`isAuthError()` 判断登录类错误
+- 选保存位置：`listDirs` 先 `ensure` 再列目录；列目录撞到登录类错误时强制重新登录一次再重试
+- 转存：`TaskRunner.run` 在全局锁内先 `ensure`，成功才继续；失败直接写一条「登录已失效」运行记录
+- 跑一半掉线：捕获 auth 类错误 → 强制重新登录 → 整轮重跑一次（目录 diff 幂等，不会重复转存）
+- `GuangYaAdapter.validateLogin`：access_token 失效时自动回落到 refresh_token 刷新（原来只有 access 为空才刷新，导致自动登录在 access 过期时假失败）
+- 夸克仍是 Cookie 机制：只能检测有效性并提示「Cookie 已失效，请到设置重新粘贴」，无法凭空续期
+
+**验收**：`:app:assembleDebug` + 74 项单测通过；真机装包后 `debugRunAll` 跑一轮，两张卡均刷新到 13:03「已是最新」，说明正常路径未受影响（`docs/home13.png`）

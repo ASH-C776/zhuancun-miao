@@ -2,7 +2,6 @@ package com.ashchan.cloudsaver.ui.tasks
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.ashchan.cloudsaver.core.adapter.CloudAdapterFactory
 import com.ashchan.cloudsaver.core.model.DriveFile
 import com.ashchan.cloudsaver.core.model.DriveType
 import com.ashchan.cloudsaver.core.model.NaturalOrder
@@ -13,6 +12,7 @@ import com.ashchan.cloudsaver.data.TaskCard
 import com.ashchan.cloudsaver.data.TaskDraftParser
 import com.ashchan.cloudsaver.data.TaskRepository
 import com.ashchan.cloudsaver.data.Weekdays
+import com.ashchan.cloudsaver.drive.DriveSession
 import com.ashchan.cloudsaver.data.db.RunRecordEntity
 import com.ashchan.cloudsaver.data.db.TaskEntity
 import com.ashchan.cloudsaver.storage.CredentialStore
@@ -264,11 +264,23 @@ class TasksViewModel(
      * 结果按名称自然序，过滤掉非目录项。
      */
     suspend fun listDirs(drive: DriveType, parentFid: String): Result<List<DriveFile>> = runCatching {
-        val credential = credentials?.loadCredential(drive)?.takeIf { it.isNotBlank() }
-            ?: throw IllegalStateException("请先在设置里登录${drive.displayName}")
-        val adapter = CloudAdapterFactory.create(drive, credential)
-        adapter.listFolders(parentFid.ifBlank { "0" }).getOrThrow()
-            .sortedWith(compareBy(NaturalOrder) { it.name })
+        val store = credentials ?: throw IllegalStateException("凭证存储不可用")
+        // 先走一次「等价于点登录」的确保动作：掉线时自动恢复，不用用户回设置页
+        val adapter = DriveSession.ensure(drive, store).getOrElse { throw it }
+
+        suspend fun load(): List<DriveFile> =
+            adapter.listFolders(parentFid.ifBlank { "0" }).getOrElse { throw it }
+                .sortedWith(compareBy(NaturalOrder) { it.name })
+
+        try {
+            load()
+        } catch (e: Throwable) {
+            // 列目录撞到登录类错误：强制重新登录一次再试，仍失败才抛
+            if (!DriveSession.isAuthError(e)) throw e
+            DriveSession.invalidate(drive)
+            DriveSession.ensure(drive, store, force = true).getOrElse { throw it }
+            load()
+        }
     }
 
     /** 取某部剧的播出星期（1..7），用于选完剧后自动点亮更新日 */

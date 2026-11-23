@@ -121,15 +121,22 @@ class GuangYaAdapter(private var accessToken: String = "", private var refreshTo
             accessToken = at
             refreshToken = rt
 
-            // 1. 有 access_token 先验证
+            // 1. 有 access_token 先验证；失效且还有 refresh_token 就自动换新，
+            //    否则「自动登录」会在 access 过期时假失败（用户得手点登录才恢复）
             if (accessToken.isNotBlank()) {
-                val payload = userMeChecked()
-                return Result.success(
-                    AccountInfo(
-                        nickname = extractNickname(payload),
-                        raw = payload.toString(),
+                val verified = runCatching { userMeChecked() }
+                verified.getOrNull()?.let { payload ->
+                    return Result.success(
+                        AccountInfo(
+                            nickname = extractNickname(payload),
+                            raw = payload.toString(),
+                        )
                     )
-                )
+                }
+                if (refreshToken.isBlank()) {
+                    throw verified.exceptionOrNull()
+                        ?: IllegalStateException("登录已失效，请重新粘贴 Token（或补充 Refresh Token）")
+                }
             }
             // 2. 用 refresh_token 刷新
             if (refreshToken.isBlank()) {
