@@ -92,15 +92,17 @@ class TaskRepository(private val db: AppDatabase) {
                     tmdbLatest = tmdbLatest,
                     now = now,
                     message = msg,
-                )
+                ).copy(lastOk = true)
             )
         } else {
-            // 失败时保留上次成功快照的集数，只更新说明与时间，避免卡片突然变空
+            // 失败时保留上次成功快照的集数，只更新说明与时间，避免卡片突然变空；
+            // lastOk 标记为 false，卡片据此显示红点，而不是当成普通提醒
             val old = snapshotDao.getByTask(task.id)
             snapshotDao.upsert(
                 (old ?: SnapshotEntity(taskId = task.id)).copy(
                     lastSyncAt = now,
                     lastMessage = msg.ifBlank { "本次同步失败" },
+                    lastOk = false,
                 )
             )
         }

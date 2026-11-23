@@ -241,7 +241,8 @@ class TaskRunner(
         )
     }
 
-    private fun buildAdapter(drive: DriveType, credential: String): CloudDriveAdapter = when (drive) {        DriveType.QUARK -> QuarkAdapter(credential)
+    private fun buildAdapter(drive: DriveType, credential: String): CloudDriveAdapter = when (drive) {
+        DriveType.QUARK -> QuarkAdapter(credential)
         DriveType.GUANGYA -> {
             // 光鸭凭证格式 "access||refresh"
             val parts = credential.split("||")

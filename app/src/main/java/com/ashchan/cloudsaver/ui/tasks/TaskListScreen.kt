@@ -1,5 +1,6 @@
 package com.ashchan.cloudsaver.ui.tasks
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -305,6 +306,17 @@ private fun TaskRow(
 
             Spacer(Modifier.height(8.dp))
 
+            // 上次执行失败：卡片上直接给红字，不用点进运行日志才知道
+            if (!snap.lastOk && snap.lastSyncAt > 0) {
+                Text(
+                    text = "上次失败 · " + snap.lastMessage.ifBlank { "未知原因" },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    maxLines = 2,
+                )
+                Spacer(Modifier.height(6.dp))
+            }
+
             // 第三行：更新日 · 网盘 · 时间
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -368,16 +380,36 @@ private fun TaskRow(
     }
 }
 
+/**
+ * 卡片语义色：成功 / 缺集 / 未同步。
+ *
+ * 之前这两处是硬编码 `Color(0xFF2E7D32)` 与 `Color(0xFFB26A00)`，在深色主题下压得很暗、
+ * 与浅色背景对比也不一致。这里按系统深浅色各给一套，徽标底色统一取 12% 透明度。
+ */
+private object TaskColors {
+    @Composable
+    fun ok(): Color = if (isSystemInDarkTheme()) Color(0xFF7BC67E) else Color(0xFF2E7D32)
+
+    @Composable
+    fun behind(): Color = if (isSystemInDarkTheme()) Color(0xFFE0A94F) else Color(0xFFB26A00)
+
+    @Composable
+    fun unknown(): Color = MaterialTheme.colorScheme.onSurfaceVariant
+
+    @Composable
+    fun badgeBg(color: Color): Color = color.copy(alpha = 0.12f)
+}
+
 @Composable
 private fun StatusBadge(snap: SnapshotEntity) {
     val (text, color) = when (snap.status) {
-        SnapshotEntity.STATUS_UP_TO_DATE -> "已是最新" to Color(0xFF2E7D32)
-        SnapshotEntity.STATUS_BEHIND -> "缺 ${snap.missing} 集" to Color(0xFFB26A00)
-        else -> "未同步" to MaterialTheme.colorScheme.onSurfaceVariant
+        SnapshotEntity.STATUS_UP_TO_DATE -> "已是最新" to TaskColors.ok()
+        SnapshotEntity.STATUS_BEHIND -> "缺 ${snap.missing} 集" to TaskColors.behind()
+        else -> "未同步" to TaskColors.unknown()
     }
     Surface(
         shape = RoundedCornerShape(8.dp),
-        color = color.copy(alpha = 0.12f),
+        color = TaskColors.badgeBg(color),
     ) {
         Text(
             text = text,
@@ -399,8 +431,8 @@ private fun Dot() {
 
 @Composable
 private fun statusColor(snap: SnapshotEntity): Color = when (snap.status) {
-    SnapshotEntity.STATUS_UP_TO_DATE -> Color(0xFF2E7D32)
-    SnapshotEntity.STATUS_BEHIND -> Color(0xFFB26A00)
+    SnapshotEntity.STATUS_UP_TO_DATE -> TaskColors.ok()
+    SnapshotEntity.STATUS_BEHIND -> TaskColors.behind()
     else -> MaterialTheme.colorScheme.outline
 }
 

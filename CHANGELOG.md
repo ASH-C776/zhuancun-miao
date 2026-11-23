@@ -26,7 +26,7 @@
 | Stage 4 | 任务化功能（自动决策 / 快照 / 批次编排） | ✅ 已完成（4.1-4.4，含真机端到端） |
 | Stage 5 | TMDB 凭证 + 更新日 / 播出时刻 | ✅ 已完成（5.1-5.4，含真机 UI 验证） |
 | Stage 6 | 稳定性（重试 / 幂等 / 日志） | ✅ 已完成（6.1 / 6.2 / 6.3） |
-| Stage 7 | 表现层统一 | 待开始 |
+| Stage 7 | 表现层统一 | ✅ 已完成（7.1 / 7.2） |
 | Stage 8 | 发布 | 待开始 |
 
 ### Stage 1 完成记录
@@ -268,3 +268,32 @@
 - 崩溃日志入口未做真机可视化验证：`crash.log` 只在真崩时产生，没有人为造崩溃；想看效果可等一次真实异常，或我加个调试入口写测试记录
 - 观察到一次「一键全部只跑了第 1 个任务就停」：当时手机前台被别的 App（`com.example.minimalnav`）抢走，HyperOS 对后台进程做了冻结。这属于系统行为，但**二期后台定时（AlarmManager/WorkManager）必须考虑被冻结的应对**，不能假设进程一直活着
 - `TaskRunner.buildAdapter` 有一行格式被之前的编辑压掉缩进（`when (drive) {  DriveType.QUARK -> ...`），功能无影响，留到 Stage 7 清理
+
+### Stage 7 完成记录
+
+**7.1 语义色与失败可见（✅）**
+
+- 新增 `TaskColors`：成功 / 缺集 / 未同步三套语义色，按系统深浅色各给一版，徽标底色统一取 12% 透明度。
+  - 之前是两处散落的硬编码 `Color(0xFF2E7D32)`、`Color(0xFFB26A00)`：深色主题下压得发暗、与浅色底对比也不一致，现在深色用 `0xFF7BC67E` / `0xFFE0A94F`。
+- **卡片上直接显示失败**：`SnapshotEntity` 新增 `lastOk`，失败时卡片多一行红字「上次失败 · 原因」（`maxLines = 2`），不用点进运行日志才知道昨晚没补上。
+  - 数据库 2 → 3，新增 `MIGRATION_2_3`：`ALTER TABLE snapshots ADD COLUMN lastOk INTEGER NOT NULL DEFAULT 1`
+  - 默认值 1 让老数据按「成功」处理，避免升级后满屏红字误报
+
+**7.2 旧首页下线 + 功能回收（✅）**
+
+- `Screen.HOME`（粘贴链接一次性转存页）从枚举里删除，`AppScreens` 里 11 处 `go(Screen.HOME)`（设置 / 关于 / 打赏 / 选路径页的返回键与 onBack）全部改指 `Screen.TASKS`，`when (screen)` 分支同步移除。
+- **发现并补回一处功能回退**：主题切换按钮原本只长在旧首页顶栏（浅色/深色/自动三态循环）。首页一下线，「换主题」就没入口了。
+  - 现在搬到设置页：新增「外观」区块，三个 `FilterChip`（跟随系统 / 浅色 / 深色），`SettingsScreen` 接收 `themeMode` 与 `onThemeModeChange` 并写 prefs，主题持久化逻辑不变。
+- `HomeScreen` 函数本身暂留（未调用），加注释说明「入口已全部迁移、保留仅作旧交互对照」，避免一次性删 2000 行引发编译问题时无法回退；`Screen.HISTORY`（旧一次性转存记录页）同理保留但已无入口。
+- 顺手清理：`TaskRunner.buildAdapter` 那行被压平的缩进恢复正常。
+
+**验收**
+
+- 单测 **74 项全绿**（12 suite），`:app:assembleDebug` 通过
+- 真机（Xiaomi Civi 3）覆盖安装后：首页正常渲染 4 张卡片，顶栏「记录」图标已换成列表样式，旧粘贴页无任何可达路径；截图 `docs/s7a.png`
+- 数据库迁移真机验证：`user_version=3`，`snapshots` 含 `lastOk` 列，4 条旧快照 `lastOk=1`（不误报失败）
+
+**遗留待确认**
+
+- 设置页「外观」三个 FilterChip 未做真机点击验证（HyperOS 拒绝 `input tap` 注入，只能靠 `am start` extras 进页；截图验证需要手动操作一次）
+- 主题切换从首页搬到设置页属于交互位置变化，如果希望保留在首页顶栏，我可以加回图标（一个 IconButton 的事）

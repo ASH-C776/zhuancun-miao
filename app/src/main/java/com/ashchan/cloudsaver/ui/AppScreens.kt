@@ -178,9 +178,8 @@ fun AppRoot(
             viewModel = tasksViewModel,
             onBack = { viewModel.go(Screen.TASKS) },
         )
-        Screen.HOME -> HomeScreen(viewModel, themeMode, onThemeModeChange)
         Screen.HISTORY -> HistoryScreen(viewModel)
-        Screen.SETTINGS -> SettingsScreen(viewModel)
+        Screen.SETTINGS -> SettingsScreen(viewModel, themeMode, onThemeModeChange)
         Screen.FOLDER_PICKER -> FolderPickerScreen(viewModel)
         Screen.ABOUT -> AboutScreen(viewModel)
         Screen.DONATE -> DonateScreen(viewModel)
@@ -268,7 +267,11 @@ private fun ErrorBanner(message: String?) {
     }
 }
 
-// ==================== 主页：链接 + 任务名 + 路径 + 规则 + 转存 ====================
+// ==================== 旧主页：链接 + 任务名 + 路径 + 规则 + 转存（已下线） ====================
+//
+// 从 Stage 7 起，所有入口（返回键、设置/关于/打赏/选路径页的 onBack、执行成功后的跳转）
+// 都指向 Screen.TASKS，「粘贴链接一次性转存」不再有任何可达路径。
+// 代码暂时保留只是为了对照旧的转存/改名交互，确认没有遗漏的迁移点后再整段删除。
 
 @Composable
 fun HomeScreen(
@@ -804,7 +807,11 @@ private fun CustomRuleDialog(
 // ==================== 设置：网盘登录配置 ====================
 
 @Composable
-fun SettingsScreen(viewModel: AppViewModel) {
+fun SettingsScreen(
+    viewModel: AppViewModel,
+    themeMode: Int = THEME_AUTO,
+    onThemeModeChange: (Int) -> Unit = {},
+) {
     val driveType by viewModel.settingsDriveType.collectAsState()
     val accounts by viewModel.accounts.collectAsState()
     val account = accounts[driveType]
@@ -814,7 +821,7 @@ fun SettingsScreen(viewModel: AppViewModel) {
     val smsState by viewModel.smsLoginState.collectAsState()
 
     // 系统返回键回主页（而不是退出 App）
-    BackHandler { viewModel.go(Screen.HOME) }
+    BackHandler { viewModel.go(Screen.TASKS) }
 
     var accessToken by remember { mutableStateOf("") }
     var refreshToken by remember { mutableStateOf("") }
@@ -843,7 +850,7 @@ fun SettingsScreen(viewModel: AppViewModel) {
         }
     }
 
-    Scaffold(topBar = { AppTopBar("设置", onBack = { viewModel.go(Screen.HOME) }) }) { padding ->
+    Scaffold(topBar = { AppTopBar("设置", onBack = { viewModel.go(Screen.TASKS) }) }) { padding ->
         Column(
             modifier = Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState())
                 .padding(16.dp),
@@ -997,6 +1004,24 @@ fun SettingsScreen(viewModel: AppViewModel) {
             // TMDB（可选）：追剧任务靠它算「最新集」与更新日
             Spacer(Modifier.height(24.dp))
             TmdbCredentialSection()
+
+            // 外观：主题切换从旧主页搬到设置页（旧主页下线后不能丢功能）
+            Spacer(Modifier.height(24.dp))
+            Text("外观", style = MaterialTheme.typography.titleMedium)
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(
+                    THEME_AUTO to "跟随系统",
+                    THEME_LIGHT to "浅色",
+                    THEME_DARK to "深色",
+                ).forEach { (mode, label) ->
+                    FilterChip(
+                        selected = themeMode == mode,
+                        onClick = { onThemeModeChange(mode) },
+                        label = { Text(label) },
+                    )
+                }
+            }
 
             // 底部：关于 / 打赏作者
             Spacer(Modifier.height(28.dp))
@@ -1686,9 +1711,9 @@ private fun QuarkCookieDialog(
 fun AboutScreen(viewModel: AppViewModel) {
     val context = LocalContext.current
     val update by viewModel.update.collectAsState()
-    BackHandler { viewModel.go(Screen.HOME) }
+    BackHandler { viewModel.go(Screen.TASKS) }
 
-    Scaffold(topBar = { AppTopBar("关于", onBack = { viewModel.go(Screen.HOME) }) }) { padding ->
+    Scaffold(topBar = { AppTopBar("关于", onBack = { viewModel.go(Screen.TASKS) }) }) { padding ->
         Column(
             modifier = Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState())
                 .padding(16.dp),
@@ -1807,7 +1832,7 @@ private fun GuideItem(label: String, desc: String) {
 @Composable
 fun DonateScreen(viewModel: AppViewModel) {
     val context = LocalContext.current
-    BackHandler { viewModel.go(Screen.HOME) }
+    BackHandler { viewModel.go(Screen.TASKS) }
 
     // 每次点击 +1 触发保存。不能用「完成后把布尔置回 false」的写法：
     // 复位状态会在保存挂起点取消协程，导致既不保存也不弹提示
@@ -1831,7 +1856,7 @@ fun DonateScreen(viewModel: AppViewModel) {
         }
     }
 
-    Scaffold(topBar = { AppTopBar("打赏作者", onBack = { viewModel.go(Screen.HOME) }) }) { padding ->
+    Scaffold(topBar = { AppTopBar("打赏作者", onBack = { viewModel.go(Screen.TASKS) }) }) { padding ->
         Column(
             modifier = Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState())
                 .padding(16.dp),
@@ -1930,10 +1955,10 @@ fun FolderPickerScreen(viewModel: AppViewModel) {
     val error by viewModel.error.collectAsState()
 
     // 系统返回键回主页（而不是退出 App）
-    BackHandler { viewModel.go(Screen.HOME) }
+    BackHandler { viewModel.go(Screen.TASKS) }
 
     Scaffold(
-        topBar = { AppTopBar("选择转存路径", onBack = { viewModel.go(Screen.HOME) }) },
+        topBar = { AppTopBar("选择转存路径", onBack = { viewModel.go(Screen.TASKS) }) },
         bottomBar = {
             Column(Modifier.padding(12.dp)) {
                 ErrorBanner(error)
@@ -2300,14 +2325,14 @@ private fun formatRecordTime(millis: Long): String =
 @Composable
 fun HistoryScreen(viewModel: AppViewModel) {
     val records by viewModel.records.collectAsState()
-    BackHandler { viewModel.go(Screen.HOME) }
+    BackHandler { viewModel.go(Screen.TASKS) }
     var showClearConfirm by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             AppTopBar(
                 title = "转存记录",
-                onBack = { viewModel.go(Screen.HOME) },
+                onBack = { viewModel.go(Screen.TASKS) },
                 actions = {
                     if (records.isNotEmpty()) {
                         TextButton(onClick = { showClearConfirm = true }) {

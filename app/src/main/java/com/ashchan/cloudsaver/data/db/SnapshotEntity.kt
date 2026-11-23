@@ -24,6 +24,13 @@ data class SnapshotEntity(
     val lastSyncAt: Long = 0,
     /** 最近一次执行说明（失败原因 / 跳过原因） */
     val lastMessage: String = "",
+    /**
+     * 最近一次执行是否成功。
+     *
+     * 失败时集数快照保留上一次成功的结果（避免卡片突然变空），只靠 [lastMessage] 无法区分
+     * 「这行字是提醒」还是「这行字是报错」，所以单独存一个布尔给卡片上红点用。
+     */
+    val lastOk: Boolean = true,
 ) {
     companion object {
         const val STATUS_UP_TO_DATE: String = "UP_TO_DATE"

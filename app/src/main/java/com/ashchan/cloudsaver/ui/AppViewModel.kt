@@ -29,7 +29,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /** 页面导航状态 */
-enum class Screen { TASKS, RUNLOG, HOME, HISTORY, SETTINGS, FOLDER_PICKER, ABOUT, DONATE }
+enum class Screen { TASKS, RUNLOG, HISTORY, SETTINGS, FOLDER_PICKER, ABOUT, DONATE }
 
 /** 项目仓库（更新检测与跳转均基于此） */
 const val REPO_URL = "https://github.com/ASH-C776/zhuancun-miao"
@@ -243,7 +243,7 @@ class AppViewModel(
         runCatching { DriveType.valueOf(record.drive) }.getOrNull()?.let { type ->
             if (_accounts.value[type] != null) selectCurrentDrive(type)
         }
-        _screen.value = Screen.HOME
+        _screen.value = Screen.TASKS
     }
 
     fun removeRecord(id: Long) {
@@ -608,7 +608,7 @@ class AppViewModel(
 
     /** 确认选择目标文件夹，回到主页 */
     fun confirmFolder() {
-        _screen.value = Screen.HOME
+        _screen.value = Screen.TASKS
     }
 
     private fun buildTargetPath(crumb: List<Pair<String, String>>): String =
