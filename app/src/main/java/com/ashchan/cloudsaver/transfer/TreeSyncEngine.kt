@@ -1,6 +1,7 @@
 package com.ashchan.cloudsaver.transfer
 
 import com.ashchan.cloudsaver.core.adapter.CloudDriveAdapter
+import com.ashchan.cloudsaver.core.adapter.RestoredFile
 import com.ashchan.cloudsaver.core.model.DriveFile
 import com.ashchan.cloudsaver.core.model.NaturalOrder
 import com.ashchan.cloudsaver.core.model.ShareInfo
@@ -125,16 +126,23 @@ class TreeSyncEngine(
          * 串行发几十个就是几十个 RTT；4 路并发在光鸭/夸克上都实测不触发限流，
          * 再高容易撞到「文件操作太频繁」。
          */
-        const val RENAME_CONCURRENCY: Int = 4
+        const val RENAME_CONCURRENCY: Int = 2
 
         /**
-         * 单个改名最多尝试几次。光鸭连续改名十几个后会开始限流（返回失败），
-         * 隔 1s / 2s 重发一次基本就过了，没必要让整集留在原名上。
+         * 单个改名最多尝试几次。光鸭连续改名十几个后会开始限流（返回「操作过于频繁」），
+         * 冷却后重发基本就过了，没必要让整集留在原名上。
          */
-        const val RENAME_ATTEMPTS: Int = 3
+        const val RENAME_ATTEMPTS: Int = 4
 
         /** 重试退避基数：第 1 次等 1s、第 2 次等 2s */
         const val RENAME_RETRY_DELAY_MS: Long = 1000L
+
+        /** 光鸭限流（「操作过于频繁」）的冷却：按尝试次数递增 2.5s / 5s / 7.5s */
+        const val THROTTLE_DELAY_MS: Long = 2500L
+
+        /** 转存遇到网络类错误（断网、DNS 解析失败）时的重试次数与退避 */
+        const val RESTORE_ATTEMPTS: Int = 3
+        const val RESTORE_RETRY_DELAY_MS: Long = 1500L
 
         /**
          * 把分享根切成转存单元（纯函数，便于单测）。
@@ -174,6 +182,8 @@ class TreeSyncEngine(
         private var videoTotal = 0
         /** 本轮需要改名的文件数（分母，用于「改名 5/12」） */
         private var renameTotal = 0
+        /** 网络断了就别继续发请求（否则每个文件都刷一条同样的错） */
+        private var aborted = false
         private val failures = mutableListOf<String>()
 
         /**
@@ -360,6 +370,7 @@ class TreeSyncEngine(
 
             if (missing.isEmpty()) return
             missing.chunked(RESTORE_BATCH).forEach { chunk ->
+                if (aborted) return@forEach
                 restoreChunk(chunk, destFid, index)
             }
         }
@@ -381,8 +392,16 @@ class TreeSyncEngine(
             destFid: String,
             index: MutableMap<String, DriveFile>,
         ) {
-            val saved = adapter.restoreShare(share, chunk.map { it.file }, destFid).getOrNull()
-            if (saved == null || saved.size != chunk.size) {
+            val attempt = restoreWithRetry(chunk, destFid)
+            val saved = attempt.getOrNull()
+            if (attempt.isFailure || saved == null || saved.size != chunk.size) {
+                // 断网/域名解析失败：整轮没意义了，记一条就中止，别把 20 个文件各刷一条一样的错
+                val msg = attempt.exceptionOrNull()?.message.orEmpty()
+                if (attempt.isFailure && isNetworkError(msg)) {
+                    aborted = true
+                    failures += "网络中断，本轮中止：$msg"
+                    return
+                }
                 chunk.forEach { node -> syncFile(node, destFid, index, expectedName(node)) }
                 return
             }
@@ -533,11 +552,34 @@ class TreeSyncEngine(
                     ?: "改名请求异常（${item.newName}）"
                 attempt++
                 if (attempt < RENAME_ATTEMPTS) {
-                    onProgress(0, 0, "改名 $renamedItems/$renameTotal")
-                    kotlinx.coroutines.delay(RENAME_RETRY_DELAY_MS * attempt)
+                    // 光鸭限流（「操作过于频繁」）要给更长的冷却，普通错误短暂退避即可
+                    val wait = if (isThrottled(reason)) {
+                        THROTTLE_DELAY_MS * attempt
+                    } else {
+                        RENAME_RETRY_DELAY_MS * attempt
+                    }
+                    kotlinx.coroutines.delay(wait)
                 }
             }
             return RenameOutcome(item, false, reason)
+        }
+
+        /** 转存落盘：网络类错误退避重试，别一断网就逐个文件刷错 */
+        private suspend fun restoreWithRetry(
+            chunk: List<ShareNode>,
+            destFid: String,
+        ): Result<List<RestoredFile>> {
+            var attempt = 1
+            var result = adapter.restoreShare(share, chunk.map { it.file }, destFid)
+            while (result.isFailure &&
+                attempt < RESTORE_ATTEMPTS &&
+                isNetworkError(result.exceptionOrNull()?.message.orEmpty())
+            ) {
+                kotlinx.coroutines.delay(RESTORE_RETRY_DELAY_MS * attempt)
+                attempt++
+                result = adapter.restoreShare(share, chunk.map { it.file }, destFid)
+            }
+            return result
         }
 
         /** 目标目录索引（文件名 → 条目），同一目录只列一次；`refresh` 用于刚转存完的新目录 */
@@ -548,6 +590,23 @@ class TreeSyncEngine(
                     throw IllegalStateException("读取目标目录失败：${it.message ?: "未知错误"}")
                 }.associateBy { it.name }.toMutableMap()
             }
+        }
+
+        /** 服务器在喊「操作过于频繁」——这类失败值得拉长冷却重试 */
+        private fun isThrottled(message: String): Boolean {
+            val m = message.lowercase()
+            return "频繁" in message || "too frequent" in m || "rate limit" in m ||
+                "稍后重试" in message || "later" in m
+        }
+
+        /** 断网 / DNS 解析失败 / 连接超时：重试没用就整轮中止，别逐个文件刷错 */
+        private fun isNetworkError(message: String): Boolean {
+            val m = message.lowercase()
+            return "unable to resolve" in m || "resolve host" in m || "unknownhost" in m ||
+                "无法解析" in message || "网络" in message ||
+                "timeout" in m || "timed out" in m || "超时" in message ||
+                "failed to connect" in m || "connection" in m || "socket" in m ||
+                "unreachable" in m || "502" in m || "503" in m
         }
     }
 }

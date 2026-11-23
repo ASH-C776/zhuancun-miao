@@ -55,11 +55,19 @@ class TreeSyncEngineTest {
         override suspend fun listFolders(parentId: String?) =
             Result.success(mine[parentId ?: "0"].orEmpty().filter { it.isDir })
 
+        /** 让转存返回网络类失败，用来验证「断网时只记一条并中止」 */
+        var failRestoreWith: String? = null
+        /** 所有转存请求（含失败重试）的次数 */
+        var restoreAttempts = 0
+            private set
+
         override suspend fun restoreShare(
             share: ShareInfo,
             files: List<DriveFile>,
             parentId: String,
         ): Result<List<RestoredFile>> {
+            restoreAttempts++
+            failRestoreWith?.let { return Result.failure(java.io.IOException(it)) }
             restoreShareCalls++
             val created = files.map { copyInto(it, parentId) }
             return Result.success(
@@ -377,6 +385,24 @@ class TreeSyncEngineTest {
             (1..n).map { "仙剑奇侠传三.S01E%02d.mp4".format(it) }.toSet(),
             adapter.mine["0"]!!.map { it.name }.toSet(),
         )
+    }
+
+    @Test
+    fun `断网时只记一条失败并中止 不会逐个文件刷错`() = runBlocking {
+        val adapter = FakeDriveAdapter(
+            mapOf(null to (1..16).map { adapterFile("s_$it", "EP%02d.mkv".format(it)) })
+        )
+        adapter.failRestoreWith = """Unable to resolve host "api.guangyapan.com": No address associated with hostname"""
+
+        val tree = buildTree(adapter)
+        val report = TreeSyncEngine(adapter).sync(
+            share = shareInfo(), tree = tree, destRootFid = "0",
+        ).getOrThrow()
+
+        assertEquals(1, report.failures.size)
+        assertTrue(report.failures.first().contains("网络中断"))
+        assertEquals(TreeSyncEngine.RESTORE_ATTEMPTS, adapter.restoreAttempts) // 重试完就中止，不逐文件刷
+        assertEquals(0, report.restoredFiles)
     }
 
     // ---------- 小工具 ----------
