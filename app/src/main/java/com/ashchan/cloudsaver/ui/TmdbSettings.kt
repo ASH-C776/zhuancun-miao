@@ -76,10 +76,10 @@ fun TmdbCredentialSection() {
                 baseUrl = it
                 message = null
             },
-            label = { Text("接口地址（默认官方，国内直连不通就换镜像）") },
+            label = { Text("接口地址（默认 api.tmdb.org，国内可直连）") },
             placeholder = { Text(TmdbStore.DEFAULT_BASE_URL) },
             supportingText = {
-                Text("直连 api.themoviedb.org 在国内会超时；有自建反代或镜像就填在这里，末尾不要带 /")
+                Text("官方 api.themoviedb.org 在国内被 DNS 污染会超时，默认已改用等价的 api.tmdb.org；有反代/镜像再填这里，末尾不要带 /")
             },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,

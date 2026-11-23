@@ -35,27 +35,36 @@ class TmdbStore(context: Context) {
         prefs.getString(KEY_CREDENTIAL, null)?.takeIf { it.isNotBlank() }
 
     /**
-     * 接口地址。默认官方 `https://api.themoviedb.org`，
-     * 但国内直连会超时（实测 15 秒无响应），所以允许改成镜像 / 自建反代。
+     * 接口地址。默认用 `https://api.tmdb.org`：
+     * `api.themoviedb.org` 在国内被 DNS 污染（解析到假地址，直连必超时），
+     * 而 `api.tmdb.org` 解析到真实 CloudFront，国内可直连，两个域名接口完全等价。
+     * 需要镜像 / 自建反代时仍可在设置页改。
      */
     fun saveBaseUrl(value: String) {
         val v = value.trim().trimEnd('/')
-        if (v.isBlank() || v == DEFAULT_BASE_URL) {
+        if (v.isBlank() || v == DEFAULT_BASE_URL || v == LEGACY_BASE_URL) {
             prefs.edit().remove(KEY_BASE_URL).apply()
         } else {
             prefs.edit().putString(KEY_BASE_URL, v).apply()
         }
     }
 
-    fun loadBaseUrl(): String =
-        prefs.getString(KEY_BASE_URL, null)?.takeIf { it.isNotBlank() } ?: DEFAULT_BASE_URL
+    fun loadBaseUrl(): String {
+        val stored = prefs.getString(KEY_BASE_URL, null)?.takeIf { it.isNotBlank() }
+        // 老版本存的是被污染的官方域名，直接当默认处理
+        if (stored == null || stored.trimEnd('/') == LEGACY_BASE_URL) return DEFAULT_BASE_URL
+        return stored
+    }
 
     fun clear() {
         prefs.edit().remove(KEY_CREDENTIAL).remove(KEY_BASE_URL).apply()
     }
 
     companion object {
-        const val DEFAULT_BASE_URL = "https://api.themoviedb.org"
+        const val DEFAULT_BASE_URL = "https://api.tmdb.org"
+
+        /** 官方旧域名，国内被污染，仅用于把老配置迁回默认 */
+        const val LEGACY_BASE_URL = "https://api.themoviedb.org"
         private const val KEY_CREDENTIAL = "tmdb_credential"
         private const val KEY_BASE_URL = "tmdb_base_url"
     }

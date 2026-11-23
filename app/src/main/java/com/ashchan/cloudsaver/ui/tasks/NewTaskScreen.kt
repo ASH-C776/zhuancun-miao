@@ -326,6 +326,17 @@ fun NewTaskScreen(
                     enabled = canUseTmdbFolder,
                 ) { folderWithTmdbId = !folderWithTmdbId }
             }
+            if (!canUseTmdbFolder) {
+                Text(
+                    text = if (ruleKey.isBlank()) {
+                        "选「通用命名」后才能开启 tmdb id"
+                    } else {
+                        "先在名称框右侧搜索绑定剧集，才能开启 tmdb id"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
 
             // 更新日：七个排一排
             SectionLabel("更新日")

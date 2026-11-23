@@ -450,3 +450,10 @@
 - 选完把 `drive + saveFid + 可读 label` 一起带回表单，并标记「网盘是用户手选的」，链接识别不再覆盖它
 - `:app:compileDebugKotlin` / `:app:assembleDebug` / 单测通过；真机仍未连接（adb 无设备），截图待补
 - 命名规则三项（默认 / 通用命名 / tmdb id）改为**并排一行**等宽选项，与季度、更新日同一套视觉；`tmdb id` 不可用时置灰不可点
+### Stage 13.3 · 修 tmdb id 开关不亮（2026-11-23）
+
+- **根因**：`TmdbStore.DEFAULT_BASE_URL` 仍是 `https://api.themoviedb.org`，国内 DNS 污染导致 TMDB 搜索/绑定失败，`tmdbId` 永远为空 → `tmdb id` 开关恒灰
+- 默认地址改为 `https://api.tmdb.org`（与官方接口等价、国内可直连）；老配置里存着 `api.themoviedb.org` 的自动视为默认，不用手动改
+- 设置页接口地址的说明文案同步更正
+- 命名规则下方加动态提示：未选通用命名时提示「选『通用命名』后才能开启 tmdb id」；选了但没绑剧时提示「先在名称框右侧搜索绑定剧集」
+- `:app:assembleDebug` + 单测通过
