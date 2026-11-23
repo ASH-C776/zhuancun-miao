@@ -75,6 +75,56 @@ class TasksViewModel(
     private val _progress = MutableStateFlow<String?>(null)
     val progress: StateFlow<String?> = _progress.asStateFlow()
 
+    /**
+     * 「运行一次」（试跑，不保存任务）的三段反馈：
+     * 是否在跑 → 两个按钮置灰；跑的过程中按钮上方显示阶段文字；跑完在原地留一行结果。
+     */
+    private val _draftRunning = MutableStateFlow(false)
+    val draftRunning: StateFlow<Boolean> = _draftRunning.asStateFlow()
+
+    private val _draftPhase = MutableStateFlow<String?>(null)
+    val draftPhase: StateFlow<String?> = _draftPhase.asStateFlow()
+
+    private val _draftResult = MutableStateFlow<DraftRunResult?>(null)
+    val draftResult: StateFlow<DraftRunResult?> = _draftResult.asStateFlow()
+
+    /** 试跑结果一行字：`text` 给主句，`ok` 决定配色（绿 / 红） */
+    data class DraftRunResult(val text: String, val ok: Boolean)
+
+    /**
+     * 新建任务页的表单快照。页面切到别的栏目再回来时用它回填，
+     * 不然用户在「添加」里填了一半的链接会因为离开组合被整页丢掉。
+     */
+    data class DraftForm(
+        val name: String = "",
+        val links: List<String> = emptyList(),
+        val drive: String? = null,
+        val saveFid: String = "0",
+        val savePathLabel: String = "网盘根目录",
+        val seasonNo: Int = 0,
+        val folderWithTmdbId: Boolean = false,
+        val ruleKey: String = "",
+        val tmdbId: String = "",
+        val tmdbTitle: String = "",
+        val airTime: String = "",
+        val weekdays: String = "",
+        val weekdaysManual: Boolean = false,
+        val updateModeAuto: Boolean = true,
+    )
+
+    /** 表单快照只在内存里留着，退出 App 不持久化（用户口径：不保存就不算数） */
+    private var draftForm: DraftForm? = null
+
+    fun stashDraftForm(form: DraftForm) {
+        draftForm = form
+    }
+
+    fun takeDraftForm(): DraftForm? = draftForm
+
+    fun clearDraftForm() {
+        draftForm = null
+    }
+
 
     fun clearError() {
         _error.value = null
@@ -284,6 +334,9 @@ class TasksViewModel(
     /**
      * 「运行一次」：拿当前表单内容直接转存一轮，**不保存任务**。
      * 仍写一条运行日志，方便回看这次试跑结果；任务卡片上的快照不动。
+     *
+     * 反馈走三个地方：按钮置灰（[draftRunning]）、按钮上方那行阶段文字（[draftPhase]）、
+     * 跑完在同一个位置留一行结果（[draftResult]，不自动消失，方便复查）。
      */
     fun runDraft(
         name: String,
@@ -303,9 +356,14 @@ class TasksViewModel(
             _error.value = "请填写任务名称"
             return
         }
+        if (_draftRunning.value) return
         val parsed = parseLinks(links, driveOverride) ?: return
         val (inspected, drive) = parsed
+        _draftRunning.value = true
+        _draftPhase.value = "准备中"
+        _draftResult.value = null
         viewModelScope.launch {
+            try {
             val draft = TaskEntity(
                 id = editing.value?.id ?: 0,
                 name = title,
@@ -329,6 +387,7 @@ class TasksViewModel(
                 saveSnapshot = false,
                 draftLinks = inspected.map { it.shareUrl },
                 onPhase = { phase ->
+                    _draftPhase.value = phase
                     // 编辑已有任务时试跑，任务页那张卡也能看到阶段文字；新建草稿没有卡片
                     if (draft.id > 0) _running.update { it + (draft.id to phase) }
                 },
@@ -338,7 +397,36 @@ class TasksViewModel(
             } else {
                 "「$title」运行失败"
             }
+            // 结果行：成功给「新增 / 改名」实数，失败把第一条原因写出来
+            val report = result.getOrNull()
+            _draftResult.value = when {
+                report == null -> DraftRunResult(
+                    text = "失败：" + (result.exceptionOrNull()?.message ?: "未知错误"),
+                    ok = false,
+                )
+                !report.ok -> DraftRunResult(
+                    text = "失败：" + (report.failures.firstOrNull() ?: "本轮没有成功转存的内容"),
+                    ok = false,
+                )
+                else -> DraftRunResult(
+                    text = buildString {
+                        append("完成 · 新增 ").append(report.restoredFiles)
+                        append(" · 改名 ").append(report.renamedItems)
+                        if (report.failures.isNotEmpty()) append(" · ").append(report.failures.size).append(" 项失败")
+                    },
+                    ok = true,
+                )
+            }
+        } finally {
+            _draftRunning.value = false
+            _draftPhase.value = null
         }
+        }
+    }
+
+    /** 「运行一次」跑完留在页面上的那行结果（不自动消失，用户可复查） */
+    fun clearDraftResult() {
+        _draftResult.value = null
     }
 
     /** 某个网盘是否已登录（新建页用来提示「先去设置里登录」） */

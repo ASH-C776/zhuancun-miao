@@ -1,6 +1,11 @@
 package com.ashchan.cloudsaver.ui.tasks
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -62,12 +67,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.res.painterResource
 import com.ashchan.cloudsaver.R
@@ -79,6 +86,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -113,42 +121,82 @@ fun NewTaskScreen(
 ) {
     val scope = rememberCoroutineScope()
     val editing = editingTask != null
+    // 从「添加」切到别的栏目再回来时，用快照把新建表单回填（编辑已有任务不参与）
+    val stash = remember { if (editingTask == null) viewModel.takeDraftForm() else null }
+    // 「运行一次」的三段反馈：跑的时候按钮置灰 + 按钮上方显示阶段文字；跑完在同一位置留一行结果
+    val draftRunning by viewModel.draftRunning.collectAsState()
+    val draftPhase by viewModel.draftPhase.collectAsState()
+    val draftResult by viewModel.draftResult.collectAsState()
+    // 换表单内容（改了链接/端口/规则）就清掉上一次的结果行，避免旧结论挂在新的参数上
+    LaunchedEffect(draftRunning) { if (draftRunning) viewModel.clearDraftResult() }
 
-    var name by remember { mutableStateOf(editingTask?.name ?: "") }
+    var name by remember { mutableStateOf(stash?.name ?: editingTask?.name ?: "") }
     // 多源：第 1 行是默认链接（右端「+」追加），第 2~5 行是附加源（右端「−」删除）
     // 每行带稳定 id，删中间行时不会串内容
-    var nextSlotId by remember { mutableStateOf(startSourceRows.coerceIn(1, MAX_SOURCES).toLong()) }
+    var nextSlotId by remember { mutableStateOf(maxOf(startSourceRows.coerceIn(1, MAX_SOURCES).toLong(), (stash?.links?.size ?: 0).toLong())) }
     val slots = remember {
         mutableStateListOf<LinkSlot>().apply {
-            // 新建默认 1 行；编辑时先用任务里的主链接占位，多源由下面的 LaunchedEffect 回填
-            add(LinkSlot(id = 0L, text = editingTask?.shareUrl ?: ""))
-            repeat((startSourceRows - 1).coerceIn(0, MAX_SOURCES - 1)) { i ->
-                add(LinkSlot(id = i + 1L, text = ""))
+            val restored = stash?.links.orEmpty()
+            if (restored.isNotEmpty()) {
+                restored.take(MAX_SOURCES).forEachIndexed { i, text -> add(LinkSlot(id = i.toLong(), text = text)) }
+            } else {
+                // 新建默认 1 行；编辑时先用任务里的主链接占位，多源由下面的 LaunchedEffect 回填
+                add(LinkSlot(id = 0L, text = editingTask?.shareUrl ?: ""))
+                repeat((startSourceRows - 1).coerceIn(0, MAX_SOURCES - 1)) { i ->
+                    add(LinkSlot(id = i + 1L, text = ""))
+                }
             }
         }
     }
     var drive by remember {
-        mutableStateOf(editingTask?.let { DriveType.fromName(it.driveType) })
+        mutableStateOf(stash?.drive?.let { DriveType.fromName(it) } ?: editingTask?.let { DriveType.fromName(it.driveType) })
     }
-    var drivePickedByUser by remember { mutableStateOf(editingTask != null) }
-    var saveFid by remember { mutableStateOf(editingTask?.saveFid ?: "0") }
+    var drivePickedByUser by remember { mutableStateOf(stash != null || editingTask != null) }
+    var saveFid by remember { mutableStateOf(stash?.saveFid ?: editingTask?.saveFid ?: "0") }
     var savePathLabel by remember {
-        mutableStateOf(editingTask?.savePathLabel?.ifBlank { "网盘根目录" } ?: "网盘根目录")
+        mutableStateOf(stash?.savePathLabel ?: editingTask?.savePathLabel?.ifBlank { "网盘根目录" } ?: "网盘根目录")
     }
-    var seasonNo by remember { mutableStateOf(editingTask?.seasonNo ?: 0) }
-    var folderWithTmdbId by remember { mutableStateOf(editingTask?.folderWithTmdbId ?: false) }
-    var ruleKey by remember { mutableStateOf(editingTask?.ruleKey ?: "") }
-    var tmdbId by remember { mutableStateOf(editingTask?.tmdbId?.toString() ?: "") }
-    var tmdbTitle by remember { mutableStateOf("") }
-    var airTime by remember { mutableStateOf(editingTask?.airTime ?: "") }
+    var seasonNo by remember { mutableStateOf(stash?.seasonNo ?: editingTask?.seasonNo ?: 0) }
+    var folderWithTmdbId by remember { mutableStateOf(stash?.folderWithTmdbId ?: editingTask?.folderWithTmdbId ?: false) }
+    var ruleKey by remember { mutableStateOf(stash?.ruleKey ?: editingTask?.ruleKey ?: "") }
+    var tmdbId by remember { mutableStateOf(stash?.tmdbId ?: editingTask?.tmdbId?.toString() ?: "") }
+    var tmdbTitle by remember { mutableStateOf(stash?.tmdbTitle ?: "") }
+    var airTime by remember { mutableStateOf(stash?.airTime ?: editingTask?.airTime ?: "") }
     var weekdays by remember {
-        mutableStateOf(editingTask?.let { Weekdays.parse(it.weekdays) } ?: emptySet())
+        mutableStateOf(
+            stash?.weekdays?.let { Weekdays.parse(it) }
+                ?: editingTask?.let { Weekdays.parse(it.weekdays) }
+                ?: emptySet()
+        )
     }
     // 用户手动点过星期后，就不再让 TMDB 的播出日覆盖
-    var weekdaysManual by remember { mutableStateOf(!editingTask?.weekdays.isNullOrBlank()) }
+    var weekdaysManual by remember { mutableStateOf(stash?.weekdaysManual ?: !editingTask?.weekdays.isNullOrBlank()) }
     // 更新日是否交给 TMDB 自动（新建默认自动；编辑时看原任务模式）
     var updateModeAuto by remember {
-        mutableStateOf(editingTask?.updateMode != TaskEntity.UPDATE_MODE_MANUAL)
+        mutableStateOf(stash?.updateModeAuto ?: (editingTask?.updateMode != TaskEntity.UPDATE_MODE_MANUAL))
+    }
+
+    // 新建任务页的表单随改随存一份快照（离开页面时组合被销毁，切 tab 回来靠它回填）
+    LaunchedEffect(editing, name, slots.map { it.text }, drive, saveFid, savePathLabel, seasonNo, folderWithTmdbId, ruleKey, tmdbId, tmdbTitle, airTime, weekdays, weekdaysManual, updateModeAuto) {
+        if (editing) return@LaunchedEffect
+        viewModel.stashDraftForm(
+            TasksViewModel.DraftForm(
+                name = name,
+                links = slots.map { it.text.trim() },
+                drive = drive?.name,
+                saveFid = saveFid,
+                savePathLabel = savePathLabel,
+                seasonNo = seasonNo,
+                folderWithTmdbId = folderWithTmdbId,
+                ruleKey = ruleKey,
+                tmdbId = tmdbId,
+                tmdbTitle = tmdbTitle,
+                airTime = airTime,
+                weekdays = Weekdays.format(weekdays),
+                weekdaysManual = weekdaysManual,
+                updateModeAuto = updateModeAuto,
+            )
+        )
     }
 
     var showPathPicker by remember { mutableStateOf(openPathPickerOnStart) }
@@ -267,7 +315,11 @@ fun NewTaskScreen(
                         updateModeAuto = updateModeAuto,
                     )
                 }
-                if (mode == SubmitMode.SAVE) onDone()
+                if (mode == SubmitMode.SAVE) {
+                    // 落库成功就不再需要草稿快照，下次进「添加」应是空白新表单
+                    viewModel.clearDraftForm()
+                    onDone()
+                }
             }
         }
     }
@@ -292,37 +344,55 @@ fun NewTaskScreen(
         bottomBar = {
             Column {
                 Surface(color = MaterialTheme.colorScheme.surface) {
-                    Row(
+                    Column(
                         Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 8.dp),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                    // 两个按钮同一规格：48dp 高、并排等宽；「运行一次」描边、「保存」实心
-                    OutlinedButton(
-                        onClick = { submit(SubmitMode.RUN) },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(48.dp),
-                    ) {
-                        Icon(
-                            Icons.Default.PlayArrow,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp),
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text("运行一次", fontWeight = FontWeight.SemiBold)
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    Button(
-                        onClick = { submit(SubmitMode.SAVE) },
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(48.dp),
-                    ) {
-                        Text("保存", fontWeight = FontWeight.SemiBold)
-                    }
+                        // 跑的过程中这里是阶段文字（蓝色、不带胶囊），跑完换成结果行（绿 / 红），常驻到下次再跑
+                        val phase = draftPhase
+                        val result = draftResult
+                        if (draftRunning && phase != null) {
+                            DraftRunText(text = phase, color = TaskColors.local(), animated = !phase.any { it.isDigit() })
+                        } else if (result != null) {
+                            DraftRunText(
+                                text = result.text,
+                                color = if (result.ok) TaskColors.ok() else MaterialTheme.colorScheme.error,
+                                animated = false,
+                            )
+                        }
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            // 两个按钮同一规格：48dp 高、并排等宽；「运行一次」描边、「保存」实心
+                            OutlinedButton(
+                                onClick = { submit(SubmitMode.RUN) },
+                                enabled = !draftRunning,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp),
+                            ) {
+                                Icon(
+                                    Icons.Default.PlayArrow,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Text("运行一次", fontWeight = FontWeight.SemiBold)
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Button(
+                                onClick = { submit(SubmitMode.SAVE) },
+                                enabled = !draftRunning,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp),
+                            ) {
+                                Text("保存", fontWeight = FontWeight.SemiBold)
+                            }
+                        }
                     }
                 }
                 com.ashchan.cloudsaver.ui.AppTabBar(
@@ -1339,3 +1409,33 @@ private fun TmdbSearchDialog(
 /** 行级点击（带 enabled 控制），避免每处都写 .clickable + interactionSource */
 private fun Modifier.clickableRow(enabled: Boolean = true, onClick: () -> Unit): Modifier =
     this.clickable(enabled = enabled, onClick = onClick)
+
+/**
+ * 动作行上方那句状态字：跑的过程中是阶段文字（准备中… / 转存 6/26…），跑完是结果行（完成 / 失败）。
+ * 不带胶囊、不带底色，同一个位置直接换字；没有数字的步骤让省略号做透明度呼吸。
+ */
+@Composable
+private fun DraftRunText(text: String, color: Color, animated: Boolean) {
+    val alpha = if (animated) {
+        val transition = rememberInfiniteTransition(label = "draftRunDots")
+        transition.animateFloat(
+            initialValue = 0.35f,
+            targetValue = 1f,
+            animationSpec = infiniteRepeatable(tween(durationMillis = 600), RepeatMode.Reverse),
+            label = "draftRunDotsAlpha",
+        ).value
+    } else {
+        1f
+    }
+    Text(
+        text = text,
+        color = color.copy(alpha = alpha),
+        style = MaterialTheme.typography.bodyMedium,
+        textAlign = TextAlign.End,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 6.dp),
+    )
+}

@@ -415,7 +415,7 @@ private fun TaskRow(
  * 之前这两处是硬编码 `Color(0xFF2E7D32)` 与 `Color(0xFFB26A00)`，在深色主题下压得很暗、
  * 与浅色背景对比也不一致。这里按系统深浅色各给一套，徽标底色统一取 12% 透明度。
  */
-private object TaskColors {
+internal object TaskColors {
     @Composable
     fun ok(): Color = if (isSystemInDarkTheme()) Color(0xFF7BC67E) else Color(0xFF2E7D32)
 
