@@ -214,8 +214,8 @@ private fun RunRow(record: RunRecordEntity, formatter: SimpleDateFormat) {
                 Spacer(Modifier.width(8.dp))
                 Text(
                     text = triggerLabel(record.trigger),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
                 Spacer(Modifier.weight(1f))
                 Text(
@@ -229,13 +229,13 @@ private fun RunRow(record: RunRecordEntity, formatter: SimpleDateFormat) {
                     },
                 )
             }
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(8.dp))
             Text(
                 text = record.taskName.ifBlank { "任务 #${record.taskId}" },
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
             )
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(4.dp))
             Text(
                 text = summary(record),
                 style = MaterialTheme.typography.bodyMedium,

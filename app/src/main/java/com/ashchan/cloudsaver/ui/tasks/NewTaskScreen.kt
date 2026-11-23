@@ -62,6 +62,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.painterResource
+import com.ashchan.cloudsaver.R
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -259,7 +261,7 @@ fun NewTaskScreen(
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             // 任务名称：右侧直接搜 TMDB（按当前输入的名字去搜，选中就绑上）
             OutlinedTextField(
@@ -334,7 +336,7 @@ fun NewTaskScreen(
 
             // 季度：不选 = 剧名/视频平铺；选第N季 = 剧名/Season N/视频平铺
             SectionLabel("季度")
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SmallChoice("不选", seasonNo == 0, Modifier.weight(1f)) { seasonNo = 0 }
                 (1..3).forEach { n ->
                     SmallChoice("第$n 季", seasonNo == n, Modifier.weight(1f)) { seasonNo = n }
@@ -351,7 +353,7 @@ fun NewTaskScreen(
 
             // 命名规则：默认 / 通用命名 / tmdb id，三项并排一行
             SectionLabel("命名规则")
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SmallChoice(
                     text = "默认",
                     selected = ruleKey.isBlank(),
@@ -409,7 +411,7 @@ fun NewTaskScreen(
             }
             Row(
                 Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 (1..7).forEach { day ->
                     val on = day in weekdays
@@ -417,7 +419,7 @@ fun NewTaskScreen(
                         Modifier
                             .weight(1f)
                             .height(40.dp)
-                            .clip(RoundedCornerShape(10.dp))
+                            .clip(RoundedCornerShape(12.dp))
                             .background(
                                 if (on) {
                                     MaterialTheme.colorScheme.primaryContainer
@@ -597,7 +599,7 @@ private fun SettingRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             icon()
-            Spacer(Modifier.width(10.dp))
+            Spacer(Modifier.width(12.dp))
             Text(title, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
         }
     }
@@ -699,7 +701,7 @@ private fun SaveLocationDialog(
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                        .padding(horizontal = 8.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     IconButton(onClick = onDismiss) {
@@ -789,9 +791,16 @@ private fun SaveLocationDialog(
                                 .clickableRow {
                                     scope.launch { jumpTo(crumb + (dir.fid to dir.name)) }
                                 }
-                                .padding(vertical = 14.dp, horizontal = 20.dp),
+                                .padding(vertical = 16.dp, horizontal = 16.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_folder),
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp),
+                            )
+                            Spacer(Modifier.width(12.dp))
                             Text(
                                 dir.name,
                                 style = MaterialTheme.typography.bodyLarge,
@@ -812,7 +821,7 @@ private fun SaveLocationDialog(
                                 "这个目录下没有子文件夹，可以直接用当前目录",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
                             )
                         }
                     }
@@ -831,9 +840,9 @@ private fun CrumbText(text: String, selected: Boolean = false, onClick: () -> Un
         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
         maxLines = 1,
         modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
+            .clip(RoundedCornerShape(8.dp))
             .clickableRow(onClick = onClick)
-            .padding(horizontal = 4.dp, vertical = 2.dp),
+            .padding(horizontal = 4.dp, vertical = 4.dp),
     )
 }
 @Composable
@@ -873,7 +882,7 @@ private fun TmdbSearchDialog(
                         singleLine = true,
                         modifier = Modifier.weight(1f),
                     )
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(8.dp))
                     IconButton(
                         onClick = {
                             scope.launch {
@@ -910,7 +919,7 @@ private fun TmdbSearchDialog(
                                     Modifier
                                         .fillMaxWidth()
                                         .clickableRow { onPick(item) }
-                                        .padding(vertical = 10.dp),
+                                        .padding(vertical = 12.dp),
                                 ) {
                                     Text(
                                         item.title(),

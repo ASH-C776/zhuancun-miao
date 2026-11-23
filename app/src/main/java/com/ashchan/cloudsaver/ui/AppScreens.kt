@@ -372,7 +372,7 @@ fun HomeScreen(
             val latestRecord = records.firstOrNull()
             if (latestRecord != null) {
                 Surface(
-                    shape = RoundedCornerShape(14.dp),
+                    shape = RoundedCornerShape(12.dp),
                     color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f),
                     modifier = Modifier.fillMaxWidth().tappable { viewModel.refillRecord(latestRecord) },
                 ) {
@@ -397,8 +397,8 @@ fun HomeScreen(
                             )
                             Text(
                                 "${formatRecordTime(latestRecord.id)} · ${latestRecord.ruleName} · 成功 ${latestRecord.successCount}/${latestRecord.total}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
@@ -453,7 +453,7 @@ fun HomeScreen(
                         ),
                     ) {
                         Column(
-                            Modifier.fillMaxWidth().padding(vertical = 10.dp),
+                            Modifier.fillMaxWidth().padding(vertical = 12.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
                             Text(
@@ -496,13 +496,13 @@ fun HomeScreen(
                 ),
             ) {
                 Row(
-                    Modifier.padding(horizontal = 14.dp, vertical = 14.dp),
+                    Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
                         Text("转存路径", style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(Modifier.height(2.dp))
+                        Spacer(Modifier.height(4.dp))
                         Text(
                             text = when {
                                 account == null -> "尚未登录 · 去设置"
@@ -539,7 +539,7 @@ fun HomeScreen(
                 ),
             ) {
                 Row(
-                    Modifier.padding(horizontal = 14.dp, vertical = 14.dp),
+                    Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
@@ -548,7 +548,7 @@ fun HomeScreen(
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Spacer(Modifier.height(2.dp))
+                        Spacer(Modifier.height(4.dp))
                         Text(
                             selectedRuleName,
                             style = MaterialTheme.typography.bodyMedium,
@@ -606,7 +606,7 @@ fun HomeScreen(
                     Row(
                         modifier = Modifier.fillMaxWidth().tappable {
                             viewModel.selectNoRule(); showRuleDialog = false
-                        }.padding(vertical = 6.dp),
+                        }.padding(vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         RadioButton(selected = noneSelected, onClick = {
@@ -618,7 +618,7 @@ fun HomeScreen(
                     Row(
                         modifier = Modifier.fillMaxWidth().tappable {
                             viewModel.selectRule("\$TV_MAGIC"); showRuleDialog = false
-                        }.padding(vertical = 6.dp),
+                        }.padding(vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         RadioButton(selected = tvMagicOn, onClick = {
@@ -631,7 +631,7 @@ fun HomeScreen(
                         modifier = Modifier.fillMaxWidth().tappable {
                             showRuleDialog = false
                             showCustomDialog = true
-                        }.padding(vertical = 6.dp),
+                        }.padding(vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         RadioButton(selected = customOn, onClick = {
@@ -709,7 +709,7 @@ private fun CustomRuleDialog(
                     }
                 }
 
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(24.dp))
 
                 // 组成元素
                 Text(
@@ -717,7 +717,7 @@ private fun CustomRuleDialog(
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(12.dp))
                 FlowRow(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -732,7 +732,7 @@ private fun CustomRuleDialog(
                     )
                 }
 
-                Spacer(Modifier.height(20.dp))
+                Spacer(Modifier.height(24.dp))
 
                 // 季度选择：S01–S05 预设 + 第六个「自定义」输入任意季度；每行 3 个，共两行
                 Text(
@@ -740,7 +740,7 @@ private fun CustomRuleDialog(
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(12.dp))
                 val seasonItems = (1..5).map { "S%02d".format(it) } + "自定义"
                 seasonItems.chunked(3).forEach { row ->
                     Row(
@@ -917,7 +917,7 @@ fun SettingsScreen(
                                     color = SuccessGreen,
                                     modifier = Modifier
                                         .align(Alignment.TopEnd)
-                                        .padding(top = 6.dp, end = 6.dp)
+                                        .padding(top = 8.dp, end = 8.dp)
                                         .size(10.dp),
                                 ) {}
                             }
@@ -1053,7 +1053,7 @@ fun SettingsScreen(
             }
 
             // 底部：关于 / 打赏作者
-            Spacer(Modifier.height(28.dp))
+            Spacer(Modifier.height(24.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             SettingsEntry("关于", "版本信息与使用说明", showDot = update.hasUpdate) { viewModel.go(Screen.ABOUT) }
             SettingsEntry("打赏作者", "如果觉得好用，请作者喝杯奶茶") { viewModel.go(Screen.DONATE) }
@@ -1103,14 +1103,14 @@ fun GuangYaSmsDialog(
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
         Surface(
-            shape = RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(24.dp),
             color = MaterialTheme.colorScheme.surface,
             tonalElevation = 6.dp,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp),
+                .padding(horizontal = 16.dp),
         ) {
-            Column(Modifier.fillMaxWidth().padding(20.dp)) {
+            Column(Modifier.fillMaxWidth().padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("光鸭验证码登录", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.weight(1f))
@@ -1139,13 +1139,13 @@ private fun SmsDeclaration(onAgree: () -> Unit) {
         color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.padding(14.dp)) {
+        Column(Modifier.padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("🔒", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.width(6.dp))
+                Spacer(Modifier.width(8.dp))
                 Text("隐私说明", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             }
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(8.dp))
             Text(
                 "本功能仅在你的设备本地向光鸭官方服务器发送手机号与验证码，用于换取登录凭证。" +
                     "我们不会收集、上传或存储你的手机号、验证码、Token 到任何第三方服务器。" +
@@ -1213,7 +1213,7 @@ private fun SmsCodeInput(
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         modifier = Modifier.fillMaxWidth(),
     )
-    Spacer(Modifier.height(6.dp))
+    Spacer(Modifier.height(8.dp))
     Text("验证码 5 分钟内有效", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
     Spacer(Modifier.height(8.dp))
     state.error?.let {
@@ -1314,7 +1314,7 @@ private fun SmsSuccess() {
         Spacer(Modifier.height(8.dp))
         Text("已获取登录凭证", style = MaterialTheme.typography.titleSmall)
         Spacer(Modifier.height(4.dp))
-        Text("Token 已填入输入框，点「登录」即可", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Token 已填入输入框，点「登录」即可", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
     }
 }
 
@@ -1349,7 +1349,7 @@ private fun SettingsEntry(title: String, subtitle: String, showDot: Boolean = fa
         modifier = Modifier
             .fillMaxWidth()
             .tappable { onClick() }
-            .padding(vertical = 14.dp),
+            .padding(vertical = 16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
@@ -1490,7 +1490,7 @@ private fun QuarkCookieDialog(
                                 Icons.Filled.Lock,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(16.dp).padding(top = 1.dp),
+                                modifier = Modifier.size(16.dp).padding(top = 4.dp),
                             )
                             Spacer(Modifier.width(8.dp))
                             Text(
@@ -1581,7 +1581,7 @@ private fun QuarkCookieDialog(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
                                 }
-                                Spacer(Modifier.height(6.dp))
+                                Spacer(Modifier.height(8.dp))
                                 Text(
                                     "若多数域名都失败，说明当前网络无法访问夸克，请换网络（Wi-Fi/流量）或关闭代理后重试；这与 App 无关。",
                                     style = MaterialTheme.typography.bodySmall,
@@ -1757,19 +1757,19 @@ fun AboutScreen(viewModel: AppViewModel) {
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Text("转存喵", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    Spacer(Modifier.height(2.dp))
+                    Spacer(Modifier.height(4.dp))
                     Text(
                         "作者：基耶杰",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(12.dp))
                     Text(
                         "当前版本 v${currentVersion()}",
                         style = MaterialTheme.typography.labelMedium,
                         color = MaterialTheme.colorScheme.primary,
                     )
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(8.dp))
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
@@ -1788,7 +1788,7 @@ fun AboutScreen(viewModel: AppViewModel) {
                             color = MaterialTheme.colorScheme.onSurface,
                         )
                         if (update.hasUpdate) {
-                            Spacer(Modifier.width(6.dp))
+                            Spacer(Modifier.width(8.dp))
                             Box(
                                 Modifier
                                     .size(8.dp)
@@ -1797,11 +1797,11 @@ fun AboutScreen(viewModel: AppViewModel) {
                         }
                     }
                     if (update.hasUpdate && update.latestVersion != null) {
-                        Spacer(Modifier.height(6.dp))
+                        Spacer(Modifier.height(8.dp))
                         Text(
                             "新版本 v${update.latestVersion} 已发布，点击前往下载",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface,
                         )
                     }
                 }
@@ -1814,7 +1814,7 @@ fun AboutScreen(viewModel: AppViewModel) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(24.dp))
             Text("使用说明", style = MaterialTheme.typography.titleMedium)
             Spacer(Modifier.height(8.dp))
             Card(
@@ -1903,20 +1903,20 @@ fun DonateScreen(viewModel: AppViewModel) {
                 Image(
                     painter = painterResource(R.drawable.donate_qr),
                     contentDescription = "微信打赞赏助二维码",
-                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                    modifier = Modifier.fillMaxWidth().padding(16.dp),
                 )
             }
 
             Spacer(Modifier.height(16.dp))
             Text("微信打赏", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(4.dp))
             Text(
                 "纯粹自愿",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(24.dp))
             Button(
                 onClick = {
                     if (Build.VERSION.SDK_INT >= 29 ||
@@ -2035,7 +2035,7 @@ private fun FolderRow(name: String, selected: Boolean, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 3.dp)
+            .padding(horizontal = 12.dp, vertical = 4.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(
                 if (selected) MaterialTheme.colorScheme.secondaryContainer
@@ -2188,7 +2188,7 @@ private fun PreviewDialog(
             Column(Modifier.fillMaxSize()) {
                 // 顶栏：标题 + 取消
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp),
+                    Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
@@ -2218,7 +2218,7 @@ private fun PreviewDialog(
                 // 单列列表：每个文件一张卡片（旧名 → 新名）
                 LazyColumn(
                     Modifier.weight(1f).fillMaxWidth().padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     items(state.items, key = { it.file.fid }) { item ->
                         PreviewRow(item, onNewNameChange, onToggleIncluded)
@@ -2271,8 +2271,8 @@ private fun PreviewRow(
                         Spacer(Modifier.height(4.dp))
                         Text(
                             if (item.included) "已存在 · 仍要转存" else "已存在 · 跳过",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface,
                         )
                     }
                     Checkbox(
@@ -2293,8 +2293,8 @@ private fun PreviewRow(
                 Spacer(Modifier.height(4.dp))
                 Text(
                     "已过滤（不转存）",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
             } else {
                 // 原名 / 新名：与主页输入框统一的浮动标签样式，标签嵌入边框缺口
@@ -2314,9 +2314,9 @@ private fun PreviewRow(
                 if (item.hasUnresolved) {
                     Text(
                         "未能解析集数，已保持原名",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 4.dp, top = 2.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.padding(start = 4.dp, top = 4.dp),
                     )
                 }
                 Icon(
@@ -2325,7 +2325,7 @@ private fun PreviewRow(
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier
                         .align(Alignment.CenterHorizontally)
-                        .padding(vertical = 2.dp)
+                        .padding(vertical = 4.dp)
                         .size(16.dp),
                 )
                 OutlinedTextField(
@@ -2381,7 +2381,7 @@ fun HistoryScreen(viewModel: AppViewModel) {
         if (records.isEmpty()) {
             // 空状态：给指引而不是白屏
             Column(
-                modifier = Modifier.padding(padding).fillMaxSize().padding(32.dp),
+                modifier = Modifier.padding(padding).fillMaxSize().padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
@@ -2405,7 +2405,7 @@ fun HistoryScreen(viewModel: AppViewModel) {
             LazyColumn(
                 modifier = Modifier.padding(padding).fillMaxSize(),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 items(records, key = { it.id }) { record ->
                     RecordCard(
@@ -2452,7 +2452,7 @@ private fun RecordCard(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         ),
     ) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     record.taskName.ifBlank { "未命名任务" },
@@ -2489,7 +2489,7 @@ private fun RecordCard(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = onRefill) {
                     Icon(

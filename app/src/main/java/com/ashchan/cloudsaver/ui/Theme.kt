@@ -116,7 +116,7 @@ val AppShapes = Shapes(
     small = RoundedCornerShape(12.dp),
     medium = RoundedCornerShape(16.dp),
     large = RoundedCornerShape(24.dp),
-    extraLarge = RoundedCornerShape(32.dp),
+    extraLarge = RoundedCornerShape(24.dp),
 )
 
 // 统一的「成功 / 已登录」绿色（与暖橘奶油主题协调，替代硬编码的冷绿）

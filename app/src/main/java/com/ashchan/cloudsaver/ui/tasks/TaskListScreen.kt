@@ -133,7 +133,7 @@ fun TaskListScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Surface(
-                    shape = RoundedCornerShape(28.dp),
+                    shape = RoundedCornerShape(24.dp),
                     color = MaterialTheme.colorScheme.surfaceContainerHigh,
                     shadowElevation = 4.dp,
                 ) {
@@ -198,7 +198,7 @@ fun TaskListScreen(
                 progress?.let {
                     Text(
                         text = it,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 2.dp),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary,
                     )
@@ -211,7 +211,7 @@ fun TaskListScreen(
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 200.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     items(cards, key = { it.task.id }) { card ->
                         TaskRow(
@@ -269,7 +269,7 @@ private fun TaskRow(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
         ),
     ) {
-        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
             // 第一行：剧名 + 状态
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -281,7 +281,7 @@ private fun TaskRow(
                 StatusBadge(snap)
             }
 
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(8.dp))
 
             // 第二行：盘里集数 → 最新集；右侧放上次同步时间（时间独占右端，永远不被压缩）
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -334,7 +334,7 @@ private fun TaskRow(
                     color = MaterialTheme.colorScheme.error,
                     maxLines = 2,
                 )
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(8.dp))
             }
 
             // 第三行：左边刷新（手动检测），右边「更新日 · 网盘 · 时间」右对齐
@@ -365,7 +365,7 @@ private fun TaskRow(
                         )
                     }
                 }
-                Spacer(Modifier.width(6.dp))
+                Spacer(Modifier.width(8.dp))
                 Row(
                     Modifier.weight(1f),
                     horizontalArrangement = Arrangement.End,
@@ -420,7 +420,7 @@ private fun StatusBadge(snap: SnapshotEntity) {
     ) {
         Text(
             text = text,
-            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
             style = MaterialTheme.typography.labelMedium,
             color = color,
         )
@@ -447,7 +447,7 @@ private fun statusColor(snap: SnapshotEntity): Color = when (snap.status) {
 @Composable
 private fun EmptyTasks(modifier: Modifier = Modifier, onAdd: () -> Unit) {
     Column(
-        modifier = modifier.padding(32.dp),
+        modifier = modifier.padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {

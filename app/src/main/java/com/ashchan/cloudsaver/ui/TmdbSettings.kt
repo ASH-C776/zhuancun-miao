@@ -115,7 +115,7 @@ fun TmdbCredentialSection() {
             ) {
                 if (testing) {
                     CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(8.dp))
                     Text("验证中")
                 } else {
                     Text(if (saved) "重新验证" else "保存并测试")
