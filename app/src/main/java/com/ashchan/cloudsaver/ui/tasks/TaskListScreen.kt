@@ -1,5 +1,11 @@
 package com.ashchan.cloudsaver.ui.tasks
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
@@ -58,6 +64,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -196,6 +203,7 @@ fun TaskListScreen(
                         TaskRow(
                             card = card,
                             isRunning = card.task.id in running,
+                            runText = running[card.task.id] ?: "准备中",
                             onRun = { viewModel.runTask(card.task) },
                             onEdit = { onOpenEdit(card.task) },
                             onRequestDelete = { pendingDelete = card.task },
@@ -232,6 +240,7 @@ fun TaskListScreen(
 private fun TaskRow(
     card: TaskCard,
     isRunning: Boolean,
+    runText: String = "准备中",
     onRun: () -> Unit,
     onEdit: () -> Unit,
     onRequestDelete: () -> Unit,
@@ -353,15 +362,9 @@ private fun TaskRow(
                         )
                     }
                 } else {
-                    Box(
-                        modifier = Modifier.size(48.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            strokeWidth = 2.dp,
-                        )
-                    }
+                    // 跑的时候不显示图标，也不加胶囊底：就在原位置写一句阶段文字，
+                    // 省略号做呼吸（宽度不变，不会把右边的字挤走）
+                    RunPhaseText(text = runText)
                 }
                 Spacer(Modifier.width(8.dp))
                 Row(
@@ -444,8 +447,37 @@ private fun StatusBadge(snap: SnapshotEntity) {
 }
 
 @Composable
-private fun Dot() {
-    Text(
+private fun RunPhaseText(text: String) {
+    // 省略号单独一个 Text 只做透明度呼吸（0.35 ↔ 1，1.2s 来回）：
+    // 字数不变 → 宽度不变，右边「周二 · 光鸭 · 自动」不会被推来推去。
+    val transition = rememberInfiniteTransition(label = "runPhase")
+    val dotsAlpha by transition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(600, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "dots",
+    )
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary,
+            maxLines = 1,
+        )
+        Text(
+            text = "…",
+            modifier = Modifier.graphicsLayer { this.alpha = dotsAlpha },
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.primary,
+        )
+    }
+}
+
+@Composable
+private fun Dot() {    Text(
         text = " · ",
         style = MaterialTheme.typography.bodySmall,
         color = MaterialTheme.colorScheme.outline,

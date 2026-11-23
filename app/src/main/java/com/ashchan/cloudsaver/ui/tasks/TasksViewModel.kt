@@ -56,9 +56,12 @@ class TasksViewModel(
     private val _toast = MutableStateFlow<String?>(null)
     val toast: StateFlow<String?> = _toast.asStateFlow()
 
-    /** 正在执行的任务 id，卡片上显示进度圈 */
-    private val _running = MutableStateFlow<Set<Long>>(emptySet())
-    val running: StateFlow<Set<Long>> = _running.asStateFlow()
+    /**
+     * 正在执行的任务：id → 当前阶段文案（「准备中 / 读取目录 / 转存 3/20 …」）。
+     * 卡片左侧那个刷新按钮在跑的时候不显示图标，直接把这句文字写在原位置。
+     */
+    private val _running = MutableStateFlow<Map<Long, String>>(emptyMap())
+    val running: StateFlow<Map<Long, String>> = _running.asStateFlow()
 
     /** 「全部/自动」执行时的整体进度文案 */
     private val _progress = MutableStateFlow<String?>(null)
@@ -317,6 +320,10 @@ class TasksViewModel(
                 trigger = RunRecordEntity.TRIGGER_MANUAL,
                 saveSnapshot = false,
                 draftLinks = inspected.map { it.shareUrl },
+                onPhase = { phase ->
+                    // 编辑已有任务时试跑，任务页那张卡也能看到阶段文字；新建草稿没有卡片
+                    if (draft.id > 0) _running.update { it + (draft.id to phase) }
+                },
             )
             _toast.value = if (result.getOrNull()?.ok == true) {
                 "「$title」运行完成"
@@ -426,9 +433,13 @@ class TasksViewModel(
     }
 
     private suspend fun runOnce(task: TaskEntity, trigger: String): Boolean {
-        _running.update { it + task.id }
+        _running.update { it + (task.id to "准备中") }
         return try {
-            val result = runner.run(task, trigger)
+            val result = runner.run(
+                task = task,
+                trigger = trigger,
+                onPhase = { phase -> _running.update { it + (task.id to phase) } },
+            )
             result.isSuccess && (result.getOrNull()?.ok == true)
         } finally {
             _running.update { it - task.id }

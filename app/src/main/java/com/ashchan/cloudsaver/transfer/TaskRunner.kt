@@ -80,6 +80,8 @@ class TaskRunner(
         saveSnapshot: Boolean = true,
         /** 试跑时表单里的链接（含多源）；为空则按 [task] 的源列表取 */
         draftLinks: List<String> = emptyList(),
+        /** 阶段回调：把「准备中 / 读取目录 / 比对文件 / 转存 3/20 …」写给卡片上的文字 */
+        onPhase: (String) -> Unit = {},
     ): Result<TreeSyncEngine.Report> {
         val startedAt = System.currentTimeMillis()
         val drive = DriveType.fromName(task.driveType)
@@ -107,7 +109,7 @@ class TaskRunner(
                     return@withLock Result.failure<TreeSyncEngine.Report>(err)
                 }
                 try {
-                    executeLocked(task, trigger, startedAt, adapter, baseFid, saveSnapshot, targets)
+                    executeLocked(task, trigger, startedAt, adapter, baseFid, saveSnapshot, targets, onPhase)
                 } catch (e: Throwable) {
                     // 跑到一半掉线：强制重新登录一次，再整轮重来（目录 diff 幂等，重跑不重复转存）
                     if (!DriveSession.isAuthError(e)) throw e
@@ -115,7 +117,7 @@ class TaskRunner(
                     DriveSession.invalidate(drive)
                     val retryAdapter = DriveSession.ensure(drive, credentialStore, force = true)
                         .getOrElse { throw e }
-                    executeLocked(task, trigger, startedAt, retryAdapter, baseFid, saveSnapshot, targets)
+                    executeLocked(task, trigger, startedAt, retryAdapter, baseFid, saveSnapshot, targets, onPhase)
                 }
             }
         } catch (e: Throwable) {
@@ -133,8 +135,7 @@ class TaskRunner(
         }
     }
 
-    /** 一个要跑的源：行号（用于回写状态）+ 链接 + 上一轮结论 */
-    internal data class RunTarget(
+    /** 一个要跑的源：行号（用于回写状态）+ 链接 + 上一轮结论 */    internal data class RunTarget(
         val position: Int,
         val url: String,
         val previousStatus: String = TaskSourceEntity.STATUS_UNKNOWN,
@@ -162,6 +163,13 @@ class TaskRunner(
     }
 
     /** [run] 的实际主体，调用时已持有 [runLock] */
+    /**
+     * 多源时给阶段文案加个「源K 」前缀（`源2 转存 3/20`），单源不加。
+     * 计数按源各自从头算，前缀正好说明「现在是第几个源」。
+     */
+    private fun withSource(label: String, total: Int, message: String): String =
+        if (total > 1) "$label $message" else message
+
     private suspend fun executeLocked(
         task: TaskEntity,
         trigger: String,
@@ -170,7 +178,9 @@ class TaskRunner(
         baseFid: String,
         saveSnapshot: Boolean,
         links: List<RunTarget>,
+        onPhase: (String) -> Unit = {},
     ): Result<TreeSyncEngine.Report> {
+        onPhase("准备中")
         // 每个任务在自己的保存位置下建一个「剧名」目录：
         // 多剧混在同一层会让集数统计把整盘视频算作一个任务，必须隔离。
         // 勾了「文件夹加 TMDB ID」时目录名变成「剧名 tmdb-12345」。
@@ -209,6 +219,7 @@ class TaskRunner(
                 }.getOrThrow()
 
                 val rootId = task.seasonFid.ifBlank { task.startFid }.ifBlank { resolved.pdirFid }
+                onPhase(withSource(label, links.size, "读取目录"))
                 val tree = retryOnce("$label 拉取分享目录树") {
                     adapter.fetchShareTree(
                         share = resolved,
@@ -224,6 +235,10 @@ class TaskRunner(
                     destRootFid = destFid,
                     renamePlan = plan,
                     seasonNo = task.seasonNo,
+                    // 引擎按「比对文件 / 转存 3/20 / 改名 5/12」逐条上报，直接翻到卡片上
+                    onProgress = { _, _, message ->
+                        onPhase(withSource(label, links.size, message))
+                    },
                 )
             } catch (e: Throwable) {
                 // 掉线类的异常交给外层重登整轮重跑；其余按「本源失败」吞掉，继续下一个源
@@ -285,6 +300,7 @@ class TaskRunner(
         }
 
         val counted = countLocal(adapter, destFid)
+        onPhase("统计中")
         val tmdb = resolveTmdb(task)
 
         // 更新日按 TMDB 自动推断：只在「任务设成自动」且还没手动设过更新日时写入，

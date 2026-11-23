@@ -145,6 +145,10 @@ class TreeSyncEngine(
         private var restoredFiles = 0
         private var renamedItems = 0
         private var skippedFiles = 0
+        /** 本轮待转存视频总数（分母，用于「转存 3/20」） */
+        private var videoTotal = 0
+        /** 本轮需要改名的文件数（分母，用于「改名 5/12」） */
+        private var renameTotal = 0
         private val failures = mutableListOf<String>()
 
         /** 目标目录内容缓存：同一次同步里同一目录只列一次 */
@@ -165,7 +169,8 @@ class TreeSyncEngine(
             val videos = mutableListOf<ShareNode>()
             collectVideos(tree, videos, seasonNo, depth = 0)
             if (videos.isEmpty()) throw IllegalStateException("分享中没有找到可转存的视频文件")
-            onProgress(0, 0, "共 ${videos.size} 个视频，正在比对")
+            videoTotal = videos.size
+            onProgress(0, 0, "比对文件")
             syncFiles(videos, destRootFid)
         }
 
@@ -285,6 +290,8 @@ class TreeSyncEngine(
         private suspend fun syncFiles(files: List<ShareNode>, destFid: String) {
             val existing = destList(destFid).filter { !it.isDir }.map { it.name }.toMutableSet()
             val missing = mutableListOf<ShareNode>()
+            // 需要改名的文件数：分母只统计「最终名 ≠ 原名」的，避免「改名 0/0」
+            renameTotal += files.count { expectedName(it) != it.name }
 
             files.sortedWith(NATURAL).forEach { node ->
                 val expected = expectedName(node)
@@ -298,6 +305,7 @@ class TreeSyncEngine(
                             existing += expected
                             existing -= node.name
                             destCache.remove(destFid)
+                            reportRename()
                         } else {
                             skippedFiles++
                         }
@@ -310,6 +318,17 @@ class TreeSyncEngine(
             missing.chunked(RESTORE_BATCH).forEach { chunk ->
                 restoreChunk(chunk, destFid, existing)
             }
+        }
+
+        /** 「改名 5/12」：分母是本轮需要改名的文件数 */
+        private fun reportRename() {
+            onProgress(0, 0, "改名 $renamedItems/$renameTotal")
+        }
+
+        /** 「转存 3/20」：分母是本轮分享里的视频总数 */
+        private fun reportRestore(done: Int) {
+            val total = if (videoTotal > 0) videoTotal else done
+            onProgress(0, 0, "转存 $done/$total")
         }
 
         /** 一批转存 + 逐个改名；批次的 diff 对不上时退回逐个转存 */
@@ -326,14 +345,19 @@ class TreeSyncEngine(
                 return
             }
             val byShareFid = chunk.associateBy { it.fid }
+            val base = restoredFiles
             restoredFiles += saved.size
             destCache.remove(destFid)
+            var landed = 0
             saved.forEach { restored ->
                 val node = byShareFid[restored.shareFileId]
                 val expected = node?.let { expectedName(it) } ?: restored.file.name
+                landed++
+                reportRestore(base + landed)
                 if (node != null && expected != node.name) {
                     if (adapter.renameFile(restored.file.fid, expected).isSuccess) {
                         renamedItems++
+                        reportRename()
                     } else {
                         failures += "改名失败：${node.name} -> $expected"
                     }
@@ -361,10 +385,12 @@ class TreeSyncEngine(
             }
             restoredFiles++
             destCache.remove(destFid)
+            reportRestore(restoredFiles)
 
             if (expected == node.name) return true
             if (adapter.renameFile(newFile.fid, expected).isSuccess) {
                 renamedItems++
+                reportRename()
                 destCache.remove(destFid)
                 return true
             }

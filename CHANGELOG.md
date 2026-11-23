@@ -870,3 +870,27 @@ Stage 27 在链接行右侧放了 8dp 状态圆点，虽然固定占位，但它
 - 真机 `docs/s6.png` / `docs/s7.png`：两张演示卡分别为「已是最新」「已转存」+ 蓝色整条；
   真实任务（缺 1 集 / 转存完）不受影响。
 - 演示数据已回滚（`docs/s8.png`）：主页与装之前一致。
+
+## Stage 30 卡片「运行中」改文字阶段提示（去掉转圈）
+
+### 口径
+- 跑的时候左侧刷新图标整个不显示，**就在原位置写一句文字**：不加胶囊、不加底色、不去考虑宽度问题。
+- 文字：`准备中…` / `读取目录…` / `比对文件…` / `转存 3/20…` / `改名 5/12…` / `统计中…`
+- 有数字的两步不加动效（数字自己在跳），没数字的四步把省略号单独拿出来做透明度呼吸
+  （0.35 ↔ 1，1.2s 来回，`rememberInfiniteTransition` + `graphicsLayer.alpha`），宽度恒定不会挤动右边元信息。
+- 跑完（无论成功失败）都回到原来那个静止的刷新图标，不显示「完成」字样；结果仍由徽标与底行红字表达。
+- 多源时文案前面加「源2 」，计数按源各自从头算。
+
+### 代码
+- `TreeSyncEngine`：新增 `videoTotal` / `renameTotal` 分母；`syncFiles` 开始时上报 `比对文件`，
+  `restoreChunk` / `syncFile` 每落地一个文件上报 `转存 n/总`，每改成一个上报 `改名 n/总`。
+- `TaskRunner.run(..., onPhase)`：`准备中` → 每源 `读取目录` → 引擎各阶段 → 收尾 `统计中`；`withSource()` 加源前缀。
+- `TasksViewModel`：`_running` 由 `Set<Long>` 改为 `Map<Long, String>`（任务 id → 当前文案），
+  `runOnce` / `runDraft` 通过 `onPhase` 实时更新；`running[x]` 取文案、`in running` 判是否在跑。
+- `TaskListScreen`：新增 `RunPhaseText(text)` 组合函数；`TaskRow` 增 `runText` 参数；
+  运行分支由 `CircularProgressIndicator` 换成该文字。
+
+### 验证
+- `:app:assembleDebug` + 单测通过。
+- 真机抓到的中间态：`docs/r1.png`「准备中…」、`docs/r3.png`「比对文件…」、`docs/r5.png`「转存 6/7…」；
+  同时另一张卡（未在跑）仍是静止刷新图标。
