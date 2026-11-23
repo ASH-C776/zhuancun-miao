@@ -28,4 +28,24 @@ data class TaskSourceEntity(
     val shareId: String = "",
     val passcode: String = "",
     val createdAt: Long = System.currentTimeMillis(),
-)
+    /** 最近一次执行结果：OK / WARN（一次没连上）/ FAIL（连续两次）/ UNKNOWN（还没检测过） */
+    val lastStatus: String = STATUS_UNKNOWN,
+    /** 失败原因一句话，只给 UI 提示用，不影响转存判断 */
+    val lastError: String = "",
+    /** 最近一次检测时间，0 = 从没检测过 */
+    val lastCheckedAt: Long = 0,
+) {
+    companion object {
+        const val STATUS_OK: String = "OK"
+        const val STATUS_WARN: String = "WARN"
+        const val STATUS_FAIL: String = "FAIL"
+        const val STATUS_UNKNOWN: String = "UNKNOWN"
+
+        /** 这一轮之后的新状态：连续两次失败才升级成 FAIL，避免网络抖动把源误标成失效 */
+        fun statusAfterRun(previous: String, ok: Boolean): String = when {
+            ok -> STATUS_OK
+            previous == STATUS_WARN || previous == STATUS_FAIL -> STATUS_FAIL
+            else -> STATUS_WARN
+        }
+    }
+}

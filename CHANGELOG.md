@@ -790,3 +790,25 @@
 ### 验证
 - 单测 99 项全绿；`:app:assembleDebug` 通过。
 - 真机截图待补：装包时手机无线 adb 掉线（IP 192.168.31.145:5555 已不可达），APK 已构建完成，重连后再装并截屏。
+
+## Stage 27 源状态（多源失效提示）
+
+### 口径（用户确认：方案 A + 编辑页圆点 + 两级判定）
+- **两级判定**：一次没连上 = `WARN`（琥珀），连续两次 = `FAIL`（红，才算"失效"），成功一律回 `OK`（绿）；从没测过 = `UNKNOWN`（灰）。避免网络抖动把源误标成失效。
+- **卡片**：只在"多源 + 有 FAIL"时，底行尾部追加红字「· N 失效」（如「周二 · 光鸭 · 自动 · 2 源 · 1 失效」）；正常时不出现任何字样，单源任务不追加（仍走原来那行红字「上次失败 · 原因」）。
+- **编辑页**：每行右侧、`−` 按钮左边加 8dp 小圆点（绿/琥珀/红/灰），固定占位以保持按钮列对齐；琥珀与红只在该行下方写一行原因，绿色与灰色不写任何字样。
+- **状态只做提示**：不参与任何转存判断；一个源失效其它源照跑，整轮仍按"至少一个源成功即成功"。
+
+### 代码
+- `TaskSourceEntity` 加 `lastStatus / lastError / lastCheckedAt` + `statusAfterRun(previous, ok)` 纯函数（两级判定）。
+- `AppDatabase` 8 → 9 + `MIGRATION_8_9`（只给 task_sources 加三列，默认 UNKNOWN / '' / 0）。
+- `TaskSourceDao.updateStatus(...)`；`TaskRepository.markSourceStatus(...)`（原因截断 200 字）。
+- `TaskRunner`：新增 `RunTarget(position, url, previousStatus)`；`targetsOf` 区分"试跑用表单链接 / 正式执行读 task_sources / 老数据退回 task.shareUrl"；每个源跑完无论成败都回写状态（WARN/FAIL 带原因），试跑不落库。
+- `TaskCard` 加 `failedSources`；卡片流统计 FAIL 数量。
+- `TaskListScreen`：底行改用 `buildAnnotatedString`，「· N 失效」单独着 error 色。
+- `NewTaskScreen`：`SlotState(status, error)` 与 slots 一一对应，加源/删行同步维护；新增 `SourceStatusDot`；编辑时用 `viewModel.sourceRows(taskId)` 回填链接 + 状态。
+- 删源时状态记录随行删除；编辑保存后源行重建，状态自动回到"未检测"（链接换了，旧结论作废）。
+
+### 验证
+- 单测 99 → 104 项全绿（新增 `SourceStatusTest` 5 例：首次失败 WARN / WARN→FAIL / FAIL→FAIL / 成功回 OK / 单源抖动不算失效）。
+- `:app:assembleDebug` 通过；真机安装与截屏仍待手机无线 adb 恢复（IP 192.168.31.145:5555 当前不可达）。

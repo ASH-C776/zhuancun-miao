@@ -330,10 +330,9 @@ class TasksViewModel(
     fun isLoggedIn(drive: DriveType): Boolean =
         credentials?.loadCredential(drive)?.isNotBlank() == true
 
-    /** 编辑任务时把已保存的多行链接带回表单（老任务只有 1 行） */
-    suspend fun sourceLinks(taskId: Long): List<String> = runCatching {
-        repo.sourcesOf(taskId).map { it.shareUrl }.filter { it.isNotBlank() }
-    }.getOrDefault(emptyList())
+    /** 编辑任务时把已保存的多行链接与各自状态带回表单（老任务只有 1 行、状态 UNKNOWN） */
+    suspend fun sourceRows(taskId: Long): List<com.ashchan.cloudsaver.data.db.TaskSourceEntity> =
+        runCatching { repo.sourcesOf(taskId) }.getOrDefault(emptyList())
 
     /**
      * 列出某个网盘下的一级目录（新建页选保存路径用）。

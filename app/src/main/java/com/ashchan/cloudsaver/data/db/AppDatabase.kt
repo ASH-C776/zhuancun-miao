@@ -13,7 +13,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  */
 @Database(
     entities = [TaskEntity::class, SnapshotEntity::class, RunRecordEntity::class, TaskSourceEntity::class],
-    version = 8,
+    version = 9,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -143,6 +143,27 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v9：`task_sources` 加源状态三列（lastStatus / lastError / lastCheckedAt）。
+         *
+         * 目的：多源时能直接看出「哪一个链接失效了」，而不是整张卡片只写一句失败。
+         * 老数据默认 UNKNOWN = 没检测过，不误报；口径是「一次失败算 WARN、连续两次才 FAIL」，
+         * 免得网络抖动把源标成失效。
+         */
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE task_sources ADD COLUMN lastStatus TEXT NOT NULL DEFAULT 'UNKNOWN'"
+                )
+                db.execSQL(
+                    "ALTER TABLE task_sources ADD COLUMN lastError TEXT NOT NULL DEFAULT ''"
+                )
+                db.execSQL(
+                    "ALTER TABLE task_sources ADD COLUMN lastCheckedAt INTEGER NOT NULL DEFAULT 0"
+                )
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -157,6 +178,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_5_6,
                     MIGRATION_6_7,
                     MIGRATION_7_8,
+                    MIGRATION_8_9,
                 ).build().also { instance = it }
             }
     }

@@ -11,6 +11,7 @@ import com.ashchan.cloudsaver.data.TaskRepository
 import com.ashchan.cloudsaver.data.Weekdays
 import com.ashchan.cloudsaver.data.db.RunRecordEntity
 import com.ashchan.cloudsaver.data.db.TaskEntity
+import com.ashchan.cloudsaver.data.db.TaskSourceEntity
 import com.ashchan.cloudsaver.drive.DriveSession
 import com.ashchan.cloudsaver.drive.guangya.GuangYaAdapter
 import com.ashchan.cloudsaver.rename.RenameEngine
@@ -89,8 +90,8 @@ class TaskRunner(
         }
 
         // 源列表：试跑用表单里的，正式执行读 task_sources（老任务由迁移补成 1 行）
-        val links = linksOf(task, draftLinks)
-        if (links.isEmpty()) {
+        val targets = targetsOf(task, draftLinks)
+        if (targets.isEmpty()) {
             val msg = "任务没有可用的分享链接"
             repo.finishRun(task, trigger, startedAt, null, 0, 0, 0, 0, msg)
             return Result.failure(IllegalStateException(msg))
@@ -106,7 +107,7 @@ class TaskRunner(
                     return@withLock Result.failure<TreeSyncEngine.Report>(err)
                 }
                 try {
-                    executeLocked(task, trigger, startedAt, adapter, baseFid, saveSnapshot, links)
+                    executeLocked(task, trigger, startedAt, adapter, baseFid, saveSnapshot, targets)
                 } catch (e: Throwable) {
                     // 跑到一半掉线：强制重新登录一次，再整轮重来（目录 diff 幂等，重跑不重复转存）
                     if (!DriveSession.isAuthError(e)) throw e
@@ -114,7 +115,7 @@ class TaskRunner(
                     DriveSession.invalidate(drive)
                     val retryAdapter = DriveSession.ensure(drive, credentialStore, force = true)
                         .getOrElse { throw e }
-                    executeLocked(task, trigger, startedAt, retryAdapter, baseFid, saveSnapshot, links)
+                    executeLocked(task, trigger, startedAt, retryAdapter, baseFid, saveSnapshot, targets)
                 }
             }
         } catch (e: Throwable) {
@@ -132,14 +133,32 @@ class TaskRunner(
         }
     }
 
-    /** 这个任务要跑的分享链接（去空、去重、保序，最多 5 个） */
-    private suspend fun linksOf(task: TaskEntity, draftLinks: List<String>): List<String> {
-        val own = if (task.id > 0 && draftLinks.isEmpty()) {
-            repo.sourcesOf(task.id).map { it.shareUrl }
-        } else {
-            draftLinks
+    /** 一个要跑的源：行号（用于回写状态）+ 链接 + 上一轮结论 */
+    internal data class RunTarget(
+        val position: Int,
+        val url: String,
+        val previousStatus: String = TaskSourceEntity.STATUS_UNKNOWN,
+    )
+
+    /**
+     * 要跑的源清单。
+     *
+     * - 「运行一次」的试跑：用表单里的链接，不落状态（任务还没保存）
+     * - 正式执行：读 task_sources，按行序，带上一轮结论（用来判断「一次 WARN、两次 FAIL」）
+     * - 兜底：老数据 source 表为空时退回 task.shareUrl
+     */
+    private suspend fun targetsOf(task: TaskEntity, draftLinks: List<String>): List<RunTarget> {
+        if (draftLinks.isNotEmpty()) {
+            return SourceLinks.normalize(draftLinks)
+                .mapIndexed { index, url -> RunTarget(index, url) }
         }
-        return SourceLinks.normalize(own, fallback = task.shareUrl)
+        val saved = if (task.id > 0) repo.sourcesOf(task.id) else emptyList()
+        val fromDb = saved
+            .map { RunTarget(it.position, it.shareUrl.trim(), it.lastStatus) }
+            .filter { it.url.isNotEmpty() }
+        if (fromDb.isNotEmpty()) return fromDb
+        val fallback = task.shareUrl.trim()
+        return if (fallback.isEmpty()) emptyList() else listOf(RunTarget(0, fallback))
     }
 
     /** [run] 的实际主体，调用时已持有 [runLock] */
@@ -150,7 +169,7 @@ class TaskRunner(
         adapter: CloudDriveAdapter,
         baseFid: String,
         saveSnapshot: Boolean,
-        links: List<String>,
+        links: List<RunTarget>,
     ): Result<TreeSyncEngine.Report> {
         // 每个任务在自己的保存位置下建一个「剧名」目录：
         // 多剧混在同一层会让集数统计把整盘视频算作一个任务，必须隔离。
@@ -178,10 +197,13 @@ class TaskRunner(
         val failures = mutableListOf<String>()
         var anyOk = false
 
-        links.forEachIndexed { index, link ->
+        links.forEachIndexed { index, target ->
             val label = if (links.size > 1) "源${index + 1}" else "源"
+            var errorNote = ""
             val outcome: Result<TreeSyncEngine.Report> = try {
-                val share = retryOnce("$label 解析分享链接") { adapter.parseShareLink(link) }.getOrThrow()
+                val share = retryOnce("$label 解析分享链接") {
+                    adapter.parseShareLink(target.url)
+                }.getOrThrow()
                 val resolved = retryOnce("$label 获取分享访问令牌") {
                     adapter.resolveShareAccess(share)
                 }.getOrThrow()
@@ -206,7 +228,24 @@ class TaskRunner(
             } catch (e: Throwable) {
                 // 掉线类的异常交给外层重登整轮重跑；其余按「本源失败」吞掉，继续下一个源
                 if (DriveSession.isAuthError(e)) throw e
+                errorNote = e.message ?: "未知错误"
                 Result.failure(e)
+            }
+
+            // 回写这个源这一轮的结论：一次失败算 WARN，连续两次才升级 FAIL（不误报失效）
+            if (task.id > 0) {
+                val newStatus = TaskSourceEntity.statusAfterRun(
+                    previous = target.previousStatus,
+                    ok = outcome.getOrNull()?.ok == true,
+                )
+                runCatching {
+                    repo.markSourceStatus(
+                        taskId = task.id,
+                        position = target.position,
+                        status = newStatus,
+                        error = if (newStatus == TaskSourceEntity.STATUS_OK) "" else errorNote,
+                    )
+                }
             }
 
             outcome

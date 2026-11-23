@@ -50,6 +50,19 @@ interface TaskSourceDao {
 
     @Query("DELETE FROM task_sources WHERE taskId = :taskId")
     suspend fun deleteByTask(taskId: Long)
+
+    /** 执行完一个源顺手回写结论；只动状态列，不动链接本身 */
+    @Query(
+        "UPDATE task_sources SET lastStatus = :status, lastError = :error, lastCheckedAt = :now " +
+            "WHERE taskId = :taskId AND position = :position"
+    )
+    suspend fun updateStatus(
+        taskId: Long,
+        position: Int,
+        status: String,
+        error: String,
+        now: Long = System.currentTimeMillis(),
+    )
 }
 
 @Dao

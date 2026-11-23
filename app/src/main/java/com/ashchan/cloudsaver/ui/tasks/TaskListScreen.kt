@@ -62,9 +62,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ashchan.cloudsaver.data.TaskCard
@@ -355,11 +358,18 @@ private fun TaskRow(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     // 左段可能变长（如「周二 · 光鸭 · 自动」），过长只压缩自己（时间已挪到上一行右端）
+                    // 多源里有源连续两次没连上时，尾部追加一段红字「· N 失效」，平时不出现
+                    val metaBase = metaLeft(task, card.sourceCount)
+                    val errorColor = MaterialTheme.colorScheme.error
                     Text(
-                        text = if (task.enabled) {
-                            metaLeft(task, card.sourceCount)
-                        } else {
-                            "${metaLeft(task, card.sourceCount)} · 已暂停"
+                        text = buildAnnotatedString {
+                            append(metaBase)
+                            if (!task.enabled) append(" · 已暂停")
+                            if (card.sourceCount > 1 && card.failedSources > 0) {
+                                withStyle(SpanStyle(color = errorColor)) {
+                                    append(" · ${card.failedSources} 失效")
+                                }
+                            }
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,

@@ -16,6 +16,8 @@ data class TaskCard(
     val snapshot: SnapshotEntity,
     /** 这个任务配了几个分享链接；> 1 时卡片上标「· N 源」 */
     val sourceCount: Int = 1,
+    /** 已判定失效（连续两次没连上）的源数量；> 0 时卡片上标「· N 失效」 */
+    val failedSources: Int = 0,
 )
 
 /** 一条待落库的源（UI 层解析好链接再交下来，仓库不重复做正则） */
@@ -48,11 +50,16 @@ class TaskRepository(private val db: AppDatabase) {
         ) { tasks, snaps, sources ->
             val byTask = snaps.associateBy { it.taskId }
             val countByTask = sources.groupingBy { it.taskId }.eachCount()
+            val failedByTask = sources
+                .filter { it.lastStatus == TaskSourceEntity.STATUS_FAIL }
+                .groupingBy { it.taskId }
+                .eachCount()
             tasks.map { task ->
                 TaskCard(
                     task = task,
                     snapshot = byTask[task.id] ?: SnapshotEntity(taskId = task.id),
                     sourceCount = countByTask[task.id] ?: 1,
+                    failedSources = failedByTask[task.id] ?: 0,
                 )
             }
         }
@@ -72,6 +79,14 @@ class TaskRepository(private val db: AppDatabase) {
 
     /** 一个任务的全部源（按 position 升序）；老任务恰好只有一行 */
     suspend fun sourcesOf(taskId: Long): List<TaskSourceEntity> = sourceDao.listByTask(taskId)
+
+    /** 执行完一个源回写结论（状态只影响提示，不参与转存判断） */
+    suspend fun markSourceStatus(
+        taskId: Long,
+        position: Int,
+        status: String,
+        error: String,
+    ) = sourceDao.updateStatus(taskId, position, status, error.trim().take(200))
 
     /**
      * 重写某个任务的源列表（先删后插，顺序即行序）。

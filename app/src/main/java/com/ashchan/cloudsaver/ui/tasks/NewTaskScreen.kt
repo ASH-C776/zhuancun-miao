@@ -162,16 +162,23 @@ fun NewTaskScreen(
     val magic = remember { viewModel.renameRules().firstOrNull { it.key == "\$TV_MAGIC" && it.enabled } }
     val canUseTmdbFolder = magic != null && ruleKey == magic.key && tmdbId.isNotBlank()
 
-    // 编辑任务：把已保存的多行链接带回来（老任务只有 1 行，界面看上去和以前一样）
+    // 每个源的状态（与 slots 一一对应）：OK / WARN / FAIL / UNKNOWN，只用于右侧小圆点与一行提示
+    val slotStates = remember {
+        mutableStateListOf<SlotState>().apply {
+            repeat(slots.size) { add(SlotState()) }
+        }
+    }
+    // 编辑任务：把已保存的多行链接与各自检测状态带回来（老任务只有 1 行、状态 UNKNOWN）
     LaunchedEffect(editingTask?.id) {
         val id = editingTask?.id ?: return@LaunchedEffect
         if (id <= 0) return@LaunchedEffect
-        val urls = viewModel.sourceLinks(id)
-        if (urls.size > 1) {
-            slots.clear()
-            urls.take(MAX_SOURCES).forEach { url ->
-                slots += LinkSlot(id = nextSlotId++, text = url)
-            }
+        val rows = viewModel.sourceRows(id)
+        if (rows.isEmpty()) return@LaunchedEffect
+        slots.clear()
+        slotStates.clear()
+        rows.take(MAX_SOURCES).forEach { row ->
+            slots += LinkSlot(id = nextSlotId++, text = row.shareUrl)
+            slotStates += SlotState(row.lastStatus, row.lastError)
         }
     }
 
@@ -398,6 +405,10 @@ fun NewTaskScreen(
                             },
                         )
                         Spacer(Modifier.width(8.dp))
+                        // 源状态小圆点（绿=正常 / 琥珀=上次没连上 / 红=失效 / 灰=没检测过）
+                        // 固定占位，所有行的按钮都落在同一条竖线上
+                        SourceStatusDot(slotStates.getOrNull(index)?.status)
+                        Spacer(Modifier.width(8.dp))
                         if (index == 0) {
                             SquareActionButton(
                                 contentDescription = "添加源",
@@ -405,6 +416,7 @@ fun NewTaskScreen(
                                 onClick = {
                                     if (slots.size < MAX_SOURCES) {
                                         slots += LinkSlot(id = nextSlotId++, text = "")
+                                        slotStates += SlotState()
                                     }
                                     error = null
                                 },
@@ -421,6 +433,7 @@ fun NewTaskScreen(
                                 contentDescription = "删除这一行",
                                 onClick = {
                                     slots.removeAt(index)
+                                    if (index < slotStates.size) slotStates.removeAt(index)
                                     error = null
                                 },
                             ) {
@@ -439,6 +452,22 @@ fun NewTaskScreen(
                             it,
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+                    // 这个源上次没连上（WARN/FAIL）：只给一行原因，不刷屏；正常源不出现任何字样
+                    val state = slotStates.getOrNull(index)
+                    if (state != null && state.isTrouble && state.error.isNotBlank() && rowError == null) {
+                        Text(
+                            text = state.error,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (state.status == "FAIL") {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                warnColor()
+                            },
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.padding(top = 4.dp),
                         )
                     }
@@ -855,6 +884,47 @@ private fun CompactValueField(
                 }
             }
         },
+    )
+}
+
+/** 链接行的检测状态（只有提示作用，不影响转存） */
+private data class SlotState(
+    val status: String = "UNKNOWN",
+    val error: String = "",
+) {
+    val isTrouble: Boolean get() = status == "WARN" || status == "FAIL"
+}
+
+/** 琥珀色（与卡片「缺 N 集」同一档），用于「上次没连上」这种不至于判死的提示 */
+@Composable
+private fun warnColor(): androidx.compose.ui.graphics.Color =
+    if (androidx.compose.foundation.isSystemInDarkTheme()) {
+        androidx.compose.ui.graphics.Color(0xFFE0A94F)
+    } else {
+        androidx.compose.ui.graphics.Color(0xFFB26A00)
+    }
+
+/**
+ * 源状态小圆点：绿=正常、琥珀=上次没连上、红=失效、灰=没检测过。
+ * 用色点而不是图标，一是图标库只有 core 版没有 Warning/Error，二是与卡片进度条同一套颜色语义。
+ */
+@Composable
+private fun SourceStatusDot(status: String?) {
+    val color = when (status) {
+        "OK" -> if (androidx.compose.foundation.isSystemInDarkTheme()) {
+            androidx.compose.ui.graphics.Color(0xFF7BC67E)
+        } else {
+            androidx.compose.ui.graphics.Color(0xFF2E7D32)
+        }
+        "WARN" -> warnColor()
+        "FAIL" -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
+    }
+    Box(
+        Modifier
+            .size(8.dp)
+            .clip(androidx.compose.foundation.shape.CircleShape)
+            .background(color)
     )
 }
 
