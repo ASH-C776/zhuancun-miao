@@ -96,6 +96,7 @@ fun NewTaskScreen(
     editingTask: TaskEntity? = null,
     /** 调试用：进页直接弹「保存位置」全屏选择（截屏验收沉浸效果） */
     openPathPickerOnStart: Boolean = false,
+    onSelectTab: (com.ashchan.cloudsaver.ui.MainTab) -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val editing = editingTask != null
@@ -224,17 +225,17 @@ fun NewTaskScreen(
                 ),
             )
         },
-        // 右下角主按钮：保存（拇指区）；左侧「运行一次」图标（不保存只转存一轮）
+        // 底栏 = 动作行（运行一次 / 保存）+ 四栏底栏；系统手势条只在最底部避让一次
         bottomBar = {
-            Surface(color = MaterialTheme.colorScheme.surface) {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .windowInsetsPadding(WindowInsets.navigationBars)
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+            Column {
+                Surface(color = MaterialTheme.colorScheme.surface) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                     // 两个按钮同一规格：48dp 高、并排等宽；「运行一次」描边、「保存」实心
                     OutlinedButton(
                         onClick = { submit(SubmitMode.RUN) },
@@ -259,7 +260,12 @@ fun NewTaskScreen(
                     ) {
                         Text("保存", fontWeight = FontWeight.SemiBold)
                     }
+                    }
                 }
+                com.ashchan.cloudsaver.ui.AppTabBar(
+                    selected = com.ashchan.cloudsaver.ui.MainTab.ADD,
+                    onSelect = onSelectTab,
+                )
             }
         },
     ) { padding ->

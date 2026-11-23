@@ -61,6 +61,7 @@ import java.util.Locale
 fun RunLogScreen(
     viewModel: TasksViewModel,
     onBack: () -> Unit,
+    onSelectTab: (com.ashchan.cloudsaver.ui.MainTab) -> Unit = {},
 ) {
     val runs by viewModel.recentRuns.collectAsStateWithLifecycle()
     val formatter = remember { SimpleDateFormat("MM-dd HH:mm", Locale.CHINA) }
@@ -71,11 +72,6 @@ fun RunLogScreen(
         topBar = {
             TopAppBar(
                 title = { Text("运行日志", fontWeight = FontWeight.SemiBold) },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
                 actions = {
                     if (runs.isNotEmpty()) {
                         IconButton(onClick = { confirmClear = true }) {
@@ -86,6 +82,12 @@ fun RunLogScreen(
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
                 ),
+            )
+        },
+        bottomBar = {
+            com.ashchan.cloudsaver.ui.AppTabBar(
+                selected = com.ashchan.cloudsaver.ui.MainTab.RUNLOG,
+                onSelect = onSelectTab,
             )
         },
     ) { padding ->

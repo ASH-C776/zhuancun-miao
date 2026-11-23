@@ -87,6 +87,7 @@ fun TaskListScreen(
     onOpenNewTask: () -> Unit = {},
     onOpenEdit: (TaskEntity) -> Unit = {},
     startWithNewTaskDialog: Boolean = false,
+    onSelectTab: (com.ashchan.cloudsaver.ui.MainTab) -> Unit = {},
 ) {
     val cards by viewModel.cards.collectAsStateWithLifecycle()
     val toast by viewModel.toast.collectAsStateWithLifecycle()
@@ -126,66 +127,38 @@ fun TaskListScreen(
                 ),
             )
         },
-        // 右下拇指区：一个横向胶囊，四键并排「刷新 / 日志 / 设置 / +」
+        // 主页只保留一个动作：「全部检测」的圆形按钮，悬在底栏上方靠右下
         floatingActionButton = {
             Surface(
                 shape = RoundedCornerShape(24.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 shadowElevation = 4.dp,
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(
-                        onClick = { viewModel.runAll() },
-                        enabled = cards.isNotEmpty() && running.isEmpty(),
-                        modifier = Modifier.size(48.dp),
-                    ) {
-                        if (running.isEmpty()) {
-                            Icon(
-                                Icons.Filled.Refresh,
-                                contentDescription = "全部检测",
-                                modifier = Modifier.size(24.dp),
-                            )
-                        } else {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                strokeWidth = 2.dp,
-                            )
-                        }
-                    }
-                    IconButton(
-                        onClick = onOpenHistory,
-                        modifier = Modifier.size(48.dp),
-                    ) {
+                IconButton(
+                    onClick = { viewModel.runAll() },
+                    enabled = cards.isNotEmpty() && running.isEmpty(),
+                    modifier = Modifier.size(48.dp),
+                ) {
+                    if (running.isEmpty()) {
                         Icon(
-                            Icons.Filled.List,
-                            contentDescription = "运行日志",
+                            Icons.Filled.Refresh,
+                            contentDescription = "全部检测",
                             modifier = Modifier.size(24.dp),
                         )
-                    }
-                    IconButton(
-                        onClick = onOpenSettings,
-                        modifier = Modifier.size(48.dp),
-                    ) {
-                        Icon(
-                            Icons.Filled.Settings,
-                            contentDescription = "设置",
-                            modifier = Modifier.size(24.dp),
-                        )
-                    }
-                    // 主操作「+」与前三键同尺寸同色，靠主色图标区分主次
-                    IconButton(
-                        onClick = onOpenNewTask,
-                        modifier = Modifier.size(48.dp),
-                    ) {
-                        Icon(
-                            Icons.Filled.Add,
-                            contentDescription = "新增任务",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(24.dp),
+                    } else {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp,
                         )
                     }
                 }
             }
+        },
+        bottomBar = {
+            com.ashchan.cloudsaver.ui.AppTabBar(
+                selected = com.ashchan.cloudsaver.ui.MainTab.TASKS,
+                onSelect = onSelectTab,
+            )
         },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->

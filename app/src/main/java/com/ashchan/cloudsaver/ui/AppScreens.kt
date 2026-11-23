@@ -168,6 +168,21 @@ fun AppRoot(
     // 启动时后台检测一次 GitHub Releases 是否有新版本（有则红点提示）
     val appVersion = currentVersion()
     LaunchedEffect(Unit) { viewModel.checkUpdate(appVersion) }
+    // 底栏四栏 → 四个页面。切换时清掉「添加」页的编辑态，避免从别的栏目回来还停在编辑。
+    fun goTab(tab: MainTab) {
+        when (tab) {
+            MainTab.TASKS -> {
+                tasksViewModel.clearEdit()
+                viewModel.go(Screen.TASKS)
+            }
+            MainTab.ADD -> {
+                tasksViewModel.clearEdit()
+                viewModel.go(Screen.NEW_TASK)
+            }
+            MainTab.RUNLOG -> viewModel.go(Screen.RUNLOG)
+            MainTab.SETTINGS -> viewModel.go(Screen.SETTINGS)
+        }
+    }
     when (screen) {
         Screen.TASKS -> com.ashchan.cloudsaver.ui.tasks.TaskListScreen(
             viewModel = tasksViewModel,
@@ -182,6 +197,7 @@ fun AppRoot(
                 viewModel.go(Screen.NEW_TASK)
             },
             startWithNewTaskDialog = openNewTaskOnLaunch,
+            onSelectTab = { goTab(it) },
         )
         Screen.NEW_TASK -> {
             val editingTask by tasksViewModel.editing.collectAsState()
@@ -199,14 +215,16 @@ fun AppRoot(
                 },
                 editingTask = editingTask,
                 openPathPickerOnStart = autoPathPicker,
+                onSelectTab = { goTab(it) },
             )
         }
         Screen.RUNLOG -> com.ashchan.cloudsaver.ui.tasks.RunLogScreen(
             viewModel = tasksViewModel,
             onBack = { viewModel.go(Screen.TASKS) },
+            onSelectTab = { goTab(it) },
         )
         Screen.HISTORY -> HistoryScreen(viewModel)
-        Screen.SETTINGS -> SettingsScreen(viewModel, themeMode, onThemeModeChange)
+        Screen.SETTINGS -> SettingsScreen(viewModel, themeMode, onThemeModeChange, onSelectTab = { goTab(it) })
         Screen.FOLDER_PICKER -> FolderPickerScreen(viewModel)
         Screen.ABOUT -> AboutScreen(viewModel)
         Screen.DONATE -> DonateScreen(viewModel)
@@ -843,6 +861,7 @@ fun SettingsScreen(
     viewModel: AppViewModel,
     themeMode: Int = THEME_AUTO,
     onThemeModeChange: (Int) -> Unit = {},
+    onSelectTab: (MainTab) -> Unit = {},
 ) {
     val driveType by viewModel.settingsDriveType.collectAsState()
     val accounts by viewModel.accounts.collectAsState()
@@ -882,7 +901,10 @@ fun SettingsScreen(
         }
     }
 
-    Scaffold(topBar = { AppTopBar("设置", onBack = { viewModel.go(Screen.TASKS) }) }) { padding ->
+    Scaffold(
+        topBar = { AppTopBar("设置", onBack = null) },
+        bottomBar = { AppTabBar(selected = MainTab.SETTINGS, onSelect = onSelectTab) },
+    ) { padding ->
         Column(
             modifier = Modifier.padding(padding).fillMaxSize().verticalScroll(rememberScrollState())
                 .padding(16.dp),
