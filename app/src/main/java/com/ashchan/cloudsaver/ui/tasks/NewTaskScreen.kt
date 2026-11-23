@@ -79,6 +79,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
@@ -398,16 +399,13 @@ fun NewTaskScreen(
                             },
                             placeholder = if (index == 0) "分享链接" else "附加源链接",
                             isError = rowError != null,
+                            status = slotStates.getOrNull(index)?.status ?: "UNKNOWN",
                             modifier = Modifier.weight(1f),
                             // 失焦后光标回到开头，这样长链接默认显示的是前段，而不是尾部
                             onBlur = {
                                 slots[index] = slots[index].copy(selection = TextRange(0))
                             },
                         )
-                        Spacer(Modifier.width(8.dp))
-                        // 源状态小圆点（绿=正常 / 琥珀=上次没连上 / 红=失效 / 灰=没检测过）
-                        // 固定占位，所有行的按钮都落在同一条竖线上
-                        SourceStatusDot(slotStates.getOrNull(index)?.status)
                         Spacer(Modifier.width(8.dp))
                         if (index == 0) {
                             SquareActionButton(
@@ -831,7 +829,13 @@ private fun CompactStringField(
     )
 }
 
-/** 紧凑输入框（TextFieldValue 版）：链接行要用光标位置控制「露哪一段」，所以保留 selection */
+/**
+ * 紧凑输入框（TextFieldValue 版）：链接行要用光标位置控制「露哪一段」，所以保留 selection。
+ *
+ * status 只影响文字观感（不动框宽）：失效（FAIL）文字转红并划一道红线，
+ * 「上次没连上」（WARN）文字转琥珀并划琥珀线，其余状态不划。
+ * 早期版本在这里放了一个状态小圆点，但它会占掉框的宽度使各行不等宽，已废弃。
+ */
 @Composable
 private fun CompactValueField(
     value: TextFieldValue,
@@ -839,6 +843,7 @@ private fun CompactValueField(
     placeholder: String,
     modifier: Modifier = Modifier,
     isError: Boolean = false,
+    status: String = "UNKNOWN",
     onBlur: () -> Unit = {},
 ) {
     var focused by remember { mutableStateOf(false) }
@@ -847,11 +852,20 @@ private fun CompactValueField(
         focused -> MaterialTheme.colorScheme.primary
         else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
     }
+    val struck = status == "FAIL" || status == "WARN"
+    val textColor = when (status) {
+        "FAIL" -> MaterialTheme.colorScheme.error
+        "WARN" -> warnColor()
+        else -> MaterialTheme.colorScheme.onSurface
+    }
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
         singleLine = true,
-        textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+        textStyle = MaterialTheme.typography.bodyLarge.copy(
+            color = textColor,
+            textDecoration = if (struck) TextDecoration.LineThrough else null,
+        ),
         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
         modifier = modifier
             .height(ROW_HEIGHT)
@@ -903,30 +917,6 @@ private fun warnColor(): androidx.compose.ui.graphics.Color =
     } else {
         androidx.compose.ui.graphics.Color(0xFFB26A00)
     }
-
-/**
- * 源状态小圆点：绿=正常、琥珀=上次没连上、红=失效、灰=没检测过。
- * 用色点而不是图标，一是图标库只有 core 版没有 Warning/Error，二是与卡片进度条同一套颜色语义。
- */
-@Composable
-private fun SourceStatusDot(status: String?) {
-    val color = when (status) {
-        "OK" -> if (androidx.compose.foundation.isSystemInDarkTheme()) {
-            androidx.compose.ui.graphics.Color(0xFF7BC67E)
-        } else {
-            androidx.compose.ui.graphics.Color(0xFF2E7D32)
-        }
-        "WARN" -> warnColor()
-        "FAIL" -> MaterialTheme.colorScheme.error
-        else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
-    }
-    Box(
-        Modifier
-            .size(8.dp)
-            .clip(androidx.compose.foundation.shape.CircleShape)
-            .background(color)
-    )
-}
 
 /**
  * 输入框右侧的独立方块按钮（48dp，圆角 12，1dp 描边，图标 20dp）。
