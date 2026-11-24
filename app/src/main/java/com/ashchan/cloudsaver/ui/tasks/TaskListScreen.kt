@@ -384,7 +384,7 @@ private fun TaskRow(
                     horizontalArrangement = Arrangement.End,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // 左段可能变长（如「周二 · 光鸭 · 自动」），过长只压缩自己（时间已挪到上一行右端）
+                    // 左段可能变长（多源加「· 2 源」、暂停加「· 已暂停」），过长只压缩自己（时间已挪到上一行右端）
                     // 多源里有源连续两次没连上时，尾部追加一段红字「· N 失效」，平时不出现
                     val metaBase = metaLeft(task, card.sourceCount)
                     val errorColor = MaterialTheme.colorScheme.error
@@ -591,7 +591,7 @@ private fun EpisodeBar(snap: SnapshotEntity) {
 
 private fun episodeText(ep: Int): String = if (ep > 0) "E$ep" else "E—"
 
-/** 卡片底行：「周几 · 网盘 · 自动 / 待推断 / 未绑定 TMDB」，多源再加「· 2 源」，时间已挪到上一行右端 */
+/** 卡片底行：「周几 · 网盘」，多源再加「· 2 源」，时间已挪到上一行右端 */
 private fun metaLeft(task: TaskEntity, sourceCount: Int = 1): String {
     val parts = mutableListOf(
         Weekdays.label(task.weekdays),
@@ -599,12 +599,6 @@ private fun metaLeft(task: TaskEntity, sourceCount: Int = 1): String {
     )
     // 多源：源只是多几个链接入口，规则仍是同一套，所以这里只报个数
     if (sourceCount > 1) parts += "$sourceCount 源"
-    if (task.tmdbId == null) {
-        // 太长的「未绑定 TMDB」会把底行挤出卡片边界，缩成 4 个字
-        parts += "无 TMDB"
-    } else if (task.updateMode == TaskEntity.UPDATE_MODE_TMDB) {
-        parts += if (task.weekdays.isBlank()) "待推断" else "自动"
-    }
     return parts.joinToString(" · ")
 }
 
