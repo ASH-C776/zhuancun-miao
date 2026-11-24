@@ -253,9 +253,14 @@ private fun StatusCard(
     ) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             val lastText = if (lastStart <= 0L) {
-                "还没跑过"
+                if (total == 0) "还没跑过" else "上次没跑成"
             } else {
-                val okText = if (lastOk) "新增 $lastNew 集" else "有失败 · $total 个任务"
+                val okText = when {
+                    total == 0 -> "没有启用的任务"
+                    !lastOk -> "有失败 · $total 个任务"
+                    lastNew > 0 -> "新增 $lastNew 集"
+                    else -> "没有新集 · $total 个任务"
+                }
                 "上次 ${timeText(lastStart, now, zone)} · $okText"
             }
             Text(lastText, style = MaterialTheme.typography.bodySmall)
