@@ -624,24 +624,6 @@ fun NewTaskScreen(
                     enabled = canUseTmdbFolder,
                 ) { folderWithTmdbId = !folderWithTmdbId }
             }
-            FieldHint(
-                when {
-                    folderWithTmdbId -> "剧名 tmdb-12345/……"
-                    ruleKey == magic?.key -> "剧名/……/剧名.S01E01.扩展名"
-                    else -> "原名原目录"
-                }
-            )
-            if (!canUseTmdbFolder) {
-                Text(
-                    text = if (ruleKey.isBlank()) {
-                        "选「通用命名」后才能开启 tmdb id"
-                    } else {
-                        "先在名称框右侧搜索绑定剧集，才能开启 tmdb id"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
 
             // 更新日：七个排一排；绑了 TMDB 可以一键重算
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
