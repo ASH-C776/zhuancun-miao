@@ -1296,3 +1296,12 @@ Kotlin 的 `find` 取的是「全文最靠前的匹配」，不是「最靠前�
 - 发布正文（Release body / 更新说明）刻意不在弹窗里展示
 
 **验证**：单测 141/141 通过（新增 7 例），`assembleDebug` 通过，已装机（`versionCode=800`，lastUpdateTime 11:33:35）。端到端「检测 → 弹窗 → 下载 → 安装」还需一个高版本 Release 才能验（仓库现有最高 v0.6.0=600，低于 800，不会误弹）。
+
+## Stage 49 发布记录（2026-11-24）v0.8.1
+
+- `appVersionName` 抬到 **0.8.1**（`versionCode=801`），`assembleRelease` 出正式包 2,182,278 字节（`app-release.apk`，R8 后约 2.1MB）
+- GitHub Release 已建：`v0.8.1`，`prerelease=false`、`draft=false`，附件 `zhuancun-miao-v0.8.1.apk`（2,182,278 字节，state=uploaded）
+  地址：https://github.com/ASH-C776/zhuancun-miao/releases/tag/v0.8.1
+- 签名核对：release 包证书 `CN=Android Debug`（与已装 debug 包同一 keystore），可覆盖安装、数据不丢
+- **真机全链路验证通过**：先装 debug 800 → 清 `update_prefs.xml` → 重启 App → 5 秒后弹「发现新版本」→ 点更新跳「允许安装未知应用」授权页 → 下载 → 系统安装器「安装成功」→ 现装机为 `versionCode=801 / versionName=0.8.1 / lastUpdateTime=11:45:52`（已从 debug 包平滑升到 release 包，数据未丢）
+- 截图留档：`docs/upd1.png`（授权页）、`docs/upd2.png`（安装成功）
