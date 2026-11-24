@@ -2,10 +2,13 @@ package com.ashchan.cloudsaver.transfer
 
 import com.ashchan.cloudsaver.core.adapter.CloudDriveAdapter
 import com.ashchan.cloudsaver.core.model.DriveType
+import com.ashchan.cloudsaver.core.model.ShareInfo
 import com.ashchan.cloudsaver.core.model.ShareNode
 import com.ashchan.cloudsaver.core.tmdb.TmdbClient
 import com.ashchan.cloudsaver.data.EpisodeCounter
+import com.ashchan.cloudsaver.data.EpisodeStats
 import com.ashchan.cloudsaver.data.SeasonParser
+import com.ashchan.cloudsaver.data.SnapshotCalc
 import com.ashchan.cloudsaver.data.SourceLinks
 import com.ashchan.cloudsaver.data.TaskRepository
 import com.ashchan.cloudsaver.data.Weekdays
@@ -142,6 +145,18 @@ class TaskRunner(
     )
 
     /**
+     * 预扫描结果：一个源解析好的分享信息 + 目录树 + 命名质量分。
+     * 多源按 [score] 排序后再转存；目录树只拉一次，后面直接复用。
+     */
+    private data class PreparedSource(
+        val target: RunTarget,
+        val label: String,
+        val share: ShareInfo,
+        val tree: ShareNode,
+        val score: SourceScore?,
+    )
+
+    /**
      * 要跑的源清单。
      *
      * - 「运行一次」的试跑：用表单里的链接，不落状态（任务还没保存）
@@ -245,10 +260,43 @@ class TaskRunner(
         val notes = mutableListOf<String>()
         var anyOk = false
 
+        // TMDB 先查一次：多源时要靠它判断「缺口是否已补齐」，写快照也复用这一次结果
+        val tmdb = resolveTmdb(task)
+
+        // 「命中才转存」只在选了命名规则时生效：没选规则本来就不改名，沿用老行为全部转存
+        val filterEnabled = task.ruleKey.trim().isNotEmpty()
+        val multiSource = links.size > 1
+
+        // 统计口径：指定季按该季、多季按 TMDB 对应那一季、平铺按第一季（与 S01 命名一致）
+        val statMode = when {
+            task.seasonNo == TaskEntity.SEASON_MULTI -> EpisodeStats.Mode.MULTI
+            task.seasonNo == TaskEntity.SEASON_FLAT -> EpisodeStats.Mode.FLAT
+            else -> EpisodeStats.Mode.FIXED
+        }
+        val fixedSeason = task.seasonNo.coerceAtLeast(0)
+        val targetSeason = tmdb.countSeason?.takeIf { it >= 0 } ?: 1
+
+        /** 回写单个源的结论：一次失败算 WARN，连续两次才升级 FAIL（不误报失效） */
+        suspend fun markSource(target: RunTarget, ok: Boolean, error: String) {
+            if (task.id <= 0) return
+            val newStatus = TaskSourceEntity.statusAfterRun(target.previousStatus, ok)
+            runCatching {
+                repo.markSourceStatus(
+                    taskId = task.id,
+                    position = target.position,
+                    status = newStatus,
+                    error = if (newStatus == TaskSourceEntity.STATUS_OK) "" else error,
+                )
+            }
+        }
+
+        // ① 预扫描：读目录树 + 给每个源打命名质量分（只列目录，不下载任何文件）
+        val prepared = mutableListOf<PreparedSource>()
+        val preErrors = mutableListOf<Pair<RunTarget, String>>()
         links.forEachIndexed { index, target ->
             val label = if (links.size > 1) "源${index + 1}" else "源"
-            var errorNote = ""
-            val outcome: Result<TreeSyncEngine.Report> = try {
+            try {
+                onPhase(withSource(label, links.size, "预检命名"))
                 val share = retryOnce("$label 解析分享链接") {
                     adapter.parseShareLink(target.url)
                 }.getOrThrow()
@@ -257,7 +305,6 @@ class TaskRunner(
                 }.getOrThrow()
 
                 val rootId = task.seasonFid.ifBlank { task.startFid }.ifBlank { resolved.pdirFid }
-                onPhase(withSource(label, links.size, "读取目录"))
                 val tree = retryOnce("$label 拉取分享目录树") {
                     adapter.fetchShareTree(
                         share = resolved,
@@ -266,19 +313,82 @@ class TaskRunner(
                     )
                 }.getOrThrow()
 
-                val plan = buildRenamePlan(task, tree)
-                TreeSyncEngine(adapter).syncFlat(
+                prepared += PreparedSource(
+                    target = target,
+                    label = label,
                     share = resolved,
                     tree = tree,
-                    destRootFid = destFid,
-                    renamePlan = plan,
-                    seasonNo = if (multiSeason) TaskEntity.SEASON_FLAT else task.seasonNo,
-                    multiSeason = multiSeason,
-                    // 引擎按「比对文件 / 转存 3/20 / 改名 5/12」逐条上报，直接翻到卡片上
-                    onProgress = { _, _, message ->
-                        onPhase(withSource(label, links.size, message))
-                    },
+                    score = if (multiSource) SourceQuality.score(tree) else null,
                 )
+            } catch (e: Throwable) {
+                if (DriveSession.isAuthError(e)) throw e
+                preErrors += target to (e.message ?: "未知错误")
+            }
+        }
+
+        // ② 多源按命名质量排序：名字更规范、歧义更少的源先跑（同分保持原链接顺序）
+        val ordered = prepared.sortedWith(
+            compareByDescending<PreparedSource> { it.score?.score ?: 0 }
+                .thenBy { it.target.position }
+        )
+        if (multiSource && ordered.size > 1) {
+            notes += "命名质量优先：" + ordered.joinToString(" > ") { p ->
+                "${p.label} ${p.score?.score ?: 0}分（${p.score?.hits ?: 0}/${p.score?.videos ?: 0} 命中）"
+            }
+        }
+
+        // 预扫描就失败的源：记失败 + 回写状态，不参与排序
+        preErrors.forEach { (target, message) ->
+            val prefix = if (links.size > 1) "源${target.position + 1} " else ""
+            failures += "${prefix}失败：$message"
+            markSource(target, ok = false, error = message)
+        }
+
+        // ③ 按顺序转存；多源时每跑完一个就重算缺口，补齐了就停
+        var stoppedForGap = false
+        var lastCount: EpisodeCounter.Result? = null
+
+        for (p in ordered) {
+            if (stoppedForGap) {
+                notes += "${p.label} 未执行（前面的源已补齐）"
+                continue
+            }
+            val label = p.label
+            onPhase(withSource(label, links.size, "比对文件"))
+
+            // 命中裁剪：剧场版、解析不出集号、有歧义的一律不转；同集多版本只留一个
+            val plan = TransferClassifier.plan(p.tree, filterEnabled)
+
+            var errorNote = ""
+            val outcome: Result<TreeSyncEngine.Report> = try {
+                if (filterEnabled && !plan.hasWork) {
+                    // 一个都没命中：这一源没有可转存内容，不算失败
+                    Result.success(
+                        TreeSyncEngine.Report(
+                            restoredDirs = 0,
+                            restoredFiles = 0,
+                            renamedItems = 0,
+                            skippedFiles = 0,
+                            failures = emptyList(),
+                            explicitOk = true,
+                            notes = emptyList(),
+                        )
+                    )
+                } else {
+                    val renamePlan = buildRenamePlan(task, plan.tree)
+                    TreeSyncEngine(adapter).syncFlat(
+                        share = p.share,
+                        tree = plan.tree,
+                        destRootFid = destFid,
+                        renamePlan = renamePlan,
+                        seasonNo = if (multiSeason) TaskEntity.SEASON_FLAT else task.seasonNo,
+                        multiSeason = multiSeason,
+                        // 引擎按「比对文件 / 转存 3/20 / 改名 5/12」逐条上报，直接翻到卡片上
+                        onProgress = { _, _, message ->
+                            onPhase(withSource(label, links.size, message))
+                        },
+                    )
+                }
             } catch (e: Throwable) {
                 // 掉线类的异常交给外层重登整轮重跑；其余按「本源失败」吞掉，继续下一个源
                 if (DriveSession.isAuthError(e)) throw e
@@ -286,21 +396,7 @@ class TaskRunner(
                 Result.failure(e)
             }
 
-            // 回写这个源这一轮的结论：一次失败算 WARN，连续两次才升级 FAIL（不误报失效）
-            if (task.id > 0) {
-                val newStatus = TaskSourceEntity.statusAfterRun(
-                    previous = target.previousStatus,
-                    ok = outcome.getOrNull()?.ok == true,
-                )
-                runCatching {
-                    repo.markSourceStatus(
-                        taskId = task.id,
-                        position = target.position,
-                        status = newStatus,
-                        error = if (newStatus == TaskSourceEntity.STATUS_OK) "" else errorNote,
-                    )
-                }
-            }
+            markSource(p.target, outcome.getOrNull()?.ok == true, errorNote)
 
             outcome
                 .onSuccess { r ->
@@ -321,6 +417,20 @@ class TaskRunner(
                         e.message ?: "同步失败"
                     }
                 }
+
+            // 「命中才转存」的结论写进日志：命中几集、几个多版本被合并、几个未命中没转
+            notes += if (links.size > 1) "$label ${plan.summary()}" else plan.summary()
+
+            if (multiSource) {
+                val current = countLocal(adapter, destFid, statMode, fixedSeason, targetSeason)
+                lastCount = current
+                if (tmdb.bound &&
+                    SnapshotCalc.missing(current.episodes, tmdb.latestEpisode, tmdb.totalEpisodes) == 0
+                ) {
+                    stoppedForGap = true
+                    notes += "$label 之后缺口已补齐，后面的源不再执行"
+                }
+            }
         }
 
         val report = TreeSyncEngine.Report(
@@ -341,9 +451,8 @@ class TaskRunner(
             credentialStore.saveCredential(DriveType.GUANGYA, adapter.currentCredential())
         }
 
-        val counted = countLocal(adapter, destFid)
         onPhase("统计中")
-        val tmdb = resolveTmdb(task)
+        val counted = lastCount ?: countLocal(adapter, destFid, statMode, fixedSeason, targetSeason)
 
         // 更新日按 TMDB 自动推断：只在「任务设成自动」且还没手动设过更新日时写入，
         // 不覆盖用户手动点选的星期，避免下次打开 App 被悄改。
@@ -398,27 +507,46 @@ class TaskRunner(
         }
 
     /**
-     * 统计任务目标目录下已有的集数。
+     * 统计任务目标目录下已有的集数（**按季分区**，不再是各季混算）。
      *
      * 递归到 [MAX_COUNT_DEPTH] 层：真实资源常见「剧名 / 第 N 季 - 分辨率 / 集.mp4」三层，
      * 只扫两层会把盘里集数算成 0。跳过的深度不再下钻，避免深层大目录把请求打爆。
+     *
+     * 分区口径见 [EpisodeStats]：指定季只数该季；多季只数 TMDB 对应那一季；
+     * 平铺按第一季（与 `剧名.S01E01.后缀` 的命名口径一致）。Season 0 的特别篇不会混进正片统计。
      */
-    private suspend fun countLocal(adapter: CloudDriveAdapter, destFid: String): EpisodeCounter.Result {
-        val names = mutableListOf<String>()
+    private suspend fun countLocal(
+        adapter: CloudDriveAdapter,
+        destFid: String,
+        mode: EpisodeStats.Mode,
+        fixedSeason: Int = 1,
+        targetSeason: Int = 1,
+    ): EpisodeCounter.Result {
+        val entries = mutableListOf<EpisodeStats.Entry>()
 
-        suspend fun walk(fid: String, depth: Int) {
+        suspend fun walk(fid: String, dirs: List<String>, depth: Int) {
             val items = adapter.listFiles(fid).getOrNull() ?: return
-            names += items.filter { !it.isDir }.map { it.name }
+            items.filter { !it.isDir }.forEach { entries += EpisodeStats.Entry(dirs, it.name) }
             if (depth >= MAX_COUNT_DEPTH) return
-            items.filter { it.isDir }.forEach { walk(it.fid, depth + 1) }
+            items.filter { it.isDir }.forEach { walk(it.fid, dirs + it.name, depth + 1) }
         }
 
-        walk(destFid, 0)
-        return EpisodeCounter.count(names)
+        walk(destFid, emptyList(), 0)
+        val counted = EpisodeStats.count(entries, mode, fixedSeason, targetSeason)
+        return EpisodeCounter.Result(counted.episodes, counted.lastEpisode)
     }
 
     /** TMDB 解析结果（失败一律回 0/null，不影响转存主流程） */
-    private data class TmdbLatest(val latestEpisode: Int, val weekdays: List<Int>, val totalEpisodes: Int = 0)
+    private data class TmdbLatest(
+        val latestEpisode: Int,
+        val weekdays: List<Int>,
+        val totalEpisodes: Int = 0,
+        /** 这次统计对应的季（多季任务按这一季分区数集）；查不到为 null */
+        val countSeason: Int? = null,
+    ) {
+        /** 是否绑上了 TMDB（没绑就没有「缺几集」这把尺子，多源也就无法判断补齐） */
+        val bound: Boolean get() = latestEpisode > 0 || totalEpisodes > 0
+    }
 
     /**
      * 生成改名映射（分享文件 fid → 转存时要用的新文件名）。
@@ -485,6 +613,7 @@ class TaskRunner(
             latestEpisode = info.latestEpisodeNumber(season),
             weekdays = weekdays,
             totalEpisodes = total,
+            countSeason = countSeason,
         ).also {
             android.util.Log.i(
                 "TmdbResolve",
