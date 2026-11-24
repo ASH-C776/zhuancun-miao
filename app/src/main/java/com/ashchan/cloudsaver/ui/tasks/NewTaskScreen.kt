@@ -156,7 +156,9 @@ fun NewTaskScreen(
     var savePathLabel by remember {
         mutableStateOf(stash?.savePathLabel ?: editingTask?.savePathLabel?.ifBlank { "网盘根目录" } ?: "网盘根目录")
     }
-    var seasonNo by remember { mutableStateOf(stash?.seasonNo ?: editingTask?.seasonNo ?: 0) }
+    var seasonNo by remember {
+        mutableStateOf(stash?.seasonNo ?: editingTask?.seasonNo ?: TaskEntity.SEASON_FLAT)
+    }
     var folderWithTmdbId by remember { mutableStateOf(stash?.folderWithTmdbId ?: editingTask?.folderWithTmdbId ?: false) }
     var ruleKey by remember { mutableStateOf(stash?.ruleKey ?: editingTask?.ruleKey ?: "") }
     var tmdbId by remember { mutableStateOf(stash?.tmdbId ?: editingTask?.tmdbId?.toString() ?: "") }
@@ -567,7 +569,7 @@ fun NewTaskScreen(
                 onClick = { showPathPicker = true },
             )
 
-            // 季度：平铺 = 视频直接放剧名目录；Season N = 剧名/Season N；多季 = 按文件季号各进 Season N
+            // 季度：平铺 = 视频直接放剧名目录；Season N = 剧名/Season N（0 = 特别版）；多季 = 按文件季号各进 Season N
             SectionLabel("季度")
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SmallChoice(
@@ -578,11 +580,19 @@ fun NewTaskScreen(
                 SmallChoice("Season 1", seasonNo == 1, Modifier.weight(1f)) { seasonNo = 1 }
                 SmallChoice("Season 2", seasonNo == 2, Modifier.weight(1f)) { seasonNo = 2 }
                 SmallChoice(
-                    text = if (seasonNo > 2) "第${seasonNo}季" else "自定义",
-                    selected = seasonNo > 2,
+                    text = when {
+                        seasonNo == TaskEntity.SEASON_SPECIALS -> "Season 0"
+                        seasonNo > 2 -> "第${seasonNo}季"
+                        else -> "自定义"
+                    },
+                    selected = seasonNo == TaskEntity.SEASON_SPECIALS || seasonNo > 2,
                     modifier = Modifier.weight(1f),
                 ) {
-                    seasonInput = if (seasonNo > 2) seasonNo.toString() else ""
+                    seasonInput = when {
+                        seasonNo == TaskEntity.SEASON_SPECIALS -> "0"
+                        seasonNo > 2 -> seasonNo.toString()
+                        else -> ""
+                    }
                     showCustomSeason = true
                 }
                 SmallChoice(
@@ -774,18 +784,27 @@ fun NewTaskScreen(
             onDismissRequest = { showCustomSeason = false },
             title = { Text("季度", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold) },
             text = {
-                OutlinedTextField(
-                    value = seasonInput,
-                    onValueChange = { seasonInput = it.filter { c -> c.isDigit() } },
-                    placeholder = { Text("季度数") },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                Column {
+                    OutlinedTextField(
+                        value = seasonInput,
+                        onValueChange = { seasonInput = it.filter { c -> c.isDigit() } },
+                        placeholder = { Text("季度数") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    // 0 是真季（TMDB Season 0 = 特别篇），跟「平铺」不是一回事，这里必须写清
+                    Text(
+                        "0 = 特别版（Season 0）；填 1、2 也行；不选季度请用「平铺」",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
             },
             confirmButton = {
                 TextButton(onClick = {
-                    seasonInput.toIntOrNull()?.takeIf { it > 0 }?.let { seasonNo = it }
+                    seasonInput.toIntOrNull()?.takeIf { it in 0..99 }?.let { seasonNo = it }
                     showCustomSeason = false
                 }) { Text("确定") }
             },

@@ -1095,3 +1095,37 @@ Kotlin 的 `find` 取的是「全文最靠前的匹配」，不是「最靠前�
    每季 2 个文件且文件名季号与目录一致）。单测 119 → 120，全绿。
 
 **验证**：`testDebugUnitTest` 120/120 通过，`assembleDebug` 通过，已装机（lastUpdateTime 08:20:59）。
+
+## Stage 42（2026-11-24）季度 0 = 特别版（Season 0），与「没选季度（平铺）」彻底分开
+
+**用户纠正**：`0` 在季号里是**真实存在的一季**（TMDB 的 Season 0 = 特别篇），不能拿 0 当「不选季度」。
+否则会出现两个错：① 想收特别版时表达不了；② 多季分享里的 `Season 0` / `Specials` 目录被当「无季」平铺到剧名根下。
+
+**新增/改动的取值语义**
+- `SEASON_FLAT = -2`：没选季度 → 视频直接平铺在 `剧名/` 下（老库里的 0 全部是这层意思）。
+- `SEASON_SPECIALS = 0`：特别版 / Season 0 → 放 `剧名/Season 0/`，正常当一季转存。
+- `1..99`：指定季 → `剧名/Season N/`。
+- `SEASON_MULTI = -1`：多季 → 按文件自身季号分组。
+
+**改动**
+1. `TaskEntity`：`seasonNo` 默认值改 `SEASON_FLAT`，常量注释写清三种/四种取值。
+2. `AppDatabase` 版本 10 → 11，新增 `MIGRATION_10_11`：`UPDATE tasks SET seasonNo = -2 WHERE seasonNo = 0`
+   （老数据里的 0 都是「平铺」，迁移后语义不变）。
+3. `SeasonParser`：新增特别版识别 —— `Season 0`、`Specials`/`Special`、`SP`/`SPs`、`S00`、`特别篇`、`特别版`、`花絮` → 0；
+   放在常规季之后判断，`S01 SP04` 这种仍解析成 1，不会被误判成特别版。
+4. `TreeSyncEngine`：
+   - `syncFlat(seasonNo)` 的过滤条件从 `>0` 改 `>=0`：选 0 时只取特别版目录；
+   - 新增 `collectVideosWithSeason()`：文件名季号优先，解析不到就用**最近一层能解析出季号的目录名**兜底
+     （`Season 2/xx.mkv` 这类文件不带季号也能归到 Season 2）；
+   - `runFlatMulti()` 分组：`Season 0`/`Specials` 正常建 `Season 0` 目录，**只有季号完全解析不出的文件才留根**；
+   - 找不到视频的提示区分人话：`只取特别版（Season 0），但分享里只有 第 1 季…`。
+5. `TaskRunner`：建季目录的条件 `>0` 改 `>=0`（0 也建 `Season 0`）；多季时仍交引擎逐季建。
+6. `NewTaskScreen`：自定义按钮在 `seasonNo == 0` 时显示「Season 0」并保持选中；自定义弹框允许输入 0，
+   底部加一行说明「0 = 特别版（Season 0）；不选季度请用「平铺」」。
+7. `TasksViewModel`：`seasonNo` 默认值 `0` → `SEASON_FLAT`。
+
+**测试**：`SeasonParserTest` 加「特别版目录名解析成 0」「带 SP 字样的常规季不误判」；
+`TreeSyncEngineTest` 加「多季模式把特别版当成正常一季 进 Season 0」（Season 1 / Season 2（文件名不带季号）/ Specials 混合，
+断言根下只有三个季目录、没有散文件）。单测 120 → 123，全绿。
+
+**验证**：`testDebugUnitTest` 123/123 通过，`assembleDebug` 通过。

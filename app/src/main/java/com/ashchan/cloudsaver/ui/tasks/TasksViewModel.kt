@@ -101,7 +101,7 @@ class TasksViewModel(
         val drive: String? = null,
         val saveFid: String = "0",
         val savePathLabel: String = "网盘根目录",
-        val seasonNo: Int = 0,
+        val seasonNo: Int = TaskEntity.SEASON_FLAT,
         val folderWithTmdbId: Boolean = false,
         val ruleKey: String = "",
         val tmdbId: String = "",
@@ -157,7 +157,7 @@ class TasksViewModel(
         saveFid: String = "0",
         savePathLabel: String = "网盘根目录",
         ruleKey: String = "",
-        seasonNo: Int = 0,
+        seasonNo: Int = TaskEntity.SEASON_FLAT,
         folderWithTmdbId: Boolean = false,
         driveOverride: DriveType? = null,
         /** true = 更新日交给 TMDB 自动推断（用户没手动点过星期） */

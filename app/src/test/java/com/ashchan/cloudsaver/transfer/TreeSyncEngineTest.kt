@@ -453,6 +453,33 @@ class TreeSyncEngineTest {
         }
     }
 
+    @Test
+    fun `多季模式把特别版当成正常一季 进 Season 0`() = runBlocking {
+        // 分享结构：Season 1 目录里文件名带季号；Season 2 目录里文件名不带季号（靠目录兜底）；
+        // Specials 目录里是 S00Exx / 不带季号两种
+        val adapter = FakeDriveAdapter(
+            mapOf(
+                null to listOf(adapterDir("d_s1", "Season 1"), adapterDir("d_s2", "Season 2"), adapterDir("d_sp", "Specials")),
+                "d_s1" to listOf(adapterFile("f_1", "Show.S01E01.mkv")),
+                "d_s2" to listOf(adapterFile("f_2", "Show.E05.mkv")),
+                "d_sp" to listOf(adapterFile("f_3", "Show.S00E01.mkv"), adapterFile("f_4", "幕后花絮.mkv")),
+            )
+        )
+
+        val tree = buildTree(adapter)
+        val report = TreeSyncEngine(adapter).syncFlat(
+            share = shareInfo(), tree = tree, destRootFid = "0", multiSeason = true,
+        ).getOrThrow()
+
+        assertEquals(4, report.restoredFiles)
+        val dirs = adapter.mine["0"]!!.filter { it.isDir }.map { it.name }.toSet()
+        // 特别版没有被丢到根下，Season 2 里不带季号的文件也没落根
+        assertEquals(setOf("Season 0", "Season 1", "Season 2"), dirs)
+        assertEquals(0, adapter.mine["0"]!!.count { !it.isDir })
+        val s0 = adapter.mine.keys.first { fid -> adapter.mine[fid]!!.size == 2 }
+        assertEquals(2, adapter.mine[s0]!!.size)
+    }
+
     // ---------- 小工具 ----------
 
     private fun adapterDir(fid: String, name: String) = DriveFile(fid = fid, name = name, isDir = true)

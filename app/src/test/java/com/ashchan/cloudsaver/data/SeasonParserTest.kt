@@ -36,6 +36,23 @@ class SeasonParserTest {
     }
 
     @Test
+    fun `特别版目录名解析成 0`() {
+        // 0 是真实存在的一季（TMDB Season 0 = 特别篇），不是「没选季度」
+        assertEquals(0, SeasonParser.parse("Season 0"))
+        assertEquals(0, SeasonParser.parse("Specials"))
+        assertEquals(0, SeasonParser.parse("Special"))
+        assertEquals(0, SeasonParser.parse("SP"))
+        assertEquals(0, SeasonParser.parse("S00"))
+        assertEquals(0, SeasonParser.parse("特别篇"))
+        assertEquals(0, SeasonParser.parse("特别版 1080p"))
+    }
+
+    @Test
+    fun `带 SP 字样的常规季不能误判成特别版`() {
+        assertEquals(1, SeasonParser.parse("S01 SP04"))
+    }
+
+    @Test
     fun `空与无季号文本返回 null`() {
         assertNull(SeasonParser.parse(null))
         assertNull(SeasonParser.parse(""))

@@ -26,6 +26,19 @@ object SeasonParser {
         Regex("""^(\d{1,2})$"""),
     )
 
+    /**
+     * 「特别版」类季名 → 0。实测命名：`Specials`、`Special`、`SP`、`SPs`、
+     * `Season 0`、`特别篇`、`特别版`、`花絮`。
+     *
+     * 注意：**0 是一个真实存在的季**（TMDB 的 Season 0 / 特别篇），
+     * 它和「任务里没选季度」是两件事，不要混。
+     */
+    private val specialPatterns = listOf(
+        Regex("""(?:^|[^A-Za-z])(?:Specials?|SPs?)(?![A-Za-z])""", RegexOption.IGNORE_CASE),
+        Regex("""特别[篇版]|花絮"""),
+        Regex("""(?<![A-Za-z])S0{1,2}(?!\d)"""),
+    )
+
     fun parse(seasonName: String?): Int? {
         val name = seasonName?.trim().orEmpty()
         if (name.isBlank()) return null
@@ -37,6 +50,8 @@ object SeasonParser {
         Regex("""第\s*([一二三四五六七八九十]+)\s*季""").find(name)?.let { m ->
             cnToInt(m.groupValues[1])?.let { return it }
         }
+        // 特别版最后判断，避免把带 SP 字样的常规季名（如「S01 SP04」）误判成特别版
+        if (specialPatterns.any { it.containsMatchIn(name) }) return 0
         return null
     }
 

@@ -13,7 +13,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  */
 @Database(
     entities = [TaskEntity::class, SnapshotEntity::class, RunRecordEntity::class, TaskSourceEntity::class],
-    version = 10,
+    version = 11,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -178,6 +178,21 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v11：`tasks.seasonNo` 语义更正 —— 0 不再是「平铺」，而是**特别版 / Season 0**。
+         *
+         * 用户口径：`0` 在季号里是真实存在的一季（TMDB 的 Season 0 = 特别篇），
+         * 「没选季度」必须是另一个值，否则会把特别篇平铺进剧名目录、也筛不出 Season 0。
+         * 现在 `SEASON_FLAT = -2`、`SEASON_SPECIALS = 0`、`SEASON_MULTI = -1`。
+         *
+         * 迁移：老库里 0 全是「平铺」语义（当时根本表达不了特别版），所以统一改成 -2。
+         */
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("UPDATE tasks SET seasonNo = -2 WHERE seasonNo = 0")
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -194,6 +209,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_7_8,
                     MIGRATION_8_9,
                     MIGRATION_9_10,
+                    MIGRATION_10_11,
                 ).build().also { instance = it }
             }
     }

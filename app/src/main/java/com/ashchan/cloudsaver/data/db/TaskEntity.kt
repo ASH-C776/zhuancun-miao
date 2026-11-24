@@ -32,13 +32,16 @@ data class TaskEntity(
     /** 目标季目录名，如「第 2 季 - 2160p WEB-DL HEVC AAC」 */
     val seasonName: String = "",
     /**
-     * 季度编号：0 = 不建季目录（直接 剧名/视频文件 平铺）；
-     * 1..N = 转存到 剧名/Season N/ 下平铺。
+     * 季度编号，取值见 [SEASON_FLAT] / [SEASON_SPECIALS] / [SEASON_MULTI]：
+     * - `-2` 平铺：不建季目录，视频直接放 `剧名/` 下（= 任务里没选季度）
+     * - `0`  特别版：真实存在的 Season 0，放 `剧名/Season 0/` 下
+     * - `1..99` 指定季：放 `剧名/Season N/`
+     * - `-1` 多季：按每个文件自身的季号分组，各自进 `剧名/Season N/`
      *
      * 与 [seasonFid] 的区别：seasonFid 指分享里某个已存在的季目录（用来限定来源），
      * 这里只是目标侧要不要多一层季文件夹，两者互不影响。
      */
-    val seasonNo: Int = 0,
+    val seasonNo: Int = SEASON_FLAT,
     /** 分享内扫描起点 fid，空 = 分享根；实际执行时优先用 seasonFid */
     val startFid: String = "",
     /**
@@ -83,11 +86,13 @@ data class TaskEntity(
 
         /**
          * 季度取值约定：
-         * - `0` 平铺（全部视频直接放在剧名目录下）
+         * - [`SEASON_FLAT`] 平铺（任务里没选季度，视频直接放在剧名目录下）
+         * - [`SEASON_SPECIALS`] 特别版 / Season 0（**这是真实的季**，放 `剧名/Season 0/`）
          * - `1..99` 只取该季，放在 `剧名/Season N/`
          * - [`SEASON_MULTI`] 多季：按文件自身季号分组，各进 `剧名/Season N/`
          */
-        const val SEASON_FLAT: Int = 0
+        const val SEASON_FLAT: Int = -2
+        const val SEASON_SPECIALS: Int = 0
         const val SEASON_MULTI: Int = -1
     }
 }

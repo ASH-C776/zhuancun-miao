@@ -8,6 +8,7 @@ import com.ashchan.cloudsaver.core.model.ShareInfo
 import com.ashchan.cloudsaver.core.model.EpisodeParser
 import com.ashchan.cloudsaver.core.model.ShareNode
 import com.ashchan.cloudsaver.data.SeasonParser
+import com.ashchan.cloudsaver.data.db.TaskEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -97,15 +98,16 @@ class TreeSyncEngine(
      * 分享里那层「鉴定 4K」「[高清]xxx」之类的文件夹名对用户没有意义，只会多一层嵌套，
      * 也让集数统计和改名都多绕一层。
      *
-     * @param seasonNo >0 时只取名字里能解析出同一季号的目录（如「第 2 季」「Season 2」），
-     *                 其它季的子树直接跳过；0 = 全部收进来。
+     * @param seasonNo [TaskEntity.SEASON_FLAT]（-2）= 全部收进来平铺；
+     *                 [TaskEntity.SEASON_SPECIALS]（0）= 只取特别版 / Season 0；
+     *                 1..99 = 只取名字里能解析出同一季号的目录（如「第 2 季」「Season 2」），其它季的子树直接跳过。
      */
     suspend fun syncFlat(
         share: ShareInfo,
         tree: ShareNode,
         destRootFid: String,
         renamePlan: Map<String, String> = emptyMap(),
-        seasonNo: Int = 0,
+        seasonNo: Int = TaskEntity.SEASON_FLAT,
         multiSeason: Boolean = false,
         maxDepth: Int = DEFAULT_MAX_DEPTH,
         onProgress: (stage: Int, percent: Int, message: String) -> Unit = { _, _, _ -> },
@@ -213,36 +215,43 @@ class TreeSyncEngine(
 
         /**
          * 多季模式：不按任务季度过滤，而是**按每个文件自身的季号**（S01E01 / `第2季…`）分组，
-         * 每季落进 `剧名/Season N/`，季号解析不出来的文件留在剧名根目录。
+         * 每季落进 `剧名/Season N/`；文件名里解析不出季号时，用最近一层能解析出季号的目录名兜底
+         * （分享里常见 `Season 2/xx.mkv` 这种文件本身不带季号的排布）。
+         *
+         * **Season 0 / 特别版是正常一季**：目录叫 `Specials`、`Season 0`、`特别篇`，
+         * 或文件名是 `S00E01`，都归到 `Season 0` 目录，不平铺到剧名根下。
+         * 只有季号完全解析不出来的文件才留在根目录。
          *
          * 这样「一部剧多个 Season 子目录」的分享能一次收完，且 S02E01 不会写成 S01E01
          * （改名模板里的 `{SXX}` 取自文件自身季号，不取任务季度）。
          */
         suspend fun runFlatMulti(tree: ShareNode, destRootFid: String) {
-            val videos = mutableListOf<ShareNode>()
-            collectVideos(tree, videos, seasonNo = 0, depth = 0)
-            if (videos.isEmpty()) throw IllegalStateException(noVideoMessage(tree, 0))
+            val videos = mutableListOf<Pair<ShareNode, Int?>>()
+            collectVideosWithSeason(tree, videos, inherited = null, depth = 0)
+            if (videos.isEmpty()) throw IllegalStateException(noVideoMessage(tree, TaskEntity.SEASON_FLAT))
             videoTotal = videos.size
             onProgress(0, 0, "比对文件")
 
-            val groups = videos.groupBy { EpisodeParser.seasonOf(it.name) ?: 0 }.toSortedMap()
-            if (groups.size > 1) {
-                onProgress(0, 0, "共 ${groups.count { it.key > 0 }} 季")
-            }
+            val groups = videos.groupBy { it.second }.toSortedMap(
+                compareBy<Int?> { it == null }.thenBy { it ?: 0 }
+            )
+            val realSeasons = groups.keys.count { it != null }
+            if (realSeasons > 1) onProgress(0, 0, "共 $realSeasons 季")
+
             groups.forEach { (season, list) ->
-                val destFid = if (season > 0) {
-                    adapter.ensureFolder(destRootFid, "Season $season").getOrElse { e ->
+                val destFid = if (season != null) {
+                    adapter.ensureFolder(destRootFid, seasonFolderName(season)).getOrElse { e ->
                         failures += "创建 Season $season 目录失败：${e.message ?: "未知错误"}"
                         destRootFid
                     }
                 } else {
                     destRootFid
                 }
-                syncFiles(list, destFid)
+                syncFiles(list.map { it.first }, destFid)
             }
         }
 
-        /** 扁平同步：收集视频（可按季过滤）→ 批量转存 → 逐个按规则改名 */
+        /** 扁平同步：收集视频（选了季就只取那一季）→ 批量转存 → 逐个按规则改名 */
         suspend fun runFlat(tree: ShareNode, destRootFid: String, seasonNo: Int) {
             val videos = mutableListOf<ShareNode>()
             collectVideos(tree, videos, seasonNo, depth = 0)
@@ -259,10 +268,10 @@ class TreeSyncEngine(
         private fun noVideoMessage(tree: ShareNode, seasonNo: Int): String {
             val seasons = mutableSetOf<Int>()
             collectSeasonNumbers(tree, depth = 0, out = seasons)
-            if (seasonNo > 0 && seasons.isNotEmpty() && seasonNo !in seasons) {
-                val found = seasons.sorted().joinToString("、") { "第 $it 季" }
-                return "只取第 $seasonNo 季，但分享里只有 $found；" +
-                    "把任务里的「季度」改成 ${if (seasons.size == 1) seasons.first() else "对应季号（0 = 全部）"} 再跑"
+            if (seasonNo >= 0 && seasons.isNotEmpty() && seasonNo !in seasons) {
+                val found = seasons.sorted().joinToString("、") { seasonLabel(it) }
+                return "只取${seasonLabel(seasonNo)}，但分享里只有 $found；" +
+                    "把任务里的「季度」改成 ${if (seasons.size == 1) seasons.first() else "对应季号（不选 = 平铺）"} 再跑"
             }
             val top = tree.children.take(6).joinToString("、") { child ->
                 if (child.isDir) "${child.name}/" else child.name
@@ -274,10 +283,14 @@ class TreeSyncEngine(
                 if (top.isNotBlank()) append("：").append(top)
                 if (tree.children.size > 6) append("…")
                 append("；共 $dirs 个目录，最深 ${minOf(maxDepth, tree.maxDepth())} 层")
-                if (seasonNo > 0) append("，只取了第 $seasonNo 季")
+                if (seasonNo >= 0) append("，").append("只取了").append(seasonLabel(seasonNo))
                 append("）")
             }
         }
+
+        /** 季号的人话：0 是特别版，不是「没选」 */
+        private fun seasonLabel(seasonNo: Int): String =
+            if (seasonNo == TaskEntity.SEASON_SPECIALS) "特别版（Season 0）" else "第 $seasonNo 季"
 
         /** 分享里出现过的季号（目录名能解析出季号的都算） */
         private fun collectSeasonNumbers(node: ShareNode, depth: Int, out: MutableSet<Int>) {
@@ -295,7 +308,8 @@ class TreeSyncEngine(
 
         /**
          * 递归收集视频文件。
-         * @param seasonNo >0 时，遇到「看起来是别的季」的目录整棵跳过
+         * @param seasonNo >=0 时（0 = 特别版），遇到「看起来是别的季」的目录整棵跳过；
+         *                 负值（平铺 / 多季）不做季过滤。
          */
         private fun collectVideos(
             node: ShareNode,
@@ -310,13 +324,42 @@ class TreeSyncEngine(
                         return@forEach
                     }
                     val season = SeasonParser.parse(child.name)
-                    if (seasonNo > 0 && season != null && season != seasonNo) return@forEach
+                    if (seasonNo >= 0 && season != null && season != seasonNo) return@forEach
                     collectVideos(child, out, seasonNo, depth + 1)
                 } else if (child.isVideo) {
                     out += child
                 }
             }
         }
+
+        /**
+         * 多季模式收集：带上每个视频「属于哪一季」。
+         * 优先级：文件名里的季号（S01E01 / 第2集…） > 最近一层能解析出季号的目录名（Season 2 / Specials）。
+         * 都没有 → null（格式不明的散文件，落剧名根目录）。
+         */
+        private fun collectVideosWithSeason(
+            node: ShareNode,
+            out: MutableList<Pair<ShareNode, Int?>>,
+            inherited: Int?,
+            depth: Int,
+        ) {
+            node.children.sortedWith(NATURAL).forEach { child ->
+                if (child.isDir) {
+                    if (depth + 1 > maxDepth) {
+                        failures += "深度超限，跳过「${child.name}」"
+                        return@forEach
+                    }
+                    // 目录名是「整季」提示；更深层仍可被更具体的目录名覆盖
+                    val dirSeason = SeasonParser.parse(child.name) ?: inherited
+                    collectVideosWithSeason(child, out, dirSeason, depth + 1)
+                } else if (child.isVideo) {
+                    out += child to (EpisodeParser.seasonOf(child.name) ?: inherited)
+                }
+            }
+        }
+
+        /** 目标侧季目录名（含特别版 Season 0） */
+        private fun seasonFolderName(no: Int): String = "Season $no"
 
         suspend fun run(tree: ShareNode, destRootFid: String, taskName: String) {
             val units = selectUnits(tree)
