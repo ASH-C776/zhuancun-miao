@@ -1340,3 +1340,43 @@ Kotlin 的 `find` 取的是「全文最靠前的匹配」，不是「最靠前�
 - 单测 141/141 通过（无新增/删除用例）
 - `assembleRelease` 通过，产物 2,182,278 字节（与 0.8.2 一致，仅展示层改动，不影响体积）
 - 本次未升版本号（仍是 0.8.2 / 802），未装机：无线 ADB 离线（`192.168.31.144` / `192.168.31.158` 均超时，mdns 无服务），需手机端开无线调试后补装核对界面
+
+## Stage 52（2026-11-24）后台自动刷新：P1-P5 落地
+
+**口径（用户拍板）**：定时点人工设定、到点必跑、不受冷却约束；插电触发受固定 3 小时冷却；不做 Wi-Fi 约束；不做「立即运行一次」。
+
+**新增 `sync/` 包（6 文件，独立成块，可整体摘除）**
+- `AutoSyncConfig`：时段校验 / 规范化（最多 4 条、去重排序）、下一次触发时刻（跨零点、正好到点取明天）、3 小时冷却判定。纯 Kotlin，零 Android 依赖
+- `AutoSyncPrefs`：独立 `auto_sync_prefs`（开关 / 时段 / 充电 / 通知 / 上次运行 / 24h 计数 / 跳过原因），**不碰 Room**，DB 仍 v11
+- `AutoSyncScheduler`：唯一入口 `requestRun` / `scheduleSlot` / `rescheduleAll` / `cancelAll`；`ExistingWorkPolicy.KEEP` 保证同一时刻只有一轮
+- `AutoSyncWorker` + `AutoSyncEngine`：自建 repo/runner，调既有 `TaskRunner.runAll(tasks, TRIGGER_BACKGROUND)`；汇总新增集数与失败
+- `AutoSyncNotifier`：独立渠道 `auto_sync`，只在「有新增 / 有失败」时发，空转静默
+- `ChargingReceiver`：`ACTION_POWER_CONNECTED` → 统一入口（清单静态注册，白名单广播）
+
+**调度算法**
+- 每个 `HH:mm` 一条唯一命名的 OneTimeWork，`initialDelay` 到下一个该时刻；Worker 跑完自续下一次（不用 PeriodicWork，避免 15 分钟粒度漂移）
+- 定时点不受冷却；插电受 `lastRunStartAt + 3h` 约束（入口判一次、Worker 再判一次，覆盖 Doze 延迟）
+
+**UI（`ui/AutoSyncSection.kt`，设置页「外观」段后插入一行调用）**
+- 总开关 → 每天刷新（时段 chip 带 × 删除 + 「+ 添加」对话框）→ 充电时刷新 → 跑完发通知 → 状态卡
+- 状态卡：上次（几点 / 新增几集）、最近 24h 次数、下次时刻、冷却提示（「距上次 1 小时 20 分，插电将跳过」）、超 3 天未运行的橙字告警
+- 首次开启自动刷新时申请 `POST_NOTIFICATIONS`（Android 13+）
+
+**隔离落实**
+- `TaskRunner` / `TreeSyncEngine` / `TasksViewModel` / `TaskListScreen` / `RunLogScreen` 一行未改；日志页靠既有 `triggerLabel` 显示「自动同步」
+- 数据库零迁移；配置全部在 `auto_sync_prefs`
+- 一律不用 `AlarmManager` 精确闹钟
+
+**依赖与打包**
+- `androidx.work:work-runtime-ktx:2.9.1`（本地缓存原先没有，从镜像拉到）
+- R8 加 `-keep class com.ashchan.cloudsaver.sync.AutoSyncWorker`（WorkManager 反射实例化）
+- release 包 2,282,928 字节（+100KB，主要为 WorkManager）
+
+**验证**
+- 单测 **160/160**（新增 `AutoSyncConfigTest` 19 例：格式、规范化、跨零点/月末、正好到点、多时段取最近、冷却边界 2h59m / 3h00m / 负值）
+- `assembleDebug` / `assembleRelease` 均通过
+- 已装机 `versionCode=802 / versionName=0.8.2 / lastUpdateTime=22:06:50`；设置页 UI 尚未截图核对（截图时手机前台是微信，未抢前台）
+
+**待办（P6/P7）**
+- 真机开开关后核对：WorkManager job 存在且时段正确、划掉 App 后按时跑、插电 CD、通知、一晚耗电
+- 电池优化白名单引导（当前仅状态卡橙字，未做跳转按钮）

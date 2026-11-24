@@ -26,3 +26,6 @@
 -dontwarn okhttp3.**
 -dontwarn okio.**
 -dontwarn org.codehaus.mojo.animal_sniffer.*
+
+# 自动刷新：Worker 由 WorkManager 按类名反射实例化，R8 改名后可能找不到
+-keep class com.ashchan.cloudsaver.sync.AutoSyncWorker { *; }

@@ -1111,6 +1111,9 @@ fun SettingsScreen(
                 }
             }
 
+            // 自动化：后台自动刷新（独立 auto_sync_prefs，不动数据库、不动任务列表）
+            AutoSyncSection()
+
             // 底部：关于 / 打赏作者
             Spacer(Modifier.height(24.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)

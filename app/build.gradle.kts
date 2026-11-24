@@ -99,6 +99,9 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
 
+    // 后台调度：WorkManager（自动刷新用）
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
+
     // 协程
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
 

@@ -142,3 +142,121 @@ WorkManager 周期任务 + 设置页开关/频率/约束/通知 + 日志显示�
 5. **自动轮是否更保守**：改名并发从 2 降到 1（慢一点但不撞限流），还是保持 2？
 
 确认后我按 Phase 1 先落地，跑一周看实际触发情况，再决定要不要做 Phase 2 的精确兜底。
+
+---
+
+# 后台自动刷新 · v2 定稿（2026-11-24）
+
+> v1 是讨论稿（每 6/12/24 小时档 + 「仅充电时」约束）。后经用户确认，语义改为：**自定义时段表 + 插电即跑 + 不做 Wi-Fi 约束 + 不做「立即运行一次」**。本文为最终方案与推进步骤。
+
+## 一、产品口径（已定）
+
+| 项 | 定稿 |
+| --- | --- |
+| 触发一：每天定时 | 用户自定义 `HH:mm`，最多 4 条，默认 `09:00` + `20:00`，每条独立每天跑一次 |
+| 触发二：充电 | **插电即跑一次**（触发器，不是闸门）；不是「仅在充电时才跑」 |
+| 网络 | 不限制、不提示、不做仅 Wi-Fi 开关；只发 API 请求，流量可忽略 |
+| 立即运行一次 | 不做；主页右下圆钮「全部检测」已承担该职责 |
+| 通知 | 默认开，独立渠道；只在「有新集 / 有失败」时发，纯空转不发 |
+| 总开关 | 默认关；关着时零调度、零唤醒、零通知 |
+| 设置页位置 | 「外观」段之后新增「自动化」段，顺序与 mockup v3 一致 |
+
+## 二、刷新机制（回答「App 关了还能不能跑」）
+
+- 调度用 **WorkManager**：任务持久化在系统里，**App 进程被划掉、甚至重启手机后仍会被拉起执行**（`BOOT_COMPLETED` 后 WorkManager 自行恢复，不需要额外开机广播）。
+- 两类无法保证：用户在系统里对 App 点「强行停止」；HyperOS 的激进省电把后台彻底冻住。对策是设置页给「自检」入口（引导开启「省电策略：无限制」），并在状态卡上给出异常文案（如「已 3 天未运行 · 可能被系统限制」）。
+- 电量与占用：转存是**服务端复制**，手机只发 API 请求。空转一轮约几十秒、几十 KB；有新增集时受改名限流（`THROTTLE_DELAY_MS=2500`、并发 2）影响，83 集约 3.5 分钟。日常耗电可忽略，睡眠期由 WorkManager 合并唤醒。
+
+## 三、算法设计
+
+1. **时段链**：每个 `HH:mm` 注册一条**唯一命名的 OneTimeWork**（`auto-sync-slot-{index}`），`initialDelay` = 距离下一个该时刻的时长；Worker 跑完后再排同一时刻的下一次（自续期）。不用 PeriodicWork，避免 WorkManager 15 分钟粒度带来的时间漂移；Doze 下允许延后十几分钟，属预期。
+2. **充电触发**：静态注册 `ACTION_POWER_CONNECTED` 广播接收器（该广播在 Android 8+ 的后台广播限制白名单内），收到后交给统一入口，不直接起 Work。
+3. **统一入口 `AutoSyncScheduler.requestRun(context, reason)`**：所有触发（时段 / 充电）都必须走它，它负责：
+   - 总开关关 → 直接 return
+   - 距上次运行 < **3 小时** → return（防抖，所有来源共用同一份节流，避免插电与定时叠着跑）
+   - 已在跑（进程内 `AtomicBoolean` + `ExistingWorkPolicy.KEEP`）→ return
+   - 通过后投递唯一 Work `auto-sync-run`
+4. **执行**：`CoroutineWorker` 里 `TaskRepository(AppDatabase.get(ctx))` + `TaskRunner(repo, CredentialStore, TmdbStore, RuleStore)` 自行组装（和 `MainActivity` 里同样的构造方式，不依赖 ViewModel），取 `repo.tasks().filter { it.enabled }`，调 **`runner.runAll(tasks, RunRecordEntity.TRIGGER_BACKGROUND)`**。这条路径 v0.7 就已存在，只是没人调。
+5. **汇总与落盘**：把各任务的 `Report.restoredFiles` 求和、`renameItems` 求和、失败数与原因收集；写 `auto_sync_prefs` 的 `lastRunAt / lastRunOk / lastRunNew / runCount24h`；运行日志本身由 `TaskRunner.run` 内部写 `RunRecordEntity`（trigger=background），日志页无需改动即可看到。
+6. **通知**：`新增>0 || 失败>0` 才发一条合并通知；点击回到任务列表。空转不发。
+7. **10 分钟上限**：WorkManager 单个 Worker 约 10 分钟会被系统停。对策：先按串行实跑（典型 1 分钟内完成）；若实测有任务群超过 8 分钟，再给 Worker 加 `setForeground`（走前台服务通知）作为兜底，不改并行度。
+
+## 四、隔离红线（避免影响其他模块）
+
+| 红线 | 具体做法 |
+| --- | --- |
+| 不动数据库 | 配置全部存 `SharedPreferences("auto_sync_prefs")`，**不加表、不加字段、不做迁移**（DB 仍是 version 11） |
+| 不动引擎 | `TaskRunner` / `TreeSyncEngine` / `TransferManager` 一行不改，只调它们的公开入口 |
+| 不动既有 UI | `TaskListScreen` / `RunLogScreen` / `NewTaskScreen` 一字不改；设置页只在「外观」段后**插入一行**调用新组件，其余段落原样 |
+| 不动 ViewModel | 后台路径不碰 `TasksViewModel`（它绑 `viewModelScope`，进程被杀就死）；自建无 UI 引擎 |
+| 不引精确闹钟 | 不用 `AlarmManager` 精确闹钟，避免 Android 12+ 权限弹窗与厂商拦截 |
+| 单一调度入口 | 所有触发只经 `AutoSyncScheduler`，任何组件都不许自己 `enqueue` |
+| 可整体摘除 | 关总开关 = 取消全部 Work + 撤销时段；卸载这个功能只需删 `sync/` 包 + 设置页一行调用 |
+
+## 五、文件清单
+
+**新增（`sync/` 包，7 个文件）**
+
+- `AutoSyncConfig.kt`：时段解析/校验（`HH:mm`→分钟、排序去重、最多 4 条）、下次时刻计算（纯函数，可单测）
+- `AutoSyncPrefs.kt`：`auto_sync_prefs` 读写（开关、时段表、充电开关、通知开关、lastRunAt、计数）
+- `AutoSyncScheduler.kt`：唯一入口 `requestRun()` / `rescheduleAll()` / `cancelAll()`
+- `AutoSyncWorker.kt`：`CoroutineWorker`，执行 + 汇总 + 调 Notifier
+- `AutoSyncEngine.kt`：无 UI 执行体（自建 repo/runner，`runAll` 串行，返回汇总结果）
+- `AutoSyncNotifier.kt`：独立渠道 `auto_sync`、合并通知、权限检查
+- `ChargingReceiver.kt`：`ACTION_POWER_CONNECTED` → `requestRun(REASON_CHARGING)`
+
+**修改（仅 4 处）**
+
+- `app/build.gradle.kts`：加 `androidx.work:work-runtime-ktx`
+- `AndroidManifest.xml`：注册 `ChargingReceiver`
+- `ui/AppScreens.kt`：`SettingsScreen` 里「外观」段后插入 `AutoSyncSection(...)` 一行
+- `ui/AutoSyncSection.kt`（新增 UI 文件，放在 `ui/` 而非 `sync/`，与设置页其他段同层）
+
+> 单测新增 `AutoSyncConfigTest`（时段解析、跨零点下次时刻、最多 4 条上限、防抖判定），既有 141 例不动。
+
+## 六、推进步骤（每步可独立回退）
+
+**P1 配置层（纯逻辑，先测）**
+产出：`AutoSyncConfig` + `AutoSyncPrefs` + 单测。
+验收：单测全绿（新增 ≥ 12 例）；不接任何 Android 调度，装上去界面无任何变化。
+回退：删两个文件 + 一个测试文件。
+
+**P2 调度层（只排程，不干活）**
+产出：`AutoSyncScheduler` + `AutoSyncWorker`（先只写一条日志就 return）+ `ChargingReceiver` + 清单 + 依赖。
+验收：手动在代码里开开关，用 `adb shell dumpsys jobscheduler | grep zhuancunmiao` 能看到唯一的 job；插电后 3 小时内再插一次不产生第二次；关开关后 job 清空。
+回退：删 4 个文件 + 回退依赖与清单两行。
+
+**P3 执行层（真跑）**
+产出：`AutoSyncEngine`（接 `runner.runAll(..., TRIGGER_BACKGROUND)`）+ 汇总。
+验收：真机上关掉 App（划掉最近任务）→ 等到时段 → 日志页出现 trigger=background 的记录、集数正确增长；连续两次触发间隔 < 3h 时第二次不跑。
+回退：`AutoSyncWorker` 里改回「只写日志」，其余保留。
+
+**P4 通知**
+产出：`AutoSyncNotifier` + 渠道 + 点击跳转。
+验收：有新增集时通知出现且点开回到任务列表；纯空转不发；Android 13 首次开开关时弹通知权限。
+回退：`AutoSyncPrefs` 的通知开关默认关即可屏蔽。
+
+**P5 设置页 UI**
+产出：`ui/AutoSyncSection.kt`（总开关 / 时段 chips+ `+` / 充电时刷新 / 跑完发通知 / 状态卡）+ 设置页一行插入。
+验收：与 mockup v3 逐项对齐；总开关关时整段收起；改动时段立即重排 Work；状态卡数字与 prefs 一致。
+回退：删一行调用，界面回到现状，后台仍可用。
+
+**P6 容错与自检**
+产出：状态卡异常文案（「今晚未跑 · 未充电」「已 3 天未运行 · 可能被系统限制」）+「去设置省电策略」入口（跳系统页）。
+验收：故意断网 / 关充电，状态卡给出可读原因而不是空白。
+
+**P7 联调 + 发版**
+验收清单：① App 划掉后按时跑；② 手机重启后仍按时跑；③ 插电即跑且 3h 内不重复；④ 通知内容正确；⑤ 一晚待机耗电 < 2%；⑥ 单测全绿；⑦ 更新 CHANGELOG、发 v0.9.0 双端。
+
+## 七、待你拍板的三点
+
+1. **3 小时最小间隔**（时段触发与充电触发共用）：建议采纳，界面不暴露。
+2. **默认时刻** `09:00` + `20:00`：确认即定。
+3. **时段触发是否也受 3h 限制**：若你希望「晚上 20:00 一定跑，哪怕 18:00 刚插电跑过」，则时段触发不受限、只有充电触发受限——这种更符合直觉，但会出现一晚两次。默认按「都受限」。
+
+## v3 追加确认（2026-11-24，用户拍板）
+
+- 冷却固定 **3 小时**，不做 3/6/12 档可选，界面不暴露
+- 手动「全部检测」**不**写自动刷新时间戳（实现上不加钩子，保持 TasksViewModel 零改动）；表现为手动刚跑完插电仍会再跑一轮，若以后觉得多余，只需在 unAll 里加一行写 prefs
+- 关机/深度休眠错过的定时点，恢复后**只补最近一次**，更早的丢弃
+- 定时点 **不受** 3 小时约束（人工设定即承诺）；只有插电触发受它约束
