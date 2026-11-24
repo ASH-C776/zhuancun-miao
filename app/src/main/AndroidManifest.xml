@@ -8,6 +8,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 自更新：下载 APK 后拉起系统安装器（Android 8+ 还需用户在设置里允许「安装未知应用」） -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- 普通权限，不弹窗：仅调试入口（wakeScreen extra）用来点亮屏幕，方便真机截屏回归 -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- 仅 Android 9 及以下保存打赏二维码到相册需要；Android 10+ 走 MediaStore 免权限 -->
@@ -46,6 +48,18 @@
                 <data android:scheme="https" android:host="drive.quark.cn" />
             </intent-filter>
         </activity>
+
+        <!-- 自更新：把 filesDir/update 下的 APK 以 content:// 交给系统安装器
+             （targetSdk ≥ 30 传 file:// 会 FileUriExposedException，用户看到「解析包错误」） -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>

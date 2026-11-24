@@ -168,6 +168,14 @@ fun AppRoot(
     // 启动时后台检测一次 GitHub Releases 是否有新版本（有则红点提示）
     val appVersion = currentVersion()
     LaunchedEffect(Unit) { viewModel.checkUpdate(appVersion) }
+    // 自更新：延迟 5 秒检测，24 小时最多一次；只在主页面弹，别在看图/设置时打断
+    val context = LocalContext.current
+    val updateManager = remember(context) { com.ashchan.cloudsaver.update.UpdateManager(context) }
+    LaunchedEffect(Unit) { updateManager.autoCheck() }
+    val updatePrompt by updateManager.prompt.collectAsState()
+    val updateAvailable by updateManager.available.collectAsState()
+    val updateProgress by updateManager.progress.collectAsState()
+    val updateFailed by updateManager.failed.collectAsState()
     // 底栏四栏 → 四个页面。切换时清掉「添加」页的编辑态，避免从别的栏目回来还停在编辑。
     fun goTab(tab: MainTab) {
         when (tab) {
@@ -234,6 +242,26 @@ fun AppRoot(
         Screen.FOLDER_PICKER -> FolderPickerScreen(viewModel)
         Screen.ABOUT -> AboutScreen(viewModel)
         Screen.DONATE -> DonateScreen(viewModel)
+    }
+    // 自更新弹窗：只在任务主页面上出现（用户正在看图/设置时不打断）
+    val info = updateAvailable
+    if (updatePrompt && info != null && screen == Screen.TASKS) {
+        com.ashchan.cloudsaver.update.UpdateDialog(
+            info = info,
+            currentVersionName = updateManager.currentVersionName(),
+            progress = updateProgress,
+            failed = updateFailed,
+            onDismiss = { updateManager.dismiss() },
+            onUpdate = {
+                if (!updateManager.canInstallPackages()) {
+                    // 首次自更新要先允许「安装未知应用」，跳到系统设置，授权后回来再点更新
+                    updateManager.openInstallPermissionSettings()
+                } else {
+                    updateManager.downloadAndInstall()
+                }
+            },
+            onRetry = { updateManager.retry() },
+        )
     }
 }
 

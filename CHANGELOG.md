@@ -1258,3 +1258,41 @@ Kotlin 的 `find` 取的是「全文最靠前的匹配」，不是「最靠前�
 名称框右侧的搜索图标 `contentDescription` 未改（无障碍描述里保留「搜索剧集」语义）。
 
 **验证**：`assembleDebug` 通过，已装机（lastUpdateTime 11:17:32）。
+
+## Stage 49（2026-11-24）应用自更新（不经过应用商店）
+
+**需求**：照 `D:\work buddy\fnphoto\APP 更新说明方案.md` 移植自更新 —— 把 APK 挂到 Gitee / GitHub Release，APP 启动后读 Release 列表，发现更高版本就弹窗，用户同意后下载 APK 交给系统安装器覆盖安装。无服务器、无应用商店、无 token。
+
+**版本口径（必须与 build.gradle 一字不差）**
+- `appVersionName` 改为 **0.8.0**，`appVersionCode` 由公式算出：`major*10000 + minor*100 + patch` → 800
+- 客户端 `UpdateRules.parseVersionCode` 用同一公式；单测钉死一致性，防「提示降级 / 永远提示有新版」
+- 装机核对：`versionCode=800`、`versionName=0.8.0-debug`
+
+**新增 `update/` 包（7 个文件）**
+- `UpdateInfo.kt`：`UpdateInfo` 模型 + `UpdateRules.parseVersionCode` / `pickLatest`（纯函数，可单测）
+- `UpdatePrefs.kt`：独立 `update_prefs.xml`，只存 `lastCheckMs` / `dismissedCode`，24 小时节流常量（`START_DELAY_MS=5000`、`INTERVAL_MS=24h`）
+- `UpdateSource.kt`：`UpdateSource` 接口 + `DefaultUpdateSource`（Gitee + GitHub 并发请求，独立干净 OkHttpClient 8s/20s/20s；跳过 `prerelease` / `draft`；只认 `.apk` 附件；`browser_download_url` 取直链；同版本优先 Gitee）
+- `UpdateManager.kt`：状态机（延迟 5 秒检测 → 24h 节流 → 等主页面 → 下载 → FileProvider 交系统安装器）；`currentVersionCode` 从 PackageManager 读；下载两道校验（Content-Length 对得上、≥1KB），失败删半截文件；`canRequestPackageInstalls` 判断 + 跳「允许安装未知应用」设置页
+- `UpdateDialog.kt`：三态弹窗（确认「发现新版本 vX.Y.Z / 当前版本」+ 取消/更新；下载中「正在下载… N%」+ 进度条、无按钮；失败「下载失败，检查网络后再试」+ 取消/重试），`RoundedCornerShape(24.dp)` 与现有弹窗一致，默认动作给「取消」
+- `UpdateRulesTest.kt`（新增单测 7 例：公式一致、两位版本补零、剥离 v 前缀/后缀、脏数据拒绝、无更高版本不弹、跨端取最高、同版本 Gitee 优先）
+
+**改动**
+- `AndroidManifest.xml`：加 `REQUEST_INSTALL_PACKAGES`；加 `FileProvider`（authority `${applicationId}.fileprovider`，导出 false，grantUriPermissions true）
+- `res/xml/file_paths.xml`（新）：`<files-path name="update" path="update/" />`
+- `AppScreens.kt` 的 `AppRoot`：`UpdateManager` 随组合创建 + `autoCheck()`；弹窗只在 `screen == Screen.TASKS` 时出现（不在看图/设置时打断）；点「更新」时若未授权「安装未知应用」先跳系统设置
+
+**撤销（上午误按「后台定期自动更新」方案写了一半的代码）**
+用户明确本次要做的是「应用自更新」，不是后台自动同步，故整份撤回：删除 `sync/` 下 `AutoSyncPrefs` / `AutoSyncScheduler` / `AutoSyncPolicy` / `AutoSyncNotify` / `AutoSyncWorker` 五个文件，回退 `build.gradle.kts` 的 `work-runtime-ktx` 依赖、`MainActivity` 的 ensure/补跑代码、`TaskRepository.lastSyncAt()`。方案文档 `docs/auto-sync-plan.md` 保留，等真要后台同步时再按它继续。
+
+**发布侧约定（发版时必须照做）**
+1. Release tag 用 `vX.Y.Z`（三段数字），`name` 与 tag 同名
+2. `prerelease` / `draft` 必须是 false
+3. 必须上传 APK 作为附件（建议 `zhuancun-miao-vX.Y.Z.apk`）
+4. 发出的包必须与已装包**同包名、同签名**（本项目 release 复用 debug 签名，debug/release 都落在 `com.ashchan.cloudsaver`，可互相覆盖）
+5. Gitee 建 Release 时参数只能走 URL query（JSON body 会 401）
+
+**未做**
+- Gitee 仓库坐标暂留空（`DefaultUpdateSource.GITEE_REPO = ""`，为空自动跳过），只走 GitHub
+- 发布正文（Release body / 更新说明）刻意不在弹窗里展示
+
+**验证**：单测 141/141 通过（新增 7 例），`assembleDebug` 通过，已装机（`versionCode=800`，lastUpdateTime 11:33:35）。端到端「检测 → 弹窗 → 下载 → 安装」还需一个高版本 Release 才能验（仓库现有最高 v0.6.0=600，低于 800，不会误弹）。

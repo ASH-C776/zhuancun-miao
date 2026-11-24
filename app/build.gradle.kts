@@ -9,12 +9,23 @@ android {
     namespace = "com.ashchan.cloudsaver"
     compileSdk = 34
 
+    /**
+     * 版本号统一口径：三段数字，versionCode = major*10000 + minor*100 + patch。
+     * 客户端更新检测解析 Release tag 用的是**同一公式**（UpdateRules.parseVersionCode），
+     * 两边必须一字不差，否则会出现「提示降级」或「永远提示有新版」。
+     */
+    val appVersionName = "0.8.0"
+    val appVersionCode = appVersionName
+        .split(".")
+        .map { it.toInt() }
+        .let { it.getOrElse(0) { 0 } * 10000 + it.getOrElse(1) { 0 } * 100 + it.getOrElse(2) { 0 } }
+
     defaultConfig {
         applicationId = "com.ashchan.cloudsaver"
         minSdk = 26
         targetSdk = 34
-        versionCode = 30
-        versionName = "0.7.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
     }
 
     signingConfigs {
