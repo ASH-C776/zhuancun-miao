@@ -1249,3 +1249,12 @@ Kotlin 的 `find` 取的是「全文最靠前的匹配」，不是「最靠前�
 原先的「选「通用命名」后才能开启 tmdb id」「先在名称框右侧搜索绑定剧集…」两句继续保持删除（置灰按钮即提示）。
 
 **验证**：单测 134/134 通过，`assembleDebug` 通过，已装机（lastUpdateTime 10:40:36）。
+
+## Stage 48（2026-11-24）TMDB 搜索弹窗标题改为「匹配 TMDB 剧集」
+
+**需求**：弹窗标题原来叫「搜索剧集」，容易和 App 自己的剧集/任务混淆，改为「匹配 TMDB 剧集」，明确这一步是在绑 TMDB 条目。
+
+**改动**：`NewTaskScreen` 里 `TmdbSearchDialog` 的 `title` 文案改为「匹配 TMDB 剧集」；搜索框 placeholder 仍是「剧名」，按钮仍是「关闭」。
+名称框右侧的搜索图标 `contentDescription` 未改（无障碍描述里保留「搜索剧集」语义）。
+
+**验证**：`assembleDebug` 通过，已装机（lastUpdateTime 11:17:32）。

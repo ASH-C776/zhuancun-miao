@@ -1403,7 +1403,7 @@ private fun TmdbSearchDialog(
     AlertDialog(
         shape = RoundedCornerShape(24.dp),
         onDismissRequest = onDismiss,
-        title = { Text("搜索剧集", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold) },
+        title = { Text("匹配 TMDB 剧集", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold) },
         text = {
             Column(Modifier.heightIn(max = 460.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
