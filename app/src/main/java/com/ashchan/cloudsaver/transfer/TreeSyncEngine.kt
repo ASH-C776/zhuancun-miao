@@ -49,6 +49,8 @@ class TreeSyncEngine(
          * null = 按 failures 是否为空判定（单源与原行为一致）。
          */
         val explicitOk: Boolean? = null,
+        /** 不是错误、但要让人看到的结论（季判定 / 冲突已按文件名处理等） */
+        val notes: List<String> = emptyList(),
     ) {
         val ok: Boolean get() = explicitOk ?: failures.isEmpty()
     }
@@ -109,11 +111,13 @@ class TreeSyncEngine(
         renamePlan: Map<String, String> = emptyMap(),
         seasonNo: Int = TaskEntity.SEASON_FLAT,
         multiSeason: Boolean = false,
+        /** 多季模式下「文件名季号」与「目录季号」冲突时以哪边为准（默认文件名，用户口径） */
+        seasonPrefer: SeasonPrefer = SeasonPrefer.FILE,
         maxDepth: Int = DEFAULT_MAX_DEPTH,
         onProgress: (stage: Int, percent: Int, message: String) -> Unit = { _, _, _ -> },
     ): Result<Report> = runCatching {
         val session = Session(adapter, share, renamePlan, maxDepth.coerceAtMost(MAX_DEPTH), onProgress)
-        if (multiSeason) session.runFlatMulti(tree, destRootFid) else session.runFlat(tree, destRootFid, seasonNo)
+        if (multiSeason) session.runFlatMulti(tree, destRootFid, seasonPrefer) else session.runFlat(tree, destRootFid, seasonNo)
         session.report()
     }
 
@@ -195,6 +199,9 @@ class TreeSyncEngine(
         /** 网络断了就别继续发请求（否则每个文件都刷一条同样的错） */
         private var aborted = false
         private val failures = mutableListOf<String>()
+        /** 不是错、但需要让人看到的结论（如「季判定：Season 1 × 12、3 个冲突已按文件名」） */
+        private val notes = mutableListOf<String>()
+        private val depthSkipped = mutableListOf<String>()
 
         /**
          * 目标目录内容缓存：同一次同步里同一目录只列一次。
@@ -203,7 +210,14 @@ class TreeSyncEngine(
          */
         private val destCache = mutableMapOf<String, MutableMap<String, DriveFile>>()
 
-        fun report() = Report(restoredDirs, restoredFiles, renamedItems, skippedFiles, failures.toList())
+        fun report() = Report(
+            restoredDirs = restoredDirs,
+            restoredFiles = restoredFiles,
+            renamedItems = renamedItems,
+            skippedFiles = skippedFiles,
+            failures = (failures + depthSkipped).toList(),
+            notes = notes.toList(),
+        )
 
         /** 只转树根的直接视频文件，不建文件夹、不下钻（对应平铺型分享） */
         suspend fun runDirect(tree: ShareNode, destRootFid: String) {
@@ -214,25 +228,35 @@ class TreeSyncEngine(
         }
 
         /**
-         * 多季模式：不按任务季度过滤，而是**按每个文件自身的季号**（S01E01 / `第2季…`）分组，
-         * 每季落进 `剧名/Season N/`；文件名里解析不出季号时，用最近一层能解析出季号的目录名兜底
-         * （分享里常见 `Season 2/xx.mkv` 这种文件本身不带季号的排布）。
+         * 多季模式：不按任务季度过滤，而是**按每个文件自身的季号**分组，每季落进 `剧名/Season N/`。
          *
-         * **Season 0 / 特别版是正常一季**：目录叫 `Specials`、`Season 0`、`特别篇`，
-         * 或文件名是 `S00E01`，都归到 `Season 0` 目录，不平铺到剧名根下。
-         * 只有季号完全解析不出来的文件才留在根目录。
+         * 判定细节统一交给 [SeasonResolver]（文件名优先、目录名兜底、冲突单列）：
+         * - 文件名有季号就按文件名（`S02E01` 一定进 Season 2）；
+         * - 文件名没有、「Season 2/xxx.mkv」这种就用目录名兜底；
+         * - 两边都有但互相矛盾 → 按 [prefer] 取一边，并把冲突数写进本轮说明；
+         * - 完全没线索 → 留在剧名根目录。
          *
-         * 这样「一部剧多个 Season 子目录」的分享能一次收完，且 S02E01 不会写成 S01E01
-         * （改名模板里的 `{SXX}` 取自文件自身季号，不取任务季度）。
+         * **Season 0 / 特别版是正常一季**（`Specials`、`Season 0`、`特别篇`、`S00E01`），进 `Season 0`。
          */
-        suspend fun runFlatMulti(tree: ShareNode, destRootFid: String) {
-            val videos = mutableListOf<Pair<ShareNode, Int?>>()
-            collectVideosWithSeason(tree, videos, inherited = null, depth = 0)
-            if (videos.isEmpty()) throw IllegalStateException(noVideoMessage(tree, TaskEntity.SEASON_FLAT))
-            videoTotal = videos.size
+        suspend fun runFlatMulti(
+            tree: ShareNode,
+            destRootFid: String,
+            prefer: SeasonPrefer = SeasonPrefer.FILE,
+        ) {
+            val plan = SeasonResolver.resolve(tree, maxDepth)
+            depthSkipped.addAll(plan.depthSkipped)
+            if (plan.items.isEmpty()) throw IllegalStateException(noVideoMessage(tree, TaskEntity.SEASON_FLAT))
+            videoTotal = plan.items.size
             onProgress(0, 0, "比对文件")
 
-            val groups = videos.groupBy { it.second }.toSortedMap(
+            val note = plan.summary(prefer)
+            notes += if (plan.conflictCount > 0) {
+                "$note（默认按文件名；要改按目录名请编辑任务后「运行一次」确认）"
+            } else {
+                note
+            }
+
+            val groups = plan.groups(prefer).toSortedMap(
                 compareBy<Int?> { it == null }.thenBy { it ?: 0 }
             )
             val realSeasons = groups.keys.count { it != null }
@@ -247,7 +271,7 @@ class TreeSyncEngine(
                 } else {
                     destRootFid
                 }
-                syncFiles(list.map { it.first }, destFid)
+                syncFiles(list, destFid)
             }
         }
 
@@ -328,32 +352,6 @@ class TreeSyncEngine(
                     collectVideos(child, out, seasonNo, depth + 1)
                 } else if (child.isVideo) {
                     out += child
-                }
-            }
-        }
-
-        /**
-         * 多季模式收集：带上每个视频「属于哪一季」。
-         * 优先级：文件名里的季号（S01E01 / 第2集…） > 最近一层能解析出季号的目录名（Season 2 / Specials）。
-         * 都没有 → null（格式不明的散文件，落剧名根目录）。
-         */
-        private fun collectVideosWithSeason(
-            node: ShareNode,
-            out: MutableList<Pair<ShareNode, Int?>>,
-            inherited: Int?,
-            depth: Int,
-        ) {
-            node.children.sortedWith(NATURAL).forEach { child ->
-                if (child.isDir) {
-                    if (depth + 1 > maxDepth) {
-                        failures += "深度超限，跳过「${child.name}」"
-                        return@forEach
-                    }
-                    // 目录名是「整季」提示；更深层仍可被更具体的目录名覆盖
-                    val dirSeason = SeasonParser.parse(child.name) ?: inherited
-                    collectVideosWithSeason(child, out, dirSeason, depth + 1)
-                } else if (child.isVideo) {
-                    out += child to (EpisodeParser.seasonOf(child.name) ?: inherited)
                 }
             }
         }

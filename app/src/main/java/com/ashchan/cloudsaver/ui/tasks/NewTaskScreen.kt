@@ -814,6 +814,45 @@ fun NewTaskScreen(
         )
     }
 
+    // 多季试跑的季号冲突确认：只在这种「文件名说 S02、文件夹写 Season 1」的真矛盾时出现
+    val seasonConflict by viewModel.draftConflict.collectAsState()
+    seasonConflict?.let { info ->
+        AlertDialog(
+            shape = RoundedCornerShape(24.dp),
+            onDismissRequest = { viewModel.dismissDraftSeasons() },
+            title = { Text("季号对不上，需要你确认", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold) },
+            text = {
+                Column {
+                    Text(
+                        "共 ${info.totalVideos} 个视频，其中 ${info.count} 个文件的季号和所在目录不一致：",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    info.examples.forEach { example ->
+                        Text(
+                            "· $example",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
+                    }
+                    Text(
+                        "文件名里的 S02E01 通常比文件夹名可信，确认后按文件名分季保存；" +
+                            "想把这次跑完再改也不会动已转存的文件。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 10.dp),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { viewModel.confirmDraftSeasonsByFile() }) { Text("按文件名") }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.dismissDraftSeasons() }) { Text("取消") }
+            },
+        )
+    }
+
     if (showTimePicker) {
         val initial = airTime.split(":")
         val state = rememberTimePickerState(

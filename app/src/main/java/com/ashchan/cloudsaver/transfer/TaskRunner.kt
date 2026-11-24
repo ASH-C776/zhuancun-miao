@@ -162,6 +162,41 @@ class TaskRunner(
         return if (fallback.isEmpty()) emptyList() else listOf(RunTarget(0, fallback))
     }
 
+    /**
+     * 转存前预检（只读）：多季任务先扫一遍分享树，看有没有「文件名季号和目录季号对不上」。
+     *
+     * 调用方（新建页/编辑页）拿到非 null 结果就弹一次确认；正式跑卡片的「运行」不预检，
+     * 直接按文件名处理并把结论写进日志——那边没有弹窗时机。
+     *
+     * 任何一步失败都返回 null（预检是增强，不是前置条件，不能挡住正常转存）。
+     */
+    suspend fun precheckSeasons(task: TaskEntity, draftLinks: List<String>): SeasonConflictInfo? {
+        if (task.seasonNo != TaskEntity.SEASON_MULTI) return null
+        val drive = DriveType.fromName(task.driveType) ?: return null
+        return runCatching {
+            val targets = targetsOf(task, draftLinks)
+            if (targets.isEmpty()) return@runCatching null
+            val adapter = DriveSession.ensure(drive, credentialStore).getOrElse { return@runCatching null }
+            val share = adapter.parseShareLink(targets.first().url).getOrThrow()
+            val resolved = adapter.resolveShareAccess(share).getOrThrow()
+            val tree = adapter.fetchShareTree(
+                share = resolved,
+                maxDepth = TreeSyncEngine.DEFAULT_MAX_DEPTH,
+            ).getOrThrow()
+            val plan = SeasonResolver.resolve(tree, TreeSyncEngine.DEFAULT_MAX_DEPTH)
+            if (plan.conflictCount == 0) {
+                null
+            } else {
+                SeasonConflictInfo(
+                    count = plan.conflictCount,
+                    totalVideos = plan.items.size,
+                    examples = plan.conflictExamples(3),
+                    summary = plan.summary(SeasonPrefer.FILE),
+                )
+            }
+        }.getOrNull()
+    }
+
     /** [run] 的实际主体，调用时已持有 [runLock] */
     /**
      * 多源时给阶段文案加个「源K 」前缀（`源2 转存 3/20`），单源不加。
@@ -206,6 +241,8 @@ class TaskRunner(
         var renamedItems = 0
         var skippedFiles = 0
         val failures = mutableListOf<String>()
+        /** 季判定等「不是错」的结论，最后写进运行日志说明 */
+        val notes = mutableListOf<String>()
         var anyOk = false
 
         links.forEachIndexed { index, target ->
@@ -274,6 +311,8 @@ class TaskRunner(
                     skippedFiles += r.skippedFiles
                     // 同一批文件可能两个源都有：第二个源靠目标目录 diff 判定已存在 → 计入跳过
                     r.failures.forEach { failures += if (links.size > 1) "$label $it" else it }
+                    // 季判定这类「不是错但要让人看到」的结论，多源时带上源前缀
+                    r.notes.forEach { notes += if (links.size > 1) "$label $it" else it }
                 }
                 .onFailure { e ->
                     failures += if (links.size > 1) {
@@ -294,6 +333,7 @@ class TaskRunner(
             },
             // 多源：只要有一个源成功，这一轮就算成功（失败的源原因仍留在 failures 里提示）
             explicitOk = anyOk,
+            notes = notes.toList(),
         )
 
         // 光鸭的 access_token 会在刷新后轮换，必须回写，否则下次登录失效

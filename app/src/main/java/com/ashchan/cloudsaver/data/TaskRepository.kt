@@ -152,8 +152,8 @@ class TaskRepository(private val db: AppDatabase) {
         val ok = report?.ok == true
         val msg = when {
             report == null -> errorMessage
-            report.failures.isNotEmpty() -> report.failures.joinToString("；")
-            else -> ""
+            report.failures.isNotEmpty() -> (report.failures + report.notes).joinToString("；")
+            else -> report.notes.joinToString("；")
         }
 
         if (!saveSnapshot) {

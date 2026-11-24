@@ -88,6 +88,30 @@ class TasksViewModel(
     private val _draftResult = MutableStateFlow<DraftRunResult?>(null)
     val draftResult: StateFlow<DraftRunResult?> = _draftResult.asStateFlow()
 
+    /**
+     * 试跑前的「季号冲突」预检结果（只在多季任务且文件名季号与目录季号对不上时出现）。
+     * UI 弹出确认框让人选「按文件名」或取消；正式跑卡片不走这条路。
+     */
+    private val _draftConflict = MutableStateFlow<com.ashchan.cloudsaver.transfer.SeasonConflictInfo?>(null)
+    val draftConflict: StateFlow<com.ashchan.cloudsaver.transfer.SeasonConflictInfo?> = _draftConflict.asStateFlow()
+
+    /** 等待用户确认的那次试跑参数（确认按文件名后原样再跑一次） */
+    private var pendingDraft: DraftRequest? = null
+
+    private data class DraftRequest(
+        val name: String,
+        val links: List<String>,
+        val weekdays: String,
+        val tmdbIdText: String,
+        val airTime: String,
+        val saveFid: String,
+        val savePathLabel: String,
+        val ruleKey: String,
+        val seasonNo: Int,
+        val folderWithTmdbId: Boolean,
+        val driveOverride: DriveType?,
+    )
+
     /** 试跑结果一行字：`text` 给主句，`ok` 决定配色（绿 / 红） */
     data class DraftRunResult(val text: String, val ok: Boolean)
 
@@ -351,13 +375,38 @@ class TasksViewModel(
         folderWithTmdbId: Boolean,
         driveOverride: DriveType?,
     ) {
-        val title = name.trim()
+        runDraftInternal(
+            DraftRequest(
+                name = name, links = links, weekdays = weekdays, tmdbIdText = tmdbIdText,
+                airTime = airTime, saveFid = saveFid, savePathLabel = savePathLabel,
+                ruleKey = ruleKey, seasonNo = seasonNo,
+                folderWithTmdbId = folderWithTmdbId, driveOverride = driveOverride,
+            ),
+            confirmedSeasons = false,
+        )
+    }
+
+    /** 弹窗里选「按文件名」：按原参数再跑一次，跳过预检 */
+    fun confirmDraftSeasonsByFile() {
+        val pending = pendingDraft ?: return
+        pendingDraft = null
+        _draftConflict.value = null
+        runDraftInternal(pending, confirmedSeasons = true)
+    }
+
+    fun dismissDraftSeasons() {
+        pendingDraft = null
+        _draftConflict.value = null
+    }
+
+    private fun runDraftInternal(req: DraftRequest, confirmedSeasons: Boolean) {
+        val title = req.name.trim()
         if (title.isBlank()) {
             _error.value = "请填写任务名称"
             return
         }
         if (_draftRunning.value) return
-        val parsed = parseLinks(links, driveOverride) ?: return
+        val parsed = parseLinks(req.links, req.driveOverride) ?: return
         val (inspected, drive) = parsed
         _draftRunning.value = true
         _draftPhase.value = "准备中"
@@ -371,15 +420,26 @@ class TasksViewModel(
                 shareUrl = inspected.first().shareUrl,
                 shareId = inspected.first().shareId,
                 passcode = inspected.first().passcode,
-                saveFid = saveFid,
-                savePathLabel = savePathLabel,
-                weekdays = Weekdays.format(Weekdays.parse(weekdays)),
-                tmdbId = tmdbIdText.trim().toLongOrNull(),
-                airTime = airTime.trim(),
-                ruleKey = ruleKey,
-                seasonNo = seasonNo,
-                folderWithTmdbId = folderWithTmdbId,
+                saveFid = req.saveFid,
+                savePathLabel = req.savePathLabel,
+                weekdays = Weekdays.format(Weekdays.parse(req.weekdays)),
+                tmdbId = req.tmdbIdText.trim().toLongOrNull(),
+                airTime = req.airTime.trim(),
+                ruleKey = req.ruleKey,
+                seasonNo = req.seasonNo,
+                folderWithTmdbId = req.folderWithTmdbId,
             )
+            // 多季任务先只读预检一遍：文件名季号与目录季号冲突时，先让人确认，别转到一半才发现放错季。
+            // 预检失败（网络/接口异常）不影响正常跑，直接按文件名继续。
+            if (!confirmedSeasons && req.seasonNo == TaskEntity.SEASON_MULTI) {
+                _draftPhase.value = "检查季号"
+                val conflict = runner.precheckSeasons(draft, inspected.map { it.shareUrl })
+                if (conflict != null) {
+                    pendingDraft = req
+                    _draftConflict.value = conflict
+                    return@launch
+                }
+            }
             _toast.value = "正在跑一次「$title」…"
             val result = runner.run(
                 task = draft,

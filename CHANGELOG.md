@@ -1153,3 +1153,48 @@ Kotlin 的 `find` 取的是「全文最靠前的匹配」，不是「最靠前�
 单测 123 → 127，全绿。
 
 **验证**：`testDebugUnitTest` 127/127 通过，`assembleDebug` 通过。（手机离家，本轮未装机）
+
+## Stage 44（2026-11-24）季号冲突处理：文件名优先、目录名兜底、冲突弹窗确认
+
+**用户经验（本轮落地口径）**：`S02E01` 这种文件名本身就说明是第二季，**优先级高于文件夹名**。
+真实分享很不规范，只有一侧有季号的情况大量存在，所以判定表按「静默能判、冲突才问」来做。
+
+**判定表（每个视频一条）**
+| 文件名季号 | 目录季号 | 处理 | 弹窗 |
+|---|---|---|---|
+| 有 | 无 | 用文件名，日志注明「按文件名」 | 不弹 |
+| 无 | 有 | 用目录名，日志注明「按目录名」 | 不弹 |
+| 都有且一致 | 一致 | 直接用 | 不弹 |
+| 都有但冲突 | 冲突 | 默认按文件名；新建/编辑页「运行一次」先弹窗确认 | 弹 |
+| 都没有 | — | 落剧名根目录，日志注明「无季号 n 个」 | 不弹 |
+
+**新增 `Transfer/SeasonResolver.kt`（纯函数，无网盘依赖）**
+- `SeasonResolver.resolve(tree, maxDepth)` → `SeasonPlan`（每个视频的 `fileSeason` / `dirSeason` / 证据目录名 / 来源 FILE|DIR|BOTH|NONE）。
+- 目录季号沿树继承（`Season 2/2160p/xxx.mkv` 这种中间夹一层 4K 目录也能拿到 Season 2）；更深一层能解析出季号则覆盖。
+- `SeasonPlan.groups(prefer)` 供引擎直接建季目录；`summary(prefer)` 生成一行可追溯日志；
+  `conflictExamples()` 给弹窗展示证据。
+
+**引擎**（`TreeSyncEngine`）
+1. `runFlatMulti(tree, destRootFid, prefer)` 改为走 `SeasonResolver`，不再自己边走边猜；
+   `syncFlat(..., seasonPrefer = SeasonPrefer.FILE)` 把偏好透传下去。
+2. `Report` 新增 `notes`（「不是错、但要让人看到」的结论，如季判定一行、冲突已按文件名）；
+   `failures` 与 `notes` 分开，避免把说明当成失败把任务标红。
+3. 多季的深度超限提示改由 `SeasonPlan.depthSkipped` 汇总，口径不变。
+
+**任务执行**（`TaskRunner` / `TaskRepository`）
+- 每源的 `notes` 合并成整轮 notes（多源加「源K」前缀），`finishRun` 写运行说明时把 notes 一起写进 `msg`；
+  卡片失败文案不受影响。
+- 新增 `precheckSeasons(task, draftLinks)`：多季任务只读扫一遍树，有冲突返回 `SeasonConflictInfo`，
+  任何异常都返回 null（预检是增强，不能挡住正常转存）。
+
+**UI**
+- 新建/编辑页「运行一次」：多季任务先预检，冲突则弹确认框
+  「季号对不上，需要你确认 —— 共 N 个视频，其中 M 个文件的季号和所在目录不一致」+ 最多 3 条证据；
+  按钮「按文件名」/「取消」。选按文件名 → 用同一批参数继续跑（跳过预检）。
+- 卡片上的「运行」没有弹窗时机，直接按文件名处理，并把「N 个季号冲突（已按文件名）」写进日志说明。
+
+**测试**：新增 `SeasonResolverTest` 7 例——文件名有目录无、目录有文件名无、两边一致、
+两边打架（默认文件名的分组 / 切目录名的分组 / summary 文案）、中文季目录 + 特别版（`第一季/第二季/特别篇/Specials`）、
+完全无线索落根、深层季目录中间夹 4K 目录仍继承。单测 127 → 134，全绿。
+
+**验证**：`testDebugUnitTest` 134/134 通过，`assembleDebug` 通过（APK 12.5MB，09:07）。手机离家，本轮未装机。
