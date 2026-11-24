@@ -52,11 +52,11 @@
 
 | 任务列表 | 新增任务 |
 | --- | --- |
-| ![任务列表](screenshots/home.jpg) | ![新增任务](screenshots/newtask.jpg) |
+| <img src="screenshots/home.png" width="320"> | <img src="screenshots/newtask.png" width="320"> |
 
 | 日志 | 设置 |
 | --- | --- |
-| ![日志](screenshots/log.jpg) | ![设置](screenshots/settings.jpg) |
+| <img src="screenshots/log.png" width="320"> | <img src="screenshots/settings.png" width="320"> |
 
 ## 🛠 构建
 
