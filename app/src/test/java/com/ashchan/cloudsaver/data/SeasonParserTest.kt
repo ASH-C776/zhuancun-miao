@@ -36,6 +36,37 @@ class SeasonParserTest {
     }
 
     @Test
+    fun `中文季名 第一季到第三季`() {
+        assertEquals(1, SeasonParser.parse("第一季"))
+        assertEquals(2, SeasonParser.parse("第二季"))
+        assertEquals(3, SeasonParser.parse("第三季"))
+        // 带后缀也认
+        assertEquals(2, SeasonParser.parse("第二季 2160p HDR"))
+        assertEquals(2, SeasonParser.parse("第 二 季"))
+    }
+
+    @Test
+    fun `第零季 与 第一部 也能认`() {
+        assertEquals(0, SeasonParser.parse("第零季"))
+        assertEquals(1, SeasonParser.parse("第一部"))
+        assertEquals(2, SeasonParser.parse("第2部"))
+        assertEquals(3, SeasonParser.parse("第三篇"))
+    }
+
+    @Test
+    fun `番外 OVA OAD 归类到特别版`() {
+        assertEquals(0, SeasonParser.parse("番外篇"))
+        assertEquals(0, SeasonParser.parse("OVA"))
+        assertEquals(0, SeasonParser.parse("OAD 1080p"))
+    }
+
+    @Test
+    fun `小写 season 与 s02 也认`() {
+        assertEquals(3, SeasonParser.parse("season 3"))
+        assertEquals(2, SeasonParser.parse("s02"))
+    }
+
+    @Test
     fun `特别版目录名解析成 0`() {
         // 0 是真实存在的一季（TMDB Season 0 = 特别篇），不是「没选季度」
         assertEquals(0, SeasonParser.parse("Season 0"))
