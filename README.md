@@ -54,6 +54,10 @@
 | --- | --- |
 | <img src="screenshots/home.png" width="320"> | <img src="screenshots/newtask.png" width="320"> |
 
+| 日志 | 设置 |
+| --- | --- |
+| <img src="screenshots/log.png" width="320"> | <img src="screenshots/settings.png" width="320"> |
+
 ## 🛠 构建
 
 环境：JDK 17、Android SDK 34、Gradle 8.14.5（AGP 8.7.3 / Kotlin 2.0.21 / KSP）。
