@@ -624,6 +624,13 @@ fun NewTaskScreen(
                     enabled = canUseTmdbFolder,
                 ) { folderWithTmdbId = !folderWithTmdbId }
             }
+            FieldHint(
+                when {
+                    folderWithTmdbId -> "剧名 tmdb-12345/……"
+                    ruleKey == magic?.key -> "剧名/……/剧名.S01E01.扩展名"
+                    else -> "原名原目录"
+                }
+            )
 
             // 更新日：七个排一排；绑了 TMDB 可以一键重算
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
