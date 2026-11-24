@@ -569,7 +569,7 @@ fun NewTaskScreen(
                 onClick = { showPathPicker = true },
             )
 
-            // 季度：平铺 = 视频直接放剧名目录；Season N = 剧名/Season N（0 = 特别版）；多季 = 按文件季号各进 Season N
+            // 季度三选一：平铺 / 输入季数（含 0 = 特别版）/ 多季；按钮下用一行小黑字说明落盘结构
             SectionLabel("季度")
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SmallChoice(
@@ -577,22 +577,13 @@ fun NewTaskScreen(
                     seasonNo == TaskEntity.SEASON_FLAT,
                     Modifier.weight(1f),
                 ) { seasonNo = TaskEntity.SEASON_FLAT }
-                SmallChoice("Season 1", seasonNo == 1, Modifier.weight(1f)) { seasonNo = 1 }
-                SmallChoice("Season 2", seasonNo == 2, Modifier.weight(1f)) { seasonNo = 2 }
                 SmallChoice(
-                    text = when {
-                        seasonNo == TaskEntity.SEASON_SPECIALS -> "Season 0"
-                        seasonNo > 2 -> "第${seasonNo}季"
-                        else -> "自定义"
-                    },
-                    selected = seasonNo == TaskEntity.SEASON_SPECIALS || seasonNo > 2,
+                    text = "输入季数",
+                    selected = seasonNo >= TaskEntity.SEASON_SPECIALS,
                     modifier = Modifier.weight(1f),
                 ) {
-                    seasonInput = when {
-                        seasonNo == TaskEntity.SEASON_SPECIALS -> "0"
-                        seasonNo > 2 -> seasonNo.toString()
-                        else -> ""
-                    }
+                    // 已经填过季数就把旧值带出来，省得每次重敲
+                    seasonInput = if (seasonNo >= TaskEntity.SEASON_SPECIALS) seasonNo.toString() else ""
                     showCustomSeason = true
                 }
                 SmallChoice(
@@ -601,6 +592,13 @@ fun NewTaskScreen(
                     Modifier.weight(1f),
                 ) { seasonNo = TaskEntity.SEASON_MULTI }
             }
+            FieldHint(
+                when {
+                    seasonNo == TaskEntity.SEASON_MULTI -> "剧名/Season 1/…、Season 2/…"
+                    seasonNo >= TaskEntity.SEASON_SPECIALS -> "剧名/Season $seasonNo/视频文件"
+                    else -> "剧名/视频文件"
+                }
+            )
 
             // 命名规则：默认 / 通用命名 / tmdb id，三项并排一行
             SectionLabel("命名规则")
@@ -626,6 +624,13 @@ fun NewTaskScreen(
                     enabled = canUseTmdbFolder,
                 ) { folderWithTmdbId = !folderWithTmdbId }
             }
+            FieldHint(
+                when {
+                    folderWithTmdbId -> "剧名 tmdb-12345/……"
+                    ruleKey == magic?.key -> "剧名/……/剧名.S01E01.扩展名"
+                    else -> "原名原目录"
+                }
+            )
             if (!canUseTmdbFolder) {
                 Text(
                     text = if (ruleKey.isBlank()) {
@@ -1114,6 +1119,22 @@ private fun SettingRow(
             )
         }
     }
+}
+
+/**
+ * 选择行下方的一行说明（如 `剧名/Season 1/视频文件`）。
+ * 统一小黑字：bodySmall + onSurfaceVariant，左对齐，不常驻弹窗、不淡出。
+ */
+@Composable
+private fun FieldHint(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.padding(top = 6.dp),
+    )
 }
 
 /** 等宽小选项（季度/星期这种一排多个），避免 chip 挤成竖排文字 */
