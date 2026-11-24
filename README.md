@@ -1,75 +1,103 @@
-# 转存喵
+# 转存喵（TransferCat）
 
-网盘分享链接一键转存 + 剧集批量重命名的 Android 小工具。
+**开发目的：不是每个人家里都有 NAS。** 别人分享的夸克 / 光鸭链接，用一台手机就能转存进自己的网盘，命名、分季、追更一次做完——不需要 PC、不需要 Docker、也不需要服务器。
 
-粘贴 **夸克网盘 / 光鸭云盘** 的分享链接，选择转存路径与命名规则，即可把分享内容整个转存到自己的网盘，并把剧集文件按 `剧名.S01E01.mkv` 的格式批量重命名。
+**来源说明**：接口协议与「按目录树同名同步、只补新集」的思路借鉴自 **cloud-auto-save-x（CASX）** 项目；由此开发的安卓 App，适应更多样的分享目录结构，并加入更多易用功能。
 
-## ✨ 功能
-
-- 支持夸克网盘、光鸭云盘
-- 分享链接一键转存到指定目录
-- 命名规则：通用剧集命名（`剧名.S01E01.mkv`）/ 保持原名 / 自定义（剧名开关 + 季度选择）
-- 转存前预览「原名 → 新名」，支持单条手改
-- **增量转存**：追剧重复转存同一部剧时，自动识别目标文件夹里已有的集数（`S01E05` / `E05` / `EP05` / `第5集` 均可识别），预览里灰显标「已存在 · 跳过」，只补新集，不再生成重复文件夹
-- **转存记录**：每次转存自动存档（剧名 / 时间 / 网盘 / 路径 / 规则 / 成功失败数），支持「再转一次」一键回填链接与剧名，最多保留 50 条
-- 暖橘奶油 · M3 Expressive 界面，深浅色主题（自动 / 亮 / 暗）
-- 凭证加密存储，界面脱敏显示
-- 内置检查更新：新版本发布后「关于」页自动提示
-- 光鸭：App 内「验证码获取」手机号 + 短信一键登录，自动回填 Refresh Token
-- 夸克：App 内「获取 Quark Cookie」内置 WebView 登录页一键取 Cookie，免手动抓包
+- GitHub：<https://github.com/ASH-C776/zhuancun-miao>（源码、Issue、Releases）
+- Gitee 镜像：<https://gitee.com/kijeye/zhuancun-miao>（国内访问更快，App 内更新优先走这边）
 
 ## 📥 下载
 
-- **Releases 页面**：<https://github.com/ASH-C776/zhuancun-miao/releases>
-- **直接下载 APK**：[zhuancun-miao-v0.6.0.apk](https://github.com/ASH-C776/zhuancun-miao/releases/download/v0.6.0/zhuancun-miao-v0.6.0.apk)（约 1.9MB）
-  - 国内直连 GitHub 不畅时，可用加速链接：[ghfast.top 加速下载](https://ghfast.top/https://github.com/ASH-C776/zhuancun-miao/releases/download/v0.6.0/zhuancun-miao-v0.6.0.apk)
-- 或自行克隆本仓库构建：`gradle :app:assembleRelease`
+| 渠道 | 地址 |
+| --- | --- |
+| Gitee（国内推荐） | <https://gitee.com/kijeye/zhuancun-miao/releases/latest> |
+| GitHub | <https://github.com/ASH-C776/zhuancun-miao/releases/latest> |
+
+安装包约 2MB。已装旧版不用卸载：App 启动后自己检查新版本，弹窗点「更新」即可覆盖安装（同签名，数据不丢）。
+
+## 一、自动转存
+
+- 粘贴一条分享链接，选好保存目录，一键把整个分享**连目录结构一起**搬进自己的网盘（夸克 / 光鸭都支持）
+- 深层目录自动进到最后一层找视频，不会只转外层空壳；转存完立刻批量改名
+- 一个任务可挂 **1~5 条链接**（主源 + 备用源），某条失效不耽误其它源
+- 打开 App 或点右下「全部检测」，所有任务按更新日自己跑一遍，不用逐个点
+
+## 二、刮削友好的命名，TMDB 信息不会对错
+
+- 命名直出主流刮削器认的标准格式：**`剧名.S01E01.mkv`**，配 `Season 1` 分季目录——Infuse、VidHub、网易爆米花这类按 `SxxExx` + 季目录识别的播放器都能直接刮对
+- 绑定 TMDB 后剧名自动带年份（`律界战争 (2026)`），同名翻拍不会刮成另一部
+- 想更稳可选 `tmdb id`：目录名写成 `剧名 tmdb-12345`，刮削器直接按 ID 命中，连重名歧义都没有
+- 三种命名档位随时切：原名原目录 / 通用命名 / `tmdb id`
+- 集数从文件名里识别（`S01E05`、`E05`、`EP05`、`第5集` 都认），扩展名原样保留
+
+## 三、追剧：对比云盘和分享，只有新集才动手
+
+- 每次运行都拿**分享链接里的文件列表**跟**云盘目标目录里已有的集数**对一遍，只补差集，已存在的直接跳过
+- 不是覆盖重下，也不是整目录重建：旧集不动、文件夹不重复，追到第 20 集时目录里仍然只有一份文件
+- 进度在任务卡片上一眼看：`E7 → E7(共19)` + 进度条 + 最近同步时间
+- 更新日：周一到周日多选 + 播出时刻；点一下就是「查有没有新的，有就补上」
+
+> 目前是「打开 App / 手动点一下」触发，后台定时自动更新还没做（方案见 `docs/auto-sync-plan.md`，待拍板）。任务卡上的「自动」指更新日由 TMDB 推断，不是无人值守。
+
+## 补充功能
+
+- **登录**：光鸭 App 内手机号 + 短信验证码（含人机验证），Token 过期自动刷新；夸克内置 WebView 一键取 Cookie，也留手动粘贴兜底；凭证走 Android Keystore 加密（AES-256），界面脱敏；单账号纯本地，无服务端
+- **界面**：暖橘奶油 M3 Expressive，深浅色可切（自动/亮/暗）；底部四栏 任务 / 添加 / 日志 / 设置；主页只留一个右下圆形按钮，左手拇指够得到；能用图标就不写字、一屏可见
+- **季度三档**：平铺 / 指定季 / 多季（`Season 0` 是特别版，不是平铺）
+- **日志**：每次运行留档（转存 / 改名 / 跳过 / 失败数与原因），失败原因可展开看
+- **自更新**：GitHub 与 Gitee 双端 Release，版本更高才弹窗，一天最多查一次，同版本优先 Gitee，失败静默
 
 ## 🖼 截图
 
-| 转存预览 | 关于 |
+| 任务列表 | 新增任务 |
 | --- | --- |
-| ![转存预览](screenshots/preview.jpg) | ![关于](screenshots/about.jpg) |
+| ![任务列表](screenshots/home.jpg) | ![新增任务](screenshots/newtask.jpg) |
 
-## 🚀 使用
-
-1. 设置 → 登录网盘：光鸭可点「验证码获取」用手机号 + 短信验证码一键登录并自动回填 Refresh Token；夸克可点「获取 Quark Cookie」在内置登录页一键取 Cookie。也可手动粘贴 Token / Cookie。
-2. 主页粘贴分享链接、填写剧名、选择转存路径与命名规则
-3. 开始转存 → 预览确认 → 完成
-4. 追剧补集：链接换成新一集的分享，剧名保持不变，预览里已有的集会灰显「已存在 · 跳过」，确认后只追加新集到原文件夹；想重下某集，勾选它右侧的复选框即可
-
-> 小技巧：主页顶栏的列表图标是「转存记录」，里面每个历史任务都有「再转一次」，点一下自动回填链接和剧名，不用再翻聊天记录找分享链接。
+| 日志 | 设置 |
+| --- | --- |
+| ![日志](screenshots/log.jpg) | ![设置](screenshots/settings.jpg) |
 
 ## 🛠 构建
 
-用 Android Studio 打开 `AndroidApp` 目录，或：
+环境：JDK 17、Android SDK 34、Gradle 8.14.5（AGP 8.7.3 / Kotlin 2.0.21 / KSP）。
 
 ```bash
-cd AndroidApp
-gradle :app:assembleRelease   # 混淆裁剪后的安装包（约 1.9MB）
+gradle :app:assembleRelease    # 混淆裁剪后的正式包，约 2MB
+gradle :app:testDebugUnitTest  # 141 项单元测试
 ```
 
-### 工程结构
+版本号口径固定为三段数字，`versionCode = major*10000 + minor*100 + patch`。`app/build.gradle.kts` 里的 `appVersionName` 与客户端更新检测用**同一公式**，改一边必须改另一边。
+
+## 🚀 发版
+
+```powershell
+pwsh -File tools\publish-release.ps1 -Notes "vX.Y.Z 的更新说明"
+```
+
+脚本会：读版本号 → `assembleRelease` → **同一份 APK** 同时建 GitHub 与 Gitee 的 Release 并上传附件。令牌优先取环境变量 `GITHUB_TOKEN` / `GITEE_TOKEN`，其次读 `~/.git-credentials`。
+
+发版约定：tag 用 `vX.Y.Z`、`prerelease`/`draft` 必须为 false、必须挂 `.apk` 附件，且发出的包与已装包同包名同签名（本项目 release 复用 debug keystore，可覆盖安装）。
+
+## 🧱 工程结构
 
 ```
 app/src/main/java/com/ashchan/cloudsaver/
-├── core/
-│   ├── adapter/CloudDriveAdapter.kt   # 统一网盘适配器接口（登录/解析/列文件/列目录文件/转存/重命名）
-│   └── model/                         # DriveFile / ShareInfo / RenameRule / TransferResult
-├── drive/
-│   ├── guangya/                       # 光鸭：GuangYaApi + GuangYaAdapter（Token + 自动刷新）
-│   ├── quark/                         # 夸克：QuarkApi + QuarkAdapter（Cookie，移动端分享兼容）
-│   └── DriveFactory.kt                # 按网盘类型创建适配器
-├── rename/                            # 规则引擎：filter/rename、占位符填充、合法性校验
-├── storage/                           # 凭证加密存储 / 自定义规则持久化 / 转存记录持久化（RecordStore）
-├── transfer/TransferManager.kt        # 转存→拿新 fileId→重命名 流程编排（限流间隔）
-└── ui/                                # Compose 页面（暖橘奶油 M3 主题）
+├── core/adapter      # 网盘适配器接口（登录 / 解析 / 列目录 / 转存 / 改名）
+├── core/model        # DriveFile / ShareNode / 季号与集数解析 / 命名规则
+├── core/tmdb         # TMDB 搜索与播出日推断
+├── drive/guangya     # 光鸭：Token 登录、分享解析、转存、改名
+├── drive/quark       # 夸克：Cookie 登录、分享解析、转存、改名
+├── data/             # Room（任务 / 快照 / 运行记录）+ 仓库层
+├── transfer/         # 同步引擎：目录树定位、增量比对、分季、季号判定、任务执行
+├── rename/           # 批量改名与限流退避
+├── storage/          # 凭证加密存储、规则与 TMDB 配置
+├── ui/               # Compose 界面（任务列表 / 添加 / 日志 / 设置 / 关于）
+└── update/           # 自更新：Release 检测、下载校验、安装器拉起
 ```
 
-## ⚠️ 声明
+逐版本的改动与验证记录见 [CHANGELOG.md](CHANGELOG.md)。
 
-接口均为非官方逆向接口，可能随官方改版失效；本项目仅供个人学习与效率工具用途，请遵守对应网盘的服务条款。
+## 声明
 
----
-
-作者：基耶杰
+个人自用的小工具，仅供学习与自用；请遵守各网盘服务条款。夸克 / 光鸭接口非官方公开，随时可能变化，失效会在版本更新里跟进。

@@ -10,3 +10,17 @@ build/
 .kotlin/
 docs/dbcopy/
 docs/tmp.db
+# 开发期临时产物（不入库）
+docs/*.db
+docs/*.db-wal
+docs/dbcopy/
+docs/dbdemo/
+docs/dbpull*/
+docs/*.py
+docs/*.png
+build_log.txt
+RELEASE-*.md
+screenshots/*.jpg
+tools/*.py
+tools/normalize_*.ps1
+tools/*_probe.ps1
