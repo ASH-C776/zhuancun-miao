@@ -36,8 +36,8 @@ class DefaultUpdateSource(private val context: Context) : UpdateSource {
     companion object {
         /** GitHub `owner/repo` */
         const val GITHUB_REPO = "ASH-C776/zhuancun-miao"
-        /** Gitee `owner/repo`；没有就留空（会自动跳过） */
-        const val GITEE_REPO = ""
+        /** Gitee `owner/repo`；与 GitHub 同名镜像，同版本优先用 Gitee（国内下载快） */
+        const val GITEE_REPO = "kijeye/zhuancun-miao"
 
         private const val GITHUB_API = "https://api.github.com/repos/%s/releases"
         private const val GITEE_API = "https://gitee.com/api/v5/repos/%s/releases"

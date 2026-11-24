@@ -1305,3 +1305,23 @@ Kotlin 的 `find` 取的是「全文最靠前的匹配」，不是「最靠前�
 - 签名核对：release 包证书 `CN=Android Debug`（与已装 debug 包同一 keystore），可覆盖安装、数据不丢
 - **真机全链路验证通过**：先装 debug 800 → 清 `update_prefs.xml` → 重启 App → 5 秒后弹「发现新版本」→ 点更新跳「允许安装未知应用」授权页 → 下载 → 系统安装器「安装成功」→ 现装机为 `versionCode=801 / versionName=0.8.1 / lastUpdateTime=11:45:52`（已从 debug 包平滑升到 release 包，数据未丢）
 - 截图留档：`docs/upd1.png`（授权页）、`docs/upd2.png`（安装成功）
+
+## Stage 50（2026-11-24）双端发布：Gitee 同名镜像 + 一键发版脚本
+
+**需求**：在 Gitee 建一个与 GitHub 同名的公开仓库，以后每次发版两边都要同步发。
+
+**做了什么**
+- Gitee 新建公开仓库 `kijeye/zhuancun-miao`（默认分支 `dev`，已与 GitHub 同名同结构）；空仓库不允许直接设为公开，先推一次 `dev` 再改公开
+- 本地加 `gitee` 远端并把 `dev` 推上去；Gitee 上同步建 `v0.8.1` Release（附件应是同一份 2,182,278 字节 APK）
+- `DefaultUpdateSource.GITEE_REPO` 从空串改成 **`kijeye/zhuancun-miao`** —— 客户端现在双端并发检测，同版本优先用 Gitee（国内下载快）
+- 新增 `tools/publish-release.ps1`：读 `appVersionName` → `assembleRelease` → 同一份 APK 同时建 GitHub + Gitee Release 并上传附件。令牌优先取环境变量 `GITHUB_TOKEN` / `GITEE_TOKEN`，其次读 `~/.git-credentials`（同站点有多条时按用户名 `ASH-C776` / `kijeye` 挑，避免拿到手机号那条密码）
+- 版本抬到 **0.8.2**（versionCode 802），用脚本双端发布，GitHub / Gitee 都已有 `v0.8.2` + `zhuancun-miao-v0.8.2.apk`
+
+**验证**
+- Gitee API 免 token 可读（客户端无需任何凭据）：`releases` 返回 v0.8.1 / v0.8.2，`prerelease=false`、`draft=false`；附件里除 .apk 还有 Gitee 自动生成的 .zip/.tar.gz，客户端按扩展名只认 .apk
+- 直接下 Gitee 的 `browser_download_url`，字节数 2,182,278 与本地产物一致
+- `aapt2 dump badging`：`versionCode='802' versionName='0.8.2'`
+- 已装机 0.8.2（`versionCode=802`、lastUpdateTime 11:54:46）；顺手确认 0.8.1 正式包跑起来任务列表、状态徽标正常
+- 单测仍 141/141
+
+**注意**：正式包已不可 `run-as`（非 debuggable），以后清 `update_prefs.xml` 验节流只能靠「卸载重装」或等 24 小时；调试图标入口同理。
