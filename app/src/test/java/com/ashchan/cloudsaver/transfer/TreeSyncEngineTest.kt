@@ -55,6 +55,15 @@ class TreeSyncEngineTest {
         override suspend fun listFolders(parentId: String?) =
             Result.success(mine[parentId ?: "0"].orEmpty().filter { it.isDir })
 
+        /** 多季模式要给每季建 `Season N` 目录 */
+        override suspend fun ensureFolder(parentFid: String, name: String): Result<String> {
+            val list = mine.getOrPut(parentFid) { mutableListOf() }
+            list.firstOrNull { it.isDir && it.name == name }?.let { return Result.success(it.fid) }
+            val fid = "dir_${++seq}"
+            list.add(DriveFile(fid = fid, name = name, isDir = true, source = FileSource.SAVED))
+            return Result.success(fid)
+        }
+
         /** 让转存返回网络类失败，用来验证「断网时只记一条并中止」 */
         var failRestoreWith: String? = null
         /** 所有转存请求（含失败重试）的次数 */
@@ -403,6 +412,45 @@ class TreeSyncEngineTest {
         assertTrue(report.failures.first().contains("网络中断"))
         assertEquals(TreeSyncEngine.RESTORE_ATTEMPTS, adapter.restoreAttempts) // 重试完就中止，不逐文件刷
         assertEquals(0, report.restoredFiles)
+    }
+
+    @Test
+    fun `多季模式按文件季号各进 Season N 且改名保留各自季号`() = runBlocking {
+        val shareFiles = listOf(
+            adapterFile("s_1", "Blue.Planet.III.S01E01.mkv"),
+            adapterFile("s_2", "Blue.Planet.III.S01E02.mkv"),
+            adapterFile("s_3", "Blue.Planet.III.S02E01.mkv"),
+            adapterFile("s_4", "Blue.Planet.III.S02E02.mkv"),
+        )
+        val adapter = FakeDriveAdapter(mapOf(null to shareFiles))
+        val plan = shareFiles.mapIndexed { i, f ->
+            val s = if (i < 2) 1 else 2
+            val e = if (i % 2 == 0) 1 else 2
+            f.fid to "蓝色星球3.S%02dE%02d.mkv".format(s, e)
+        }.toMap()
+
+        val tree = buildTree(adapter)
+        val report = TreeSyncEngine(adapter).syncFlat(
+            share = shareInfo(),
+            tree = tree,
+            destRootFid = "0",
+            renamePlan = plan,
+            multiSeason = true,
+        ).getOrThrow()
+
+        assertEquals(4, report.restoredFiles)
+        assertEquals(4, report.renamedItems)
+        // 根下只有两个季目录，没有视频散落
+        val dirs = adapter.mine["0"]!!
+        assertEquals(setOf("Season 1", "Season 2"), dirs.map { it.name }.toSet())
+        assertEquals(0, dirs.count { !it.isDir })
+        // 每季各 2 个文件，且文件名季号与所在目录一致
+        dirs.sortedBy { it.name }.forEach { dir ->
+            val expectSeason = dir.name.removePrefix("Season ")
+            val names = adapter.mine[dir.fid]!!.map { it.name }
+            assertEquals(2, names.size)
+            assertTrue("$names", names.all { it.contains("S0${expectSeason}E") })
+        }
     }
 
     // ---------- 小工具 ----------

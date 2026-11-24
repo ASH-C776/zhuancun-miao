@@ -190,7 +190,8 @@ class TaskRunner(
             adapter.ensureFolder(baseFid, folderName)
         }.getOrElse { baseFid }
 
-        // 选了季度就再多一层 `Season N`；不选则视频直接平铺在剧名目录下
+        // 选了季度就再多一层 `Season N`；平铺则不建；多季交给引擎按文件季号各自建 `Season N`
+        val multiSeason = task.seasonNo == TaskEntity.SEASON_MULTI
         val destFid = if (task.seasonNo > 0) {
             retryOnce("创建季目录") {
                 adapter.ensureFolder(nameFid, seasonFolderName(task.seasonNo))
@@ -234,7 +235,8 @@ class TaskRunner(
                     tree = tree,
                     destRootFid = destFid,
                     renamePlan = plan,
-                    seasonNo = task.seasonNo,
+                    seasonNo = if (multiSeason) 0 else task.seasonNo,
+                    multiSeason = multiSeason,
                     // 引擎按「比对文件 / 转存 3/20 / 改名 5/12」逐条上报，直接翻到卡片上
                     onProgress = { _, _, message ->
                         onPhase(withSource(label, links.size, message))

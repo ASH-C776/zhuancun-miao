@@ -80,5 +80,14 @@ data class TaskEntity(
 
         const val SCOPE_SUBTREE: String = "SUBTREE"
         const val SCOPE_DIRECT_ONLY: String = "DIRECT_ONLY"
+
+        /**
+         * 季度取值约定：
+         * - `0` 平铺（全部视频直接放在剧名目录下）
+         * - `1..99` 只取该季，放在 `剧名/Season N/`
+         * - [`SEASON_MULTI`] 多季：按文件自身季号分组，各进 `剧名/Season N/`
+         */
+        const val SEASON_FLAT: Int = 0
+        const val SEASON_MULTI: Int = -1
     }
 }

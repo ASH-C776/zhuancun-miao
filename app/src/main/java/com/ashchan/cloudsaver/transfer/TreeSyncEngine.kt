@@ -5,6 +5,7 @@ import com.ashchan.cloudsaver.core.adapter.RestoredFile
 import com.ashchan.cloudsaver.core.model.DriveFile
 import com.ashchan.cloudsaver.core.model.NaturalOrder
 import com.ashchan.cloudsaver.core.model.ShareInfo
+import com.ashchan.cloudsaver.core.model.EpisodeParser
 import com.ashchan.cloudsaver.core.model.ShareNode
 import com.ashchan.cloudsaver.data.SeasonParser
 import kotlinx.coroutines.Dispatchers
@@ -105,11 +106,12 @@ class TreeSyncEngine(
         destRootFid: String,
         renamePlan: Map<String, String> = emptyMap(),
         seasonNo: Int = 0,
+        multiSeason: Boolean = false,
         maxDepth: Int = DEFAULT_MAX_DEPTH,
         onProgress: (stage: Int, percent: Int, message: String) -> Unit = { _, _, _ -> },
     ): Result<Report> = runCatching {
         val session = Session(adapter, share, renamePlan, maxDepth.coerceAtMost(MAX_DEPTH), onProgress)
-        session.runFlat(tree, destRootFid, seasonNo)
+        if (multiSeason) session.runFlatMulti(tree, destRootFid) else session.runFlat(tree, destRootFid, seasonNo)
         session.report()
     }
 
@@ -207,6 +209,37 @@ class TreeSyncEngine(
             if (videos.isEmpty()) throw IllegalStateException("该目录下没有可转存的视频文件")
             onProgress(0, 0, "正在处理 ${videos.size} 个视频文件")
             syncFiles(videos, destRootFid)
+        }
+
+        /**
+         * 多季模式：不按任务季度过滤，而是**按每个文件自身的季号**（S01E01 / `第2季…`）分组，
+         * 每季落进 `剧名/Season N/`，季号解析不出来的文件留在剧名根目录。
+         *
+         * 这样「一部剧多个 Season 子目录」的分享能一次收完，且 S02E01 不会写成 S01E01
+         * （改名模板里的 `{SXX}` 取自文件自身季号，不取任务季度）。
+         */
+        suspend fun runFlatMulti(tree: ShareNode, destRootFid: String) {
+            val videos = mutableListOf<ShareNode>()
+            collectVideos(tree, videos, seasonNo = 0, depth = 0)
+            if (videos.isEmpty()) throw IllegalStateException(noVideoMessage(tree, 0))
+            videoTotal = videos.size
+            onProgress(0, 0, "比对文件")
+
+            val groups = videos.groupBy { EpisodeParser.seasonOf(it.name) ?: 0 }.toSortedMap()
+            if (groups.size > 1) {
+                onProgress(0, 0, "共 ${groups.count { it.key > 0 }} 季")
+            }
+            groups.forEach { (season, list) ->
+                val destFid = if (season > 0) {
+                    adapter.ensureFolder(destRootFid, "Season $season").getOrElse { e ->
+                        failures += "创建 Season $season 目录失败：${e.message ?: "未知错误"}"
+                        destRootFid
+                    }
+                } else {
+                    destRootFid
+                }
+                syncFiles(list, destFid)
+            }
         }
 
         /** 扁平同步：收集视频（可按季过滤）→ 批量转存 → 逐个按规则改名 */

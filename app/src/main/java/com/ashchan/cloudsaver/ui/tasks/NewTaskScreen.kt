@@ -567,21 +567,29 @@ fun NewTaskScreen(
                 onClick = { showPathPicker = true },
             )
 
-            // 季度：不选 = 剧名/视频平铺；选第N季 = 剧名/Season N/视频平铺
+            // 季度：平铺 = 视频直接放剧名目录；Season N = 剧名/Season N；多季 = 按文件季号各进 Season N
             SectionLabel("季度")
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SmallChoice("不选", seasonNo == 0, Modifier.weight(1f)) { seasonNo = 0 }
-                (1..3).forEach { n ->
-                    SmallChoice("第$n 季", seasonNo == n, Modifier.weight(1f)) { seasonNo = n }
-                }
                 SmallChoice(
-                    text = if (seasonNo > 3) "第${seasonNo}季" else "自定义",
-                    selected = seasonNo > 3,
+                    "平铺",
+                    seasonNo == TaskEntity.SEASON_FLAT,
+                    Modifier.weight(1f),
+                ) { seasonNo = TaskEntity.SEASON_FLAT }
+                SmallChoice("Season 1", seasonNo == 1, Modifier.weight(1f)) { seasonNo = 1 }
+                SmallChoice("Season 2", seasonNo == 2, Modifier.weight(1f)) { seasonNo = 2 }
+                SmallChoice(
+                    text = if (seasonNo > 2) "第${seasonNo}季" else "自定义",
+                    selected = seasonNo > 2,
                     modifier = Modifier.weight(1f),
                 ) {
-                    seasonInput = if (seasonNo > 3) seasonNo.toString() else ""
+                    seasonInput = if (seasonNo > 2) seasonNo.toString() else ""
                     showCustomSeason = true
                 }
+                SmallChoice(
+                    "多季",
+                    seasonNo == TaskEntity.SEASON_MULTI,
+                    Modifier.weight(1f),
+                ) { seasonNo = TaskEntity.SEASON_MULTI }
             }
 
             // 命名规则：默认 / 通用命名 / tmdb id，三项并排一行
