@@ -358,10 +358,24 @@ class TaskRunner(
 
             // 命中裁剪：剧场版、解析不出集号、有歧义的一律不转；同集多版本只留一个
             val plan = TransferClassifier.plan(p.tree, filterEnabled)
+            // 第二道：规则没匹配上（占位符解析不了）的文件也不转 —— 转存数必须等于改名数
+            val renameOutcome = if (filterEnabled) buildRenameOutcome(task, plan.tree) else null
+            val workTree = if (filterEnabled && renameOutcome != null) {
+                TransferClassifier.prune(plan.tree, renameOutcome.matchedFids)
+                    ?: plan.tree.copy(children = emptyList())
+            } else {
+                plan.tree
+            }
+            val droppedByRule = if (filterEnabled && renameOutcome != null) {
+                plan.kept.count { it.node.fid !in renameOutcome.matchedFids }
+            } else {
+                0
+            }
+            val hasWork = workTree.flattenFiles().any { it.isVideo }
 
             var errorNote = ""
             val outcome: Result<TreeSyncEngine.Report> = try {
-                if (filterEnabled && !plan.hasWork) {
+                if (filterEnabled && !hasWork) {
                     // 一个都没命中：这一源没有可转存内容，不算失败
                     Result.success(
                         TreeSyncEngine.Report(
@@ -375,12 +389,11 @@ class TaskRunner(
                         )
                     )
                 } else {
-                    val renamePlan = buildRenamePlan(task, plan.tree)
                     TreeSyncEngine(adapter).syncFlat(
                         share = p.share,
-                        tree = plan.tree,
+                        tree = workTree,
                         destRootFid = destFid,
-                        renamePlan = renamePlan,
+                        renamePlan = renameOutcome?.plan ?: emptyMap(),
                         seasonNo = if (multiSeason) TaskEntity.SEASON_FLAT else task.seasonNo,
                         multiSeason = multiSeason,
                         // 引擎按「比对文件 / 转存 3/20 / 改名 5/12」逐条上报，直接翻到卡片上
@@ -419,7 +432,12 @@ class TaskRunner(
                 }
 
             // 「命中才转存」的结论写进日志：命中几集、几个多版本被合并、几个未命中没转
-            notes += if (links.size > 1) "$label ${plan.summary()}" else plan.summary()
+            val summary = plan.summary() + if (droppedByRule > 0) {
+                "；规则未匹配 $droppedByRule 个未转存"
+            } else {
+                ""
+            }
+            notes += if (links.size > 1) "$label $summary" else summary
 
             if (multiSource) {
                 val current = countLocal(adapter, destFid, statMode, fixedSeason, targetSeason)
@@ -549,36 +567,45 @@ class TaskRunner(
     }
 
     /**
-     * 生成改名映射（分享文件 fid → 转存时要用的新文件名）。
+     * 生成改名映射（分享文件 fid → 转存时要用的新文件名）+ 规则真正匹配到的文件集合。
      *
      * 口径：
      * - 任务没选规则（`ruleKey` 为空）→ 原样转存，一个文件都不改
      * - 规则被全局禁用了 → 同样不改名（尊重设置页里的开关）
      * - 只对视频文件算，目录名一律不动（目录名是层级结构，改了会和「保留原层级」冲突）
-     * - 新名与原名相同时不进映射，减少无意义的重命名请求
+     * - 新名与原名相同时不进映射（减少无意义的重命名请求），但仍在 [RenameOutcome.matchedFids] 里
+     *   —— 用户口径是「转存了多少个，就都应该是改过名的」，名字本来就对的文件也算命中
      */
-    private fun buildRenamePlan(task: TaskEntity, tree: ShareNode): Map<String, String> {
+    private data class RenameOutcome(
+        val plan: Map<String, String>,
+        /** 规则匹配到、占位符也都能解析的文件（含「新名 == 原名」的） */
+        val matchedFids: Set<String>,
+    )
+
+    private fun buildRenameOutcome(task: TaskEntity, tree: ShareNode): RenameOutcome? {
         val key = task.ruleKey.trim()
-        if (key.isEmpty()) return emptyMap()
-        val store = ruleStore ?: return emptyMap()
-        val rule = store.loadRules().firstOrNull { it.key == key && it.enabled } ?: return emptyMap()
+        if (key.isEmpty()) return null
+        val store = ruleStore ?: return null
+        val rule = store.loadRules().firstOrNull { it.key == key && it.enabled } ?: return null
 
         val files = tree.flattenFiles().filter { it.isVideo }.map { it.file }
-        if (files.isEmpty()) return emptyMap()
+        if (files.isEmpty()) return RenameOutcome(emptyMap(), emptySet())
 
         val previews = RenameEngine().preview(files, listOf(rule), task.name.trim())
         // 同一轮里「两个文件算出同一个新名」是解析出错的信号：宁可保留原名，
         // 也不要把一整季都往同一个名字上撞（服务器会逐个拒绝，日志刷一屏「改名失败」）。
         val used = mutableSetOf<String>()
-        return previews
-            .mapNotNull { p ->
-                val newName = p.newName?.trim()
-                if (newName.isNullOrEmpty() || newName == p.originName) return@mapNotNull null
-                if (p.filtered) return@mapNotNull null
-                if (!used.add(newName)) return@mapNotNull null
-                p.file.fid to newName
-            }
-            .toMap()
+        val map = mutableMapOf<String, String>()
+        val matched = mutableSetOf<String>()
+        previews.forEach { p ->
+            if (p.matchedRule == null || p.filtered) return@forEach
+            val newName = p.newName?.trim() ?: return@forEach
+            matched += p.file.fid
+            if (newName.isEmpty() || newName == p.originName) return@forEach
+            if (!used.add(newName)) return@forEach
+            map[p.file.fid] = newName
+        }
+        return RenameOutcome(map, matched)
     }
 
     /**
