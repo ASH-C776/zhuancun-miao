@@ -1070,3 +1070,28 @@ Kotlin 的 `find` 取的是「全文最靠前的匹配」，不是「最靠前�
 **Stage 39 的深度 3→5 保留**（真实资源里四层结构常见），但它不是这次的原因。
 
 **验证**：单测全绿，编译通过，已装机（lastUpdateTime 07:46:54）。
+
+## Stage 41（2026-11-24）季度改成 5 个按钮：平铺 / Season 1 / Season 2 / 自定义 / 多季
+
+**需求**：季度选项重排为固定 5 个按钮，并把「多季」变成真能用的模式。
+
+**口径**
+- `0` 平铺：视频直接放 `剧名/` 下（原「不选」）。
+- `1` / `2`：`剧名/Season 1/`、`剧名/Season 2/`（原「第 N 季」，但只保留 1、2 两个快捷按钮）。
+- `>2`：自定义，按钮文字显示「第N季」，弹框输入（原逻辑保留）。
+- `-1` 多季：**按每个文件自身的季号分组**，各自进 `剧名/Season N/`；季号解析不出来的散文件留在剧名根下。
+  改名模板里的 `{SXX}` 一直取自文件名，因此 S02E01 写成 `…S02E01.mkv`，不会错成 S01E01。
+
+**改动**
+1. `TaskEntity`：加 `SEASON_FLAT = 0` / `SEASON_MULTI = -1` 常量并注释三种取值语义（DB 无需迁移，seasonNo 仍是 Int）。
+2. `NewTaskScreen`：季度行改为 5 个 `SmallChoice`（平铺 / Season 1 / Season 2 / 自定义 / 多季），
+   自定义按钮的选中条件从 `>3` 改为 `>2`（1、2 已被固定按钮占位）。
+3. `TreeSyncEngine.syncFlat(..., multiSeason)` + 新增 `Session.runFlatMulti()`：
+   收集全部视频（不做季过滤）→ `groupBy(EpisodeParser.seasonOf(name) ?: 0)` → 每季 `ensureFolder(destRootFid, "Season N")` 后按季 `syncFiles`；
+   多季时先报一行「共 N 季」。空分享仍走 `noVideoMessage`。
+4. `TaskRunner`：`seasonNo == SEASON_MULTI` 时不再预先建 `Season N`（交引擎按季建），并把 `multiSeason` 传下去。
+5. 测试：`FakeDriveAdapter` 补 `ensureFolder`（存在即复用、否则新建）；新增单测
+   「多季模式按文件季号各进 Season N 且改名保留各自季号」（4 个文件 S01×2 / S02×2，断言根下只有两个季目录、
+   每季 2 个文件且文件名季号与目录一致）。单测 119 → 120，全绿。
+
+**验证**：`testDebugUnitTest` 120/120 通过，`assembleDebug` 通过，已装机（lastUpdateTime 08:20:59）。
