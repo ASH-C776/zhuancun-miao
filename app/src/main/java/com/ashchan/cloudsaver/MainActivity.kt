@@ -25,7 +25,6 @@ import androidx.lifecycle.lifecycleScope
 import com.ashchan.cloudsaver.data.TaskRepository
 import com.ashchan.cloudsaver.data.db.AppDatabase
 import com.ashchan.cloudsaver.storage.CredentialStore
-import com.ashchan.cloudsaver.storage.RecordStore
 import com.ashchan.cloudsaver.storage.RuleStore
 import com.ashchan.cloudsaver.storage.TmdbStore
 import com.ashchan.cloudsaver.transfer.TaskRunner
@@ -45,7 +44,6 @@ class MainActivity : ComponentActivity() {
         ScreenViewModelFactory(
             credentialStore = CredentialStore(applicationContext),
             ruleStore = RuleStore(applicationContext),
-            recordStore = RecordStore(applicationContext),
         )
     }
 

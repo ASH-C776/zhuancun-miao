@@ -102,7 +102,6 @@ import java.util.Locale
 fun TaskListScreen(
     viewModel: TasksViewModel,
     onOpenSettings: () -> Unit,
-    onOpenHistory: () -> Unit,
     onOpenNewTask: () -> Unit = {},
     onOpenEdit: (TaskEntity) -> Unit = {},
     startWithNewTaskDialog: Boolean = false,

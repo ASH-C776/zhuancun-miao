@@ -16,9 +16,7 @@ import com.ashchan.cloudsaver.drive.DriveFactory
 import com.ashchan.cloudsaver.drive.guangya.GuangYaSmsLogin
 import com.ashchan.cloudsaver.rename.RenameEngine
 import com.ashchan.cloudsaver.storage.CredentialStore
-import com.ashchan.cloudsaver.storage.RecordStore
 import com.ashchan.cloudsaver.storage.RuleStore
-import com.ashchan.cloudsaver.storage.TransferRecord
 import com.ashchan.cloudsaver.transfer.TransferManager
 import java.net.HttpURLConnection
 import java.net.URL
@@ -79,7 +77,6 @@ data class PreviewDialogState(
 class AppViewModel(
     private val credentialStore: CredentialStore,
     private val ruleStore: RuleStore,
-    private val recordStore: RecordStore,
 ) : ViewModel() {
 
     // ---------- 状态 ----------
@@ -226,32 +223,9 @@ class AppViewModel(
     private val adapter: CloudDriveAdapter? get() = _driveType.value?.let { adapters[it] }
     private val engine = RenameEngine()
 
-    // ---------- 转存记录（历史） ----------
-    private val _records = MutableStateFlow<List<TransferRecord>>(emptyList())
-    val records: StateFlow<List<TransferRecord>> = _records.asStateFlow()
-
     init {
         _rules.value = ruleStore.loadRules()
-        _records.value = recordStore.load()
         autoLogin()
-    }
-
-    /** 「再转一次」：回填链接 + 剧名，已登录的网盘切回当时网盘，跳回主页 */
-    fun refillRecord(record: TransferRecord) {
-        _linkInput.value = record.link
-        _taskNameInput.value = record.taskName
-        runCatching { DriveType.valueOf(record.drive) }.getOrNull()?.let { type ->
-            if (_accounts.value[type] != null) selectCurrentDrive(type)
-        }
-        _screen.value = Screen.TASKS
-    }
-
-    fun removeRecord(id: Long) {
-        _records.value = recordStore.remove(id)
-    }
-
-    fun clearRecords() {
-        _records.value = recordStore.clear()
     }
 
     /** 当前启用规则的显示名（与主页设置卡一致） */
@@ -275,20 +249,6 @@ class AppViewModel(
     }
 
     /** 转存落一条历史记录（有结果即记录，含部分失败） */
-    private fun saveRecord(result: TransferResult) {
-        val record = TransferRecord(
-            id = System.currentTimeMillis(),
-            drive = result.driveType.name,
-            taskName = result.taskName,
-            link = _linkInput.value.trim(),
-            path = _targetPath.value,
-            ruleName = currentRuleName(),
-            successCount = result.successCount,
-            failCount = result.failCount,
-            total = result.items.size,
-        )
-        _records.value = recordStore.add(record)
-    }
 
     /**
      * 启动时自动恢复登录态：逐个网盘用已保存凭证静默验证（不弹错误），
@@ -852,8 +812,6 @@ class AppViewModel(
                     message = if (r.failCount == 0) "全部完成" else "部分失败",
                     result = r,
                 )
-                // 落一条转存记录（记录页可回看 / 再转一次）
-                saveRecord(r)
             }.onFailure { e ->
                 _transferDialog.value = TransferDialogState(
                     running = false, stage = 0, percent = 0,
