@@ -4,6 +4,8 @@
     <!-- 转存 + 重命名需要网络 -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Wi-Fi 高性能锁：任务期间防止射频休眠导致请求超时 -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <!-- 前台服务：批量转存/改名耗时任务 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
@@ -48,6 +50,14 @@
                 <data android:scheme="https" android:host="drive.quark.cn" />
             </intent-filter>
         </activity>
+
+        <!-- 任务执行前台服务：熄屏/切后台/划掉最近任务都不中断；
+             stopWithTask=false 保证「从最近任务划掉」不会顺手把服务停掉 -->
+        <service
+            android:name=".sync.TaskRunService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"
+            android:stopWithTask="false" />
 
         <!-- 自更新：把 filesDir/update 下的 APK 以 content:// 交给系统安装器
              （targetSdk ≥ 30 传 file:// 会 FileUriExposedException，用户看到「解析包错误」） -->

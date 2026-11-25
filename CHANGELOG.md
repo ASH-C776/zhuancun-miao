@@ -1512,3 +1512,20 @@ Kotlin 的 `find` 取的是「全文最靠前的匹配」，不是「最靠前�
 - 单测 204/204 通过；`assembleRelease` 通过，装机 versionCode=808。
 
 **预期**：同一任务再跑一次，E051–100、E134–170 都能被看到并转存，缺口应显著缩小。
+
+## Stage 59（2026-11-25）前台服务保活：熄屏 / 切后台不再掐断任务（0.8.9）
+
+**现象**：手动任务跑在 `AppViewModel.viewModelScope` 上，熄屏或切后台后 App 变 cached 进程，CPU/网络被冻结，长任务中断。
+
+**改动**
+- 新增 `sync/TaskRunService.kt`：`foregroundServiceType=dataSync` 的前台服务承载任务，自带 `SupervisorJob + Dispatchers.IO`，与界面解耦。
+  - 常驻通知「转存喵 · 任务进行中」+ 阶段文案 + 「取消」按钮；完成后另发完成/失败通知。
+  - `PARTIAL_WAKE_LOCK`（60 分钟超时兜底，finally 释放）+ 仅 Wi-Fi 下 `WIFI_MODE_FULL_HIGH_PERF` 锁；结束/失败/取消都在 `finally` 释放，空闲零常驻。
+  - 单飞：已有任务在跑时忽略新的启动请求。
+- 新增 `TaskRunBus`（阶段表 + 完成事件），界面侧只订阅，不驱动。
+- `ui/tasks/TasksViewModel.kt`：`runTask` / `runAll` 改为 `TaskRunService.startTask / startAll`；`running` 改由 `TaskRunBus.phases` 订阅，`finished` 由事件流驱动；一键全部结束自动收掉整体进度文案。构造新增 `appContext`（`MainActivity` 已同步）。
+- `AndroidManifest.xml`：注册 `<service … stopWithTask="false">`，新增 `ACCESS_WIFI_STATE` 权限。
+
+**验证**
+- `assembleRelease` 通过，装机 versionCode=809。
+- 真机待测：点运行 → 立即熄屏 5 分钟 → 亮屏看日志是否连续；再测切后台、划掉最近任务、通知栏取消。

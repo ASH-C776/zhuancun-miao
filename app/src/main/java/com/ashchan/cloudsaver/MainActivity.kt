@@ -58,6 +58,7 @@ class MainActivity : ComponentActivity() {
                 val rules = RuleStore(applicationContext)
                 val tmdb = TmdbStore(applicationContext)
                 return TasksViewModel(
+                    appContext = applicationContext,
                     repo = repo,
                     runner = TaskRunner(repo, credentials, tmdb, rules),
                     credentials = credentials,

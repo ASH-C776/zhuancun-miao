@@ -38,12 +38,34 @@ import kotlinx.coroutines.launch
  * - 自动：App 打开时跑一轮（每个 ViewModel 生命周期只跑一次，避免来回切页重复打网盘）
  */
 class TasksViewModel(
+    private val appContext: android.content.Context,
     private val repo: TaskRepository,
     private val runner: TaskRunner,
     private val credentials: CredentialStore? = null,
     private val ruleStore: RuleStore? = null,
     private val tmdbStore: TmdbStore? = null,
 ) : ViewModel() {
+
+    init {
+        // 任务本体跑在前台服务里（熄屏/切后台不断），这里只订阅它的阶段与完成事件。
+        // 试跑（新建页）仍走本 VM 的 viewModelScope，不影响下面这路只读订阅。
+        viewModelScope.launch {
+            com.ashchan.cloudsaver.sync.TaskRunBus.phases.collect { phaseMap ->
+                _running.value = phaseMap
+                // 服务里所有任务跑完（阶段表清空）→ 收掉「一键全部」的整体进度文案
+                if (phaseMap.isEmpty()) _progress.value = null
+            }
+        }
+        viewModelScope.launch {
+            com.ashchan.cloudsaver.sync.TaskRunBus.finished.collect { (id, ok) ->
+                _finished.update { it + (id to ok) }
+                viewModelScope.launch {
+                    delay(1500)
+                    _finished.update { it - id }
+                }
+            }
+        }
+    }
 
     val cards: StateFlow<List<TaskCard>> = repo.observeCards()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -549,35 +571,18 @@ class TasksViewModel(
         viewModelScope.launch { repo.setEnabled(task.id, !task.enabled) }
     }
 
-    /** 单条检测转存 */
+    /** 单条检测转存：交给前台服务跑，切后台/熄屏都不中断 */
     fun runTask(task: TaskEntity) {
         if (task.id in _running.value) return
-        viewModelScope.launch {
-            execute(task, RunRecordEntity.TRIGGER_MANUAL)
-        }
+        _running.update { it + (task.id to "准备中") }
+        com.ashchan.cloudsaver.sync.TaskRunService.startTask(appContext, task.id)
     }
 
-    /** 一键全部：串行遍历启用中的任务 */
+    /** 一键全部：服务内串行遍历启用中的任务 */
     fun runAll(trigger: String = RunRecordEntity.TRIGGER_ALL) {
         if (_running.value.isNotEmpty()) return
-        viewModelScope.launch {
-            val tasks = repo.tasks().filter { it.enabled }
-            if (tasks.isEmpty()) {
-                if (trigger != RunRecordEntity.TRIGGER_BACKGROUND) {
-                    _toast.value = "没有启用的任务"
-                }
-                return@launch
-            }
-            var ok = 0
-            tasks.forEachIndexed { index, task ->
-                _progress.value = "同步 ${index + 1}/${tasks.size}：${task.name}"
-                if (runOnce(task, trigger)) ok++
-            }
-            _progress.value = null
-            if (trigger != RunRecordEntity.TRIGGER_BACKGROUND || ok > 0) {
-                _toast.value = "同步完成：成功 $ok / ${tasks.size}"
-            }
-        }
+        _progress.value = "正在启动同步…"
+        com.ashchan.cloudsaver.sync.TaskRunService.startAll(appContext, trigger)
     }
 
     // ---------------- 内部 ----------------
