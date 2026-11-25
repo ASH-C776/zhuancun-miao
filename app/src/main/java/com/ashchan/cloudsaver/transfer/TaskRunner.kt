@@ -5,6 +5,7 @@ import com.ashchan.cloudsaver.core.model.DriveType
 import com.ashchan.cloudsaver.core.model.ShareInfo
 import com.ashchan.cloudsaver.core.model.ShareNode
 import com.ashchan.cloudsaver.core.tmdb.TmdbClient
+import com.ashchan.cloudsaver.core.tmdb.totalOfProperSeasons
 import com.ashchan.cloudsaver.data.EpisodeCounter
 import com.ashchan.cloudsaver.data.EpisodeStats
 import com.ashchan.cloudsaver.data.SeasonParser
@@ -275,6 +276,9 @@ class TaskRunner(
         }
         val fixedSeason = task.seasonNo.coerceAtLeast(0)
         val targetSeason = tmdb.countSeason?.takeIf { it >= 0 } ?: 1
+        // 多季的「盘里有多少集」要逐季相加；其它口径仍只看被指定的那一季
+        fun haveEpisodes(r: EpisodeStats.Result): Int =
+            if (statMode == EpisodeStats.Mode.MULTI) r.episodesAll else r.episodes
 
         /** 回写单个源的结论：一次失败算 WARN，连续两次才升级 FAIL（不误报失效） */
         suspend fun markSource(target: RunTarget, ok: Boolean, error: String) {
@@ -450,7 +454,7 @@ class TaskRunner(
                 val current = countLocal(adapter, destFid, statMode, fixedSeason, targetSeason)
                 lastCount = current
                 if (tmdb.bound &&
-                    SnapshotCalc.missing(current.episodes, tmdb.latestEpisode, tmdb.totalEpisodes) == 0
+                    SnapshotCalc.missing(haveEpisodes(current), tmdb.latestEpisode, tmdb.totalEpisodes) == 0
                 ) {
                     stoppedForGap = true
                     notes += "$label 之后缺口已补齐，后面的源不再执行"
@@ -482,9 +486,17 @@ class TaskRunner(
         // 完整度缺口（总数 - 已收）只进运行日志：卡片与进度条走「追剧」口径，
         // 这里补一句「盘里 114 集 / 共 211 集，缺 97 集」，两者互不顶替。
         val finalReport = if (tmdb.bound && tmdb.totalEpisodes > 0) {
-            report.copy(
-                notes = report.notes + SnapshotCalc.gapText(counted.episodes, tmdb.latestEpisode, tmdb.totalEpisodes),
-            )
+            val extra = buildList {
+                add(SnapshotCalc.gapText(haveEpisodes(counted), tmdb.latestEpisode, tmdb.totalEpisodes))
+                // 多季：逐季列一行，整季目录缺失也逃不掉
+                if (statMode == EpisodeStats.Mode.MULTI && tmdb.seasonTargets.isNotEmpty()) {
+                    tmdb.seasonTargets.entries.sortedBy { it.key }.forEach { (season, target) ->
+                        val have = counted.bySeason[season] ?: 0
+                        add("第${season}季 已收 ${have} 集 / 共 ${target} 集")
+                    }
+                }
+            }
+            report.copy(notes = report.notes + extra)
         } else {
             report
         }
@@ -506,8 +518,8 @@ class TaskRunner(
             trigger = trigger,
             startedAt = startedAt,
             report = finalReport,
-            localEpisodes = counted.episodes,
-            localLastEpisode = counted.lastEpisode,
+            localEpisodes = haveEpisodes(counted),
+            localLastEpisode = if (statMode == EpisodeStats.Mode.MULTI) haveEpisodes(counted) else counted.lastEpisode,
             tmdbLatest = tmdb.latestEpisode,
             tmdbTotal = tmdb.totalEpisodes,
             saveSnapshot = saveSnapshot,
@@ -592,6 +604,8 @@ class TaskRunner(
         val totalEpisodes: Int = 0,
         /** 这次统计对应的季（多季任务按这一季分区数集）；查不到为 null */
         val countSeason: Int? = null,
+        /** 多季口径：每季的目标集数（S1 起，不含特别版），用于逐季对账 */
+        val seasonTargets: Map<Int, Int> = emptyMap(),
     ) {
         /** 是否绑上了 TMDB（没绑就没有「缺几集」这把尺子，多源也就无法判断补齐） */
         val bound: Boolean get() = latestEpisode > 0 || totalEpisodes > 0
@@ -660,23 +674,59 @@ class TaskRunner(
             android.util.Log.w("TmdbResolve", "fetchTv($tvId) 失败：${e.message}")
             return TmdbLatest(0, emptyList())
         }
-        val season = SeasonParser.parse(task.seasonName)
-        // 更新日走原项目同一套「多天加权投票」（会多拉一次该季集表）
+        // 三种口径，各算各的（唯一不按季算的是「多季」）：
+        // - 指定季（含 0 特别版）→ 只用这一季的集数和这一季的已播集号
+        // - 平铺 → 等同「第 1 季」，不再偷偷换成「最后一集所在的那一季」
+        // - 多季 → 每季集数相加当总数，已播集也用累计口径，盘里同样累计
         val weekdays = client.inferWeekdays(tvId, info)
-        // 目标总集数：指定季度取该季集数；没指定季就用「最新集所在那一季」的集数
-        // （TMDB 的 episode_number 是季内编号，拿全剧总数去比会永远对不上）
-        val countSeason = season ?: info.lastEpisode?.season?.takeIf { it > 0 }
-        val total = client.totalEpisodes(tvId, countSeason, info)
+        val multi = task.seasonNo == TaskEntity.SEASON_MULTI
+        val scopeSeason = when {
+            multi -> null
+            task.seasonNo == TaskEntity.SEASON_FLAT -> 1
+            else -> task.seasonNo.coerceAtLeast(0)
+        }
+        val total = if (multi) {
+            info.totalOfProperSeasons()
+        } else {
+            client.totalEpisodes(tvId, scopeSeason, info)
+        }
+        val latest = if (multi) {
+            cumulativeAired(info)
+        } else {
+            client.latestAiredEpisode(tvId, scopeSeason ?: 1, info)
+        }
         return TmdbLatest(
-            latestEpisode = info.latestEpisodeNumber(season),
+            latestEpisode = latest,
             weekdays = weekdays,
             totalEpisodes = total,
-            countSeason = countSeason,
+            countSeason = if (multi) info.lastEpisode?.season else scopeSeason,
+            seasonTargets = if (multi) {
+                info.seasons.filter { it.seasonNumber >= 1 }
+                    .associate { it.seasonNumber to it.episodeCount }
+            } else {
+                emptyMap()
+            },
         ).also {
             android.util.Log.i(
                 "TmdbResolve",
-                "tv=$tvId season=$season latest=${it.latestEpisode} total=${it.totalEpisodes} weekdays=${it.weekdays}",
+                "tv=$tvId seasonNo=${task.seasonNo} scope=$scopeSeason multi=$multi " +
+                    "latest=${it.latestEpisode} total=${it.totalEpisodes} weekdays=${it.weekdays}",
             )
+        }
+    }
+
+    /** 多季：把各正季的已播集数加起来（季内集号各从 1 起，只能按集数累加） */
+    private fun cumulativeAired(info: com.ashchan.cloudsaver.core.tmdb.TmdbTvInfo): Int {
+        val seasons = info.seasons.filter { it.seasonNumber >= 1 }.sortedBy { it.seasonNumber }
+        if (seasons.isEmpty()) return info.lastEpisode?.episode ?: 0
+        val lastSeason = info.lastEpisode?.season ?: seasons.last().seasonNumber
+        val lastEp = info.lastEpisode?.episode ?: 0
+        return seasons.sumOf { s ->
+            when {
+                s.seasonNumber < lastSeason -> s.episodeCount
+                s.seasonNumber == lastSeason -> lastEp.coerceIn(0, s.episodeCount)
+                else -> 0
+            }
         }
     }
 
@@ -693,6 +743,7 @@ class TaskRunner(
     /** 目标侧季目录名（选了季度才建） */
     private fun seasonFolderName(no: Int): String = "Season $no"
 }
+
 
 
 

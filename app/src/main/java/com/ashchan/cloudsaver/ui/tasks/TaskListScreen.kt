@@ -284,7 +284,14 @@ private fun TaskRow(
                         name = task.name,
                         tmdbId = task.tmdbId,
                         posterPath = task.posterPath,
-                        totalBadge = if (snap.tmdbTotal > 0) "共${snap.tmdbTotal}集" else null,
+                        totalBadge = if (snap.tmdbTotal > 0) {
+                            when (task.seasonNo) {
+                                TaskEntity.SEASON_MULTI -> "全剧${snap.tmdbTotal}集"
+                                TaskEntity.SEASON_FLAT -> "共${snap.tmdbTotal}集"
+                                0 -> "S0·${snap.tmdbTotal}集"
+                                else -> "S${task.seasonNo}·${snap.tmdbTotal}集"
+                            }
+                        } else null,
                     )
                     Spacer(Modifier.width(12.dp))
                     Column(

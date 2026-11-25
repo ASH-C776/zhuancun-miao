@@ -50,7 +50,38 @@ class TmdbClient(
             numberOfSeasons = body.get("number_of_seasons")?.asInt ?: 0,
             /** 全剧总集数（含未播的已排期集），用于判断「整部剧是不是收齐了」 */
             totalEpisodes = body.get("number_of_episodes")?.takeIf { it.isJsonPrimitive }?.asInt ?: 0,
+            seasons = body.getAsJsonArray("seasons")?.mapNotNull { el ->
+                el.takeIf { it.isJsonObject }?.asJsonObject?.let { obj ->
+                    val no = obj.get("season_number")?.takeIf { it.isJsonPrimitive }?.asInt
+                        ?: return@let null
+                    TmdbSeason(
+                        seasonNumber = no,
+                        name = obj.get("name")?.asString.orEmpty(),
+                        episodeCount = obj.get("episode_count")?.takeIf { it.isJsonPrimitive }?.asInt ?: 0,
+                        airDate = obj.get("air_date")?.takeIf { it.isJsonPrimitive }?.asString.orEmpty(),
+                    )
+                }
+            }.orEmpty(),
         )
+    }
+
+    /**
+     * 某一季已经播到第几集（季内集号）。
+     *
+     * 不能只看 `last_episode_to_air`：它只代表「最新播出的那一集」，
+     * 查第 2 季时它可能落在第 4 季，直接返回 0 会让卡片显示 E—。
+     * 这里改成：季对上就直接用，季对不上就拉这一季的集表，按播出日期过滤到今天为止。
+     */
+    suspend fun latestAiredEpisode(tvId: Long, season: Int, info: TmdbTvInfo, language: String = "zh-CN"): Int {
+        val last = info.lastEpisode
+        if (last != null && last.season == season) return last.episode
+        val list = fetchSeason(tvId, season, language).getOrNull().orEmpty()
+        val today = java.time.LocalDate.now().toString()
+        val aired = list.filter { ep ->
+            val d = ep.airDate?.takeIf { it.isNotBlank() } ?: return@filter true
+            d <= today
+        }
+        return aired.maxOfOrNull { it.episode } ?: 0
     }
 
     /** 查询某一季的集数列表（用于「只追这一季」的口径） */
@@ -67,9 +98,12 @@ class TmdbClient(
      * 只追第 2 季的任务拿全剧总数去比，永远不会齐。
      */
     suspend fun totalEpisodes(tvId: Long, season: Int?, info: TmdbTvInfo? = null, language: String = "zh-CN"): Int {
-        if (season != null && season > 0) {
+        if (season != null && season >= 0) {
+            // 先信 /tv/{id} 里的 seasons[]，没有再拉这一季的集表去数
+            val tv = info ?: fetchTv(tvId, language).getOrNull()
+            val fromSummary = tv?.seasonCount(season) ?: 0
+            if (fromSummary > 0) return fromSummary
             val list = fetchSeason(tvId, season, language).getOrNull().orEmpty()
-            // 按集号去重计数，避免 TMDB 偶发的重复集号（特辑）把分母放大
             val distinct = list.mapNotNull { it.episode.takeIf { n -> n > 0 } }.toSortedSet().size
             if (distinct > 0) return distinct
         }
@@ -218,6 +252,22 @@ data class TmdbEpisode(    val season: Int,
     val airDate: String?,
 )
 
+/** 某一季的官方集数（0 = 特别版）；TMDB 没列出这一季就是 0 */
+fun TmdbTvInfo.seasonCount(season: Int): Int =
+    seasons.firstOrNull { it.seasonNumber == season }?.episodeCount ?: 0
+
+/** 多季口径的总集数：只累加正季（S1 起），特别版另算 */
+fun TmdbTvInfo.totalOfProperSeasons(): Int =
+    seasons.filter { it.seasonNumber >= 1 }.sumOf { it.episodeCount }
+
+/** 一季的汇总信息（TMDB `/tv/{id}` 的 seasons[] 里给的就是这些） */
+data class TmdbSeason(
+    val seasonNumber: Int,
+    val name: String,
+    val episodeCount: Int,
+    val airDate: String,
+)
+
 /** 剧集维度的关键信息 */
 data class TmdbTvInfo(
     val id: Long,
@@ -227,6 +277,8 @@ data class TmdbTvInfo(
     val numberOfSeasons: Int,
     /** 全剧总集数（TMDB `number_of_episodes`，含已排期未播的） */
     val totalEpisodes: Int = 0,
+    /** 每季的官方集数；绑定时展示、按季取数都靠它，不用再逐季拉列表 */
+    val seasons: List<TmdbSeason> = emptyList(),
 ) {
     /**
      * 判定「最新集号」的口径：

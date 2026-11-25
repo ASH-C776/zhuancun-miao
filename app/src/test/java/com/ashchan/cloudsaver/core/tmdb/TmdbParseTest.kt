@@ -23,6 +23,28 @@ class TmdbParseTest {
         assertNull(weekdayOf("2026-13-45"))
     }
 
+    @Test
+    fun `多季总数只累加正季 特别版不算进去`() {
+        val withSeasons = TmdbTvInfo(
+            id = 1,
+            name = "一念永恒",
+            lastEpisode = null,
+            nextEpisode = null,
+            numberOfSeasons = 4,
+            totalEpisodes = 211,
+            seasons = listOf(
+                TmdbSeason(0, "特别版", 3, "2020-01-01"),
+                TmdbSeason(1, "Season 1", 52, "2020-08-12"),
+                TmdbSeason(2, "Season 2", 54, "2022-07-20"),
+                TmdbSeason(3, "Season 3", 59, "2024-07-03"),
+                TmdbSeason(4, "Final Season", 46, "2026-07-22"),
+            ),
+        )
+        assertEquals(211, withSeasons.totalOfProperSeasons())
+        assertEquals(59, withSeasons.seasonCount(3))
+        assertEquals(0, withSeasons.seasonCount(9))
+    }
+
     private val info = TmdbTvInfo(
         id = 1,
         name = "测试剧",

@@ -31,6 +31,8 @@ class EpisodeStatsTest {
         val r2 = EpisodeStats.count(entries, EpisodeStats.Mode.MULTI, targetSeason = 2)
         assertEquals(5, r2.episodes)
         assertEquals(mapOf(1 to 10, 2 to 5), r2.bySeason)
+        // 多季总数：各季分别去重后相加（季内集号各从 1 起，不能全局去重）
+        assertEquals(15, r2.episodesAll)
 
         val r1 = EpisodeStats.count(entries, EpisodeStats.Mode.MULTI, targetSeason = 1)
         assertEquals(10, r1.episodes)

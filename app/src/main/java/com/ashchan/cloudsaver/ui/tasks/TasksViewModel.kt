@@ -571,6 +571,19 @@ class TasksViewModel(
         TmdbClient(credential, store.loadBaseUrl()).inferWeekdays(tvId)
     }.getOrDefault(emptyList())
 
+    /** 绑定/编辑时展示这部剧的分季集数，避免「总数」和「本季」搞混 */
+    suspend fun tmdbSeasonSummary(tvId: Long): String = runCatching {
+        val store = tmdbStore ?: return@runCatching ""
+        val credential = store.loadCredential()?.takeIf { it.isNotBlank() } ?: return@runCatching ""
+        val info = TmdbClient(credential, store.loadBaseUrl()).fetchTv(tvId).getOrNull()
+            ?: return@runCatching ""
+        val parts = info.seasons
+            .filter { it.seasonNumber >= 1 }
+            .sortedBy { it.seasonNumber }
+            .map { "S${it.seasonNumber} ${it.episodeCount}集" }
+        if (parts.isEmpty()) "" else parts.joinToString(" · ")
+    }.getOrDefault("")
+
     /** TMDB 搜索（新建页选剧用）。未配置凭证时直接给出可读原因 */    suspend fun searchTv(query: String): Result<List<TmdbSearchItem>> {
         val store = tmdbStore ?: return Result.failure(IllegalStateException("TMDB 不可用"))
         val credential = store.loadCredential()?.takeIf { it.isNotBlank() }

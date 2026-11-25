@@ -163,6 +163,11 @@ fun NewTaskScreen(
     var posterPath by remember { mutableStateOf(editingTask?.posterPath ?: "") }
     // 下载完成后 +1，用来刷新表单头部的海报预览
     var posterVersion by remember { mutableStateOf(0) }
+    // 「S1 52集 · S2 54集」，让用户在选季度前就知道每季各多少集
+    var tmdbSeasonText by remember { mutableStateOf("") }
+    LaunchedEffect(tmdbId) {
+        tmdbSeasonText = if (tmdbId.isBlank()) "" else viewModel.tmdbSeasonSummary(tmdbId.toLongOrNull() ?: 0)
+    }
     // 播出时刻字段已删除（不参与任何执行逻辑）；TaskEntity 里的列保留但不再读写
     var weekdays by remember {
         mutableStateOf(
@@ -449,13 +454,24 @@ fun NewTaskScreen(
                         reloadKey = posterVersion,
                     )
                     Spacer(Modifier.width(10.dp))
-                    Text(
-                        text = "已绑定：${tmdbTitle.ifBlank { "tmdb-$tmdbId" }}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary,
-                        maxLines = 2,
-                        modifier = Modifier.weight(1f),
-                    )
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            text = "已绑定：${tmdbTitle.ifBlank { "tmdb-$tmdbId" }}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (tmdbSeasonText.isNotBlank()) {
+                            Text(
+                                text = tmdbSeasonText,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
                     TextButton(onClick = {
                         tmdbId = ""
                         tmdbTitle = ""

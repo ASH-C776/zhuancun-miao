@@ -42,6 +42,11 @@ object EpisodeStats {
         val ambiguous: Int = 0,
         /** 被判成剧场版而跳过的文件数 */
         val movies: Int = 0,
+        /**
+         * 多季口径：所有季各自去重后相加的集数（无季号的文件算第 1 季）。
+         * 季内集号各从 1 起，不能全局去重，只能逐季数完再加。
+         */
+        val episodesAll: Int = 0,
     )
 
     enum class Mode { FIXED, MULTI, FLAT }
@@ -96,6 +101,14 @@ object EpisodeStats {
         val chosen = chosenBuckets.flatMap { bySeason[it].orEmpty() }.toSortedSet()
         val countedFiles = chosenBuckets.sumOf { bucketFiles[it] ?: 0 }
         val otherSeason = bucketFiles.filterKeys { it !in chosenBuckets }.values.sum()
+        val mergedAll = mutableMapOf<Int, MutableSet<Int>>()
+        bySeason.forEach { (k, set) ->
+            // 特别版（Season 0）不算进多季总数，跟 TMDB 只累加正季的口径保持一致
+            if (k == 0) return@forEach
+            val key = k ?: 1
+            mergedAll.getOrPut(key) { mutableSetOf() } += set
+        }
+        val episodesAll = mergedAll.values.sumOf { it.size }
 
         return Result(
             episodes = chosen.size,
@@ -112,6 +125,7 @@ object EpisodeStats {
             unparsedCount = unparsedCount,
             ambiguous = ambiguous,
             movies = movies,
+            episodesAll = episodesAll,
         )
     }
 
