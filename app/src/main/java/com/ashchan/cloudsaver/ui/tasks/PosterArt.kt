@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -43,8 +44,8 @@ fun PosterArt(
     tmdbId: Long?,
     posterPath: String,
     totalBadge: String? = null,
-    width: Dp = 56.dp,
-    height: Dp = 84.dp,
+    width: Dp = 64.dp,
+    height: Dp = 96.dp,
     reloadKey: Int = 0,
     modifier: Modifier = Modifier,
 ) {
@@ -77,7 +78,7 @@ fun PosterArt(
         } else {
             Text(
                 text = name.trim().take(1).ifBlank { "剧" },
-                style = MaterialTheme.typography.titleLarge,
+                fontSize = 22.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = MaterialTheme.colorScheme.primary.copy(alpha = 0.55f),
             )
@@ -87,16 +88,19 @@ fun PosterArt(
             Box(
                 Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 5.dp)
+                    .padding(bottom = 4.dp)
+                    .widthIn(max = width - 8.dp)
                     .clip(CircleShape)
                     .background(Color(0x99000000))
-                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                    .padding(horizontal = 4.dp, vertical = 1.dp),
             ) {
                 Text(
                     text = totalBadge,
                     color = Color.White,
-                    fontSize = 10.sp,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Medium,
                     maxLines = 1,
+                    letterSpacing = 0.sp,
                 )
             }
         }
@@ -112,4 +116,6 @@ private fun decodePoster(file: File): ImageBitmap? = runCatching {
     val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
     android.graphics.BitmapFactory.decodeFile(file.absolutePath, opts)?.asImageBitmap()
 }.getOrNull()
+
+
 

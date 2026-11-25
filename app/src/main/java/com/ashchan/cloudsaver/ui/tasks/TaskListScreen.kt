@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -81,6 +82,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ashchan.cloudsaver.data.TaskCard
 import com.ashchan.cloudsaver.data.Weekdays
@@ -276,7 +278,7 @@ private fun TaskRow(
             ),
         ) {
             Column {
-                Row(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp)) {
+                Row(Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp)) {
                     // 左：海报位（有图放图，没图同尺寸占位）；胶囊只在「有海报 + 已知总数」时出现
                     PosterArt(
                         name = task.name,
@@ -288,12 +290,13 @@ private fun TaskRow(
                     Column(
                         Modifier
                             .weight(1f)
-                            .heightIn(min = 84.dp),
+                            .height(96.dp),
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
                                 text = task.name,
-                                style = MaterialTheme.typography.titleMedium,
+                                fontSize = 16.sp,
+                                lineHeight = 22.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -302,7 +305,7 @@ private fun TaskRow(
                             StatusBadge(snap)
                         }
 
-                        Spacer(Modifier.height(4.dp))
+                        Spacer(Modifier.height(8.dp))
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             val metaBase = metaLeft(task, card.sourceCount)
@@ -332,24 +335,38 @@ private fun TaskRow(
                             )
                         }
 
-                        Spacer(Modifier.height(6.dp))
+                        Spacer(Modifier.weight(1f))
 
-                        // 集数与刷新按钮同一行、同一高度，整组靠右（右到左：刷新 → 集数）
+                        // 集数与刷新按钮同一行（44dp 热区 / 36dp 视觉圆），整组靠右
                         Row(
-                            Modifier.fillMaxWidth(),
+                            Modifier
+                                .fillMaxWidth()
+                                .height(44.dp),
                             horizontalArrangement = Arrangement.End,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            val epText = if (snap.tmdbLatest > 0 || snap.tmdbTotal > 0) {
-                                "${episodeText(snap.localLastEpisode)}  →  ${episodeText(snap.tmdbLatest)}"
-                            } else {
-                                // 没绑 TMDB：没有总数也没有对比基准，只报盘里最大集号
-                                "第${snap.localLastEpisode}集"
-                            }
+                            val hasTmdb = snap.tmdbLatest > 0 || snap.tmdbTotal > 0
+                            val epColor = MaterialTheme.colorScheme.onSurface
+                            val dim = MaterialTheme.colorScheme.onSurfaceVariant
                             Text(
-                                text = epText,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                text = if (hasTmdb) buildAnnotatedString {
+                                    withStyle(SpanStyle(color = epColor, fontWeight = FontWeight.Medium)) {
+                                        append(episodeText(snap.localLastEpisode))
+                                    }
+                                    withStyle(SpanStyle(color = dim)) { append("  →  ") }
+                                    withStyle(SpanStyle(color = epColor, fontWeight = FontWeight.Medium)) {
+                                        append(episodeText(snap.tmdbLatest))
+                                    }
+                                } else buildAnnotatedString {
+                                    append("第")
+                                    withStyle(SpanStyle(color = epColor, fontWeight = FontWeight.Medium)) {
+                                        append(snap.localLastEpisode.toString())
+                                    }
+                                    append("集")
+                                },
+                                fontSize = 12.sp,
+                                lineHeight = 16.sp,
+                                color = dim,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 textAlign = TextAlign.End,
@@ -364,19 +381,27 @@ private fun TaskRow(
                                         animated = false,
                                     )
                                 } else {
-                                    IconButton(
-                                        onClick = onRun,
-                                        modifier = Modifier
-                                            .size(36.dp)
-                                            .clip(CircleShape)
-                                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                                    // 视觉 36×36，热区 44×44
+                                    Box(
+                                        Modifier
+                                            .size(44.dp)
+                                            .clickable(onClick = onRun),
+                                        contentAlignment = Alignment.Center,
                                     ) {
-                                        Icon(
-                                            Icons.Filled.Refresh,
-                                            contentDescription = "检测转存",
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(18.dp),
-                                        )
+                                        Box(
+                                            Modifier
+                                                .size(36.dp)
+                                                .clip(CircleShape)
+                                                .background(MaterialTheme.colorScheme.surfaceVariant),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Icon(
+                                                Icons.Filled.Refresh,
+                                                contentDescription = "检测转存",
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(18.dp),
+                                            )
+                                        }
                                     }
                                 }
                             } else {
@@ -473,13 +498,15 @@ private fun StatusBadge(snap: SnapshotEntity) {
         else -> "未同步" to TaskColors.unknown()
     }
     Surface(
-        shape = RoundedCornerShape(8.dp),
+        shape = RoundedCornerShape(12.dp),
         color = TaskColors.badgeBg(color),
     ) {
         Text(
             text = text,
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-            style = MaterialTheme.typography.labelMedium,
+            fontSize = 11.sp,
+            lineHeight = 16.sp,
+            fontWeight = FontWeight.Medium,
             color = color,
         )
     }
@@ -640,6 +667,7 @@ private fun syncText(millis: Long): String {
     val fmt = SimpleDateFormat("MM/dd HH:mm", Locale.getDefault())
     return fmt.format(Date(millis))
 }
+
 
 
 
