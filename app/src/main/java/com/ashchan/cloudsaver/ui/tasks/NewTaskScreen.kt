@@ -1419,6 +1419,9 @@ private fun TmdbSearchDialog(
                                                 if (isNotEmpty()) append(" · ")
                                                 append("${item.seasons} 季")
                                             }
+                                            // 同名剧很多，直接把 TMDB ID 写出来才好区分（也是任务里实际存的那个号）
+                                            if (isNotEmpty()) append(" · ")
+                                            append("TMDB ${item.id}")
                                         },
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
