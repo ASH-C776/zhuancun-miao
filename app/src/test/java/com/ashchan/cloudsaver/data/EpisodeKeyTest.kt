@@ -94,3 +94,43 @@ class EpisodeKeyTest {
         assertNull(a.parsed)
     }
 }
+
+class EpisodeKeyCnHuaProbeTest {
+    @Test
+    fun `第N话 带小标题尾巴 仍取话号`() {
+        val a = EpisodeKey.analyze("第58话 再别天南12.mp4")
+        assertEquals(58, a.parsed?.episode)
+        assertFalse(a.ambiguous)
+        assertTrue(a.isHit)
+        val b = EpisodeKey.analyze("第61话 初入星海1.mp4")
+        assertEquals(61, b.parsed?.episode)
+        assertTrue(b.isHit)
+    }
+
+    @Test
+    fun `集号后跟 4K 不再被当成第二个集号`() {
+        // 光鸭分享里实测有一大批叫「171 4K.mp4」「172 4K(v2).mp4」，
+        // 以前 4K 里的 4 没被抹掉 → 两个候选数字 → 判歧义 → 整批未命中
+        val a = EpisodeKey.analyze("171 4K.mp4")
+        assertEquals(171, a.parsed?.episode)
+        assertFalse(a.ambiguous)
+        assertTrue(a.isHit)
+
+        val b = EpisodeKey.analyze("172 4K(v2).mp4")
+        assertEquals(172, b.parsed?.episode)
+        assertFalse(b.ambiguous)
+        assertTrue(b.isHit)
+
+        val c = EpisodeKey.analyze("177(v2) 4k.mp4")
+        assertEquals(177, c.parsed?.episode)
+        assertTrue(c.isHit)
+    }
+
+    @Test
+    fun `点号分隔的集号加 4K 也不会被读成第 4 集`() {
+        // 旧逻辑会把「凡人修仙传.219-4K」结尾的 4 当集号
+        val a = EpisodeKey.analyze("凡人修仙传.219-4K.mp4")
+        assertEquals(219, a.parsed?.episode)
+        assertTrue(a.isHit)
+    }
+}
