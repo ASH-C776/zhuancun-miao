@@ -300,7 +300,10 @@ class TasksViewModel(
             }
             if (inspected.size > 1) repo.saveSources(id, inspected, task.copy(id = id))
             _toast.value = "已添加「$title」，正在扫描…"
-            execute(task.copy(id = id), RunRecordEntity.TRIGGER_MANUAL)
+            // 首次同步也交给前台服务：建完任务立刻退出 App / 切后台也不会断在半路。
+            // 界面只负责把「准备中」写进运行态，后续阶段由 TaskRunBus 推回来。
+            _running.update { it + (id to "准备中") }
+            com.ashchan.cloudsaver.sync.TaskRunService.startTask(appContext, id)
         }
     }
 
@@ -723,34 +726,6 @@ class TasksViewModel(
 
     // ---------------- 内部 ----------------
 
-    private suspend fun execute(task: TaskEntity, trigger: String) {
-        runOnce(task, trigger).let { ok ->
-            _toast.value = if (ok) "「${task.name}」已同步" else "「${task.name}」同步失败"
-        }
-    }
-
-    private suspend fun runOnce(task: TaskEntity, trigger: String): Boolean {
-        _running.update { it + (task.id to "准备中") }
-        _finished.update { it - task.id }
-        var ok = false
-        return try {
-            val result = runner.run(
-                task = task,
-                trigger = trigger,
-                onPhase = { phase -> _running.update { it + (task.id to phase) } },
-            )
-            ok = result.isSuccess && (result.getOrNull()?.ok == true)
-            ok
-        } finally {
-            _running.update { it - task.id }
-            // 跑完在同一个位置闪一句：成功绿「完成」、失败红「失败」，1.5 秒后收回成图标
-            _finished.update { it + (task.id to ok) }
-            viewModelScope.launch {
-                delay(1500)
-                _finished.update { it - task.id }
-            }
-        }
-    }
 }
 
 
