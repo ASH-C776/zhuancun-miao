@@ -73,6 +73,7 @@ data class TaskEntity(
      * - SUBTREE：整棵子树保留层级（「剧名/第 1 季/14 集」）
      * - DIRECT_ONLY：只转该目录下平铺的视频（「剧名/219-4K.mp4」这类，不进下一层大目录）
      */
+    /** 历史遗留列：早期「转存范围」开关的数据。功能已下线，固定整棵目录，不再读取；保留列避免迁移 */
     val scopeMode: String = SCOPE_SUBTREE,
     /** TMDB id（剧为 tv，电影为 movie） */
     val tmdbId: Long? = null,

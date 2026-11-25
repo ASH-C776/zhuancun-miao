@@ -548,17 +548,6 @@ class TaskRunner(
     }
 
     /**
-     * 范围决策：任务显式选了「只跟当前目录」就尊重；
-     * 默认 SUBTREE 时按真实结构推断 —— 根目录直接有视频（平铺新集）→ 只跟当前目录。
-     */
-    private fun resolveScope(task: TaskEntity, tree: com.ashchan.cloudsaver.core.model.ShareNode): TreeSyncEngine.Scope =
-        if (task.scopeMode == TaskEntity.SCOPE_DIRECT_ONLY) {
-            TreeSyncEngine.Scope.DIRECT_ONLY
-        } else {
-            ScopeAdvisor.recommend(tree)
-        }
-
-    /**
      * 统计任务目标目录下已有的集数（**按季分区**，不再是各季混算）。
      *
      * 递归到 [MAX_COUNT_DEPTH] 层：真实资源常见「剧名 / 第 N 季 - 分辨率 / 集.mp4」三层，
