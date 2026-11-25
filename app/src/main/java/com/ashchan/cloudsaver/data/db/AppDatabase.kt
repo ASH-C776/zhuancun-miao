@@ -14,7 +14,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
     entities = [TaskEntity::class, SnapshotEntity::class, RunRecordEntity::class, TaskSourceEntity::class],
     version = 16,
-    exportSchema = false,
+    exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
 
@@ -251,29 +251,35 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** 全部迁移，按版本顺序排列（单测会校验 1→16 不能断档） */
+        val MIGRATIONS: List<Migration> = listOf(
+            MIGRATION_1_2,
+            MIGRATION_2_3,
+            MIGRATION_3_4,
+            MIGRATION_4_5,
+            MIGRATION_5_6,
+            MIGRATION_6_7,
+            MIGRATION_7_8,
+            MIGRATION_8_9,
+            MIGRATION_9_10,
+            MIGRATION_10_11,
+            MIGRATION_11_12,
+            MIGRATION_12_13,
+            MIGRATION_13_14,
+            MIGRATION_14_15,
+            MIGRATION_15_16,
+        )
+
+        /** 当前 schema 版本，供单测比对（版本号在 [Database] 注解上，改这里只是镜像） */
+        const val SCHEMA_VERSION: Int = 16
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     DB_NAME,
-                ).addMigrations(
-                    MIGRATION_1_2,
-                    MIGRATION_2_3,
-                    MIGRATION_3_4,
-                    MIGRATION_4_5,
-                    MIGRATION_5_6,
-                    MIGRATION_6_7,
-                    MIGRATION_7_8,
-                    MIGRATION_8_9,
-                    MIGRATION_9_10,
-                    MIGRATION_10_11,
-                    MIGRATION_11_12,
-                    MIGRATION_12_13,
-                    MIGRATION_13_14,
-                    MIGRATION_14_15,
-                    MIGRATION_15_16,
-                ).build().also { instance = it }
+                ).addMigrations(*MIGRATIONS.toTypedArray()).build().also { instance = it }
             }
     }
 }

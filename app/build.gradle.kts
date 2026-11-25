@@ -119,24 +119,7 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+ksp {
+    // 导出 Room schema，配合单测盯住迁移链不断档
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
