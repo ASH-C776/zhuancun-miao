@@ -32,6 +32,8 @@ object AlertPublisher {
 
     private const val NOTIFY_BASE = 3000
     private const val TAG = "Notify"
+    private const val PREFS = "notify_publisher"
+    private const val KEY_IDS = "posted_ids"
 
     fun publish(context: Context, alerts: List<ShowAlert>) {
         if (alerts.isEmpty()) return
@@ -52,14 +54,31 @@ object AlertPublisher {
             )
             if (!decision.publish) return@forEach
             store.mark(alert)
-            runCatching { manager.notify(notifyIdOf(alert.taskId), build(context, alert, decision)) }
+            val id = notifyIdOf(alert.taskId)
+            runCatching { manager.notify(id, build(context, alert, decision)) }
+                .onSuccess { savePostedIds(context, postedIds(context) + id.toString()) }
                 .onFailure { android.util.Log.w(TAG, "投递失败", it) }
         }
     }
 
     /** 进 App 时调用：清掉追剧通知与角标（去重指纹保留，避免下次同步又弹一遍） */
     fun clearEpisodeAlerts(context: Context) {
-        runCatching { NotificationManagerCompat.from(context).cancelAll() }
+        // 只清自己发的那几条：不能用 cancelAll，否则会把正在跑的前台服务通知一起清掉
+        val manager = NotificationManagerCompat.from(context)
+        postedIds(context).forEach { raw ->
+            raw.toIntOrNull()?.let { id -> runCatching { manager.cancel(id) } }
+        }
+        savePostedIds(context, emptySet())
+    }
+
+    /** 记下当前还挂在通知栏的追剧提醒 id，供进 App 时精确清理 */
+    private fun postedIds(context: Context): Set<String> =
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getStringSet(KEY_IDS, emptySet()).orEmpty()
+
+    private fun savePostedIds(context: Context, ids: Set<String>) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putStringSet(KEY_IDS, ids).apply()
     }
 
     private fun build(

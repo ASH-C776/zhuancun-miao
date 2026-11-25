@@ -26,9 +26,9 @@ class AlertPolicyTest {
     }
 
     @Test
-    fun `锁屏只进通知栏`() {
+    fun `锁屏仍走横幅但说明原因`() {
         val d = AlertPolicy.decide(alert, AlertEnv(screenLocked = true), alreadyNotified = false)
-        assertEquals(AlertLevel.NORMAL, d.level)
+        assertEquals(AlertLevel.BANNER, d.level)
         assertEquals(AlertReason.SCREEN_LOCKED, d.reason)
     }
 
@@ -40,7 +40,7 @@ class AlertPolicyTest {
     }
 
     @Test
-    fun `免打扰优先于锁屏与前台`() {
+    fun `免打扰优先于前台`() {
         val d = AlertPolicy.decide(
             alert,
             AlertEnv(appForeground = true, screenLocked = true, dndOn = true),

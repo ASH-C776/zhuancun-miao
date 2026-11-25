@@ -39,7 +39,10 @@ data class AlertEnv(
  * 「发不发、发哪一档」的唯一判定点。
  *
  * 顺序（先命中先返回，越靠前优先级越高）：
- * 没有新集 → 已提醒过 → 免打扰 → 锁屏 → App 在前台 → 横幅
+ * 没有新集 → 已提醒过 → 免打扰 → App 在前台 → 横幅
+ *
+ * 锁屏不再降级：用户要的是「自动任务也要弹」。锁屏时屏幕若亮着，系统会把横幅显示在锁屏上；
+ * 屏幕熄着本来就不会弹，也不做强制亮屏（不加全屏意图）。
  */
 object AlertPolicy {
 
@@ -47,8 +50,10 @@ object AlertPolicy {
         alert == null || alert.count <= 0 -> AlertDecision(AlertLevel.SILENT, AlertReason.NO_NEW_EPISODES)
         alreadyNotified -> AlertDecision(AlertLevel.SILENT, AlertReason.ALREADY_NOTIFIED)
         env.dndOn -> AlertDecision(AlertLevel.NORMAL, AlertReason.DND_ON)
-        env.screenLocked -> AlertDecision(AlertLevel.NORMAL, AlertReason.SCREEN_LOCKED)
         env.appForeground -> AlertDecision(AlertLevel.NORMAL, AlertReason.APP_FOREGROUND)
-        else -> AlertDecision(AlertLevel.BANNER, AlertReason.NEW_EPISODES)
+        else -> AlertDecision(
+            AlertLevel.BANNER,
+            if (env.screenLocked) AlertReason.SCREEN_LOCKED else AlertReason.NEW_EPISODES,
+        )
     }
 }
