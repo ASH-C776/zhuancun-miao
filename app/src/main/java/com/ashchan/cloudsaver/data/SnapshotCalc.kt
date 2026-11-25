@@ -2,28 +2,62 @@ package com.ashchan.cloudsaver.data
 
 import com.ashchan.cloudsaver.data.db.SnapshotEntity
 
+/** 完整度缺口：目标集数（总数，或「从第 N 集起」到总数的集数）与盘里已有集数的差 */
+data class Gap(
+    val targetCount: Int,
+    val haveCount: Int,
+    val missingCount: Int,
+    val fromEpisode: Int = 1,
+)
+
 /**
- * 快照计算（纯函数，可单测）：把「盘里已有 / TMDB 最新 / TMDB 总集数」折成卡片要的结论。
+ * 快照计算（纯函数，可单测）。
  *
- * 两个目标、一个优先级（用户口径）：
- * 1. 盘里集数 >= TMDB **总集数** → FINISHED（转存完）：整部剧收齐了，没得补
- * 2. 盘里集数 >= TMDB **当前最新已播集** → UP_TO_DATE（最新了）：眼下没缺集，等下次更新
- * 3. 否则 → BEHIND（缺 N 集），N = 最新已播集 - 盘里集数
+ * **两套口径，各管各的，不许互相顶替**：
+ * 1. 追剧进度（卡片徽标 + 三段进度条）：盘里最大集号 vs TMDB 最新已播集，
+ *    只看“追没追上最新一集”，中间断档不影响。见 `EpisodeSegments` 与卡片 `StatusBadge`。
+ * 2. 完整度缺口（只进运行日志/详情）：TMDB 总集数 - 盘里已有集数，
+ *    用 [gap] / [gapText] 算，回答“一共有多少集、实际收了多少、还差多少”。
  *
- * 没绑定/查不到 TMDB（latest 与 total 都为 0）→ UNKNOWN，不显示「缺几集」，避免误报。
- * 集数一律用「去重后的集号数量」，不用最大集号：中间缺一集、最大号已到 30 也不算收齐。
+ * 两者可以同时成立：凡人修仙传 盘里最大 E201 = TMDB 最新 E201（已最新），
+ * 但盘里只有 114 个文件 / 共 211 集 → 缺 97 集。
  */
 object SnapshotCalc {
 
     /**
-     * 缺集数 = TMDB 总集数 - 盘里已有集数（负数归零）。
-     * 用户口径：卡片上「共 N 集」和「已收 M 集」两个数直接相减，不做其它折算。
-     * 只有查不到总集数（TMDB 没给）时才退回「最新已播集 - 已有集数」，避免显示成 0 缺口。
+     * 「完整度缺口」：TMDB 总集数 - 盘里已有集数。
+     *
+     * 这是**独立字段**，只写进运行日志/详情，不参与卡片徽标和进度条：
+     * 卡片和进度条表达的是「追剧追到第几集」，而这里表达「一共有多少集、实际收了多少」。
+     * 两者可以同时成立：已追平最新 E201，但盘里只有 114 个文件 → 缺 97 集。
+     *
+     * [fromEpisode] 预留给「从第 N 集开始转存」：目标集数从第 N 集算到总数，
+     * 已收数仍是盘里现有文件数（后续接上真实起始集过滤时再细化为只数 >= N 的集）。
      */
+    fun gap(localEpisodes: Int, tmdbTotal: Int, fromEpisode: Int = 1): Gap {
+        if (tmdbTotal <= 0) return Gap(targetCount = 0, haveCount = localEpisodes, missingCount = 0, fromEpisode = fromEpisode)
+        val from = fromEpisode.coerceIn(1, tmdbTotal)
+        val target = (tmdbTotal - from + 1).coerceAtLeast(0)
+        return Gap(
+            targetCount = target,
+            haveCount = localEpisodes,
+            missingCount = (target - localEpisodes).coerceAtLeast(0),
+            fromEpisode = from,
+        )
+    }
+
+    /** 只按「总数 - 已收」算缺口；查不到总集数时退回「最新已播集」当目标，避免误报 0 */
     fun missing(localEpisodes: Int, tmdbLatest: Int, tmdbTotal: Int = 0): Int {
         val target = if (tmdbTotal > 0) tmdbTotal else tmdbLatest
-        if (target <= 0) return 0
-        return (target - localEpisodes).coerceAtLeast(0)
+        return gap(localEpisodes, target).missingCount
+    }
+
+    /** 缺口文案：`盘里 114 集 / 共 211 集，缺 97 集` */
+    fun gapText(localEpisodes: Int, tmdbTotal: Int, fromEpisode: Int = 1): String {
+        val g = gap(localEpisodes, tmdbTotal, fromEpisode)
+        if (g.targetCount <= 0) return ""
+        val prefix = if (g.fromEpisode > 1) "从第 ${g.fromEpisode} 集起 " else ""
+        return "${prefix}盘里 ${g.haveCount} 集 / 共 ${g.targetCount} 集，缺 ${g.missingCount} 集"
     }
 
     /**

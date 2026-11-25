@@ -479,6 +479,16 @@ class TaskRunner(
         onPhase("统计中")
         val counted = lastCount ?: countLocal(adapter, destFid, statMode, fixedSeason, targetSeason)
 
+        // 完整度缺口（总数 - 已收）只进运行日志：卡片与进度条走「追剧」口径，
+        // 这里补一句「盘里 114 集 / 共 211 集，缺 97 集」，两者互不顶替。
+        val finalReport = if (tmdb.bound && tmdb.totalEpisodes > 0) {
+            report.copy(
+                notes = report.notes + SnapshotCalc.gapText(counted.episodes, tmdb.totalEpisodes),
+            )
+        } else {
+            report
+        }
+
         // 更新日按 TMDB 自动推断：只在「任务设成自动」且还没手动设过更新日时写入，
         // 不覆盖用户手动点选的星期，避免下次打开 App 被悄改。
         // 更新日按 TMDB 自动推断：`updateMode == TMDB` 表示「用户从没手动点过更新日」，
@@ -495,14 +505,14 @@ class TaskRunner(
             task = task,
             trigger = trigger,
             startedAt = startedAt,
-            report = report,
+            report = finalReport,
             localEpisodes = counted.episodes,
             localLastEpisode = counted.lastEpisode,
             tmdbLatest = tmdb.latestEpisode,
             tmdbTotal = tmdb.totalEpisodes,
             saveSnapshot = saveSnapshot,
         )
-        return Result.success(report)
+        return Result.success(finalReport)
     }
 
     /** 串行执行多个任务（「一键全部」与「打开 App 自动同步」共用） */

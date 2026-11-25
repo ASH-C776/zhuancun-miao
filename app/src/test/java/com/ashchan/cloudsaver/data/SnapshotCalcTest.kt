@@ -99,6 +99,32 @@ class SnapshotCalcTest {
     }
 
     @Test
+    fun `完整度缺口 总数减已收`() {
+        // 凡人修仙传：盘里 114 个文件、总 211 集 → 缺 97（与「已追平最新 E201」并存）
+        val g = SnapshotCalc.gap(localEpisodes = 114, tmdbTotal = 211)
+        assertEquals(211, g.targetCount)
+        assertEquals(114, g.haveCount)
+        assertEquals(97, g.missingCount)
+        assertEquals("盘里 114 集 / 共 211 集，缺 97 集", SnapshotCalc.gapText(114, 211))
+    }
+
+    @Test
+    fun `完整度缺口 预留从第 N 集开始`() {
+        // 从第 51 集开始只需要 161 集，盘里 114 集 → 缺 47
+        val g = SnapshotCalc.gap(localEpisodes = 114, tmdbTotal = 211, fromEpisode = 51)
+        assertEquals(161, g.targetCount)
+        assertEquals(47, g.missingCount)
+        assertEquals("从第 51 集起 盘里 114 集 / 共 161 集，缺 47 集", SnapshotCalc.gapText(114, 211, 51))
+    }
+
+    @Test
+    fun `完整度缺口 盘里比目标多时不出现负数`() {
+        assertEquals(0, SnapshotCalc.gap(localEpisodes = 220, tmdbTotal = 211).missingCount)
+        assertEquals(0, SnapshotCalc.gap(localEpisodes = 5, tmdbTotal = 0).missingCount)
+        assertEquals("", SnapshotCalc.gapText(5, 0))
+    }
+
+    @Test
     fun `构建整条快照`() {
         val snap = SnapshotCalc.build(
             taskId = 7,

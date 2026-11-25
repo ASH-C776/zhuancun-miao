@@ -89,7 +89,7 @@ import java.util.Locale
  * 主页：追剧任务列表。
  *
  * 卡片只放 5 项核心信息（手机屏小，其余全部下沉）：
- * 剧名 / 盘里集数 → TMDB 最新集 / 是否最新（缺几集）/ 周几更新 / 网盘类型。
+ * 剧名 / 盘里最大集号 → TMDB 最新已播集（共总集数）/ 周几更新 / 网盘类型。\n * 缺多少集不进卡片，只看运行日志（完整度口径 = 总集数 - 已收集数）。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -281,25 +281,41 @@ private fun TaskRow(
                     modifier = Modifier.weight(1f),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // 「已收」与「共」两个数字直接相减就是「缺 N 集」，卡片上的数看得见、算得对
+                    // 追剧视角：盘里最大集号 → TMDB 最新已播集（共总集数）
+                    // 只看「追到第几集」，中间断档不在这里表达；缺集数见运行日志
                     Text(
-                        text = "已收 ${snap.localEpisodes} 集",
+                        text = episodeText(snap.localLastEpisode),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                     )
-                    if (snap.tmdbTotal > 0) {
+                    if (snap.tmdbLatest > 0 || snap.tmdbTotal > 0) {
                         Text(
-                            text = " / 共 ${snap.tmdbTotal} 集",
+                            text = "  →  ",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.outline,
+                            maxLines = 1,
+                        )
+                        Text(
+                            text = episodeText(snap.tmdbLatest),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
                         )
-                    } else if (snap.tmdbLatest > 0) {
-                        // 只知道最新已播集、不知道总集数时，只能拿最新集当尺子
+                        // 全剧总集数：只有绑了 TMDB 才知道
+                        if (snap.tmdbTotal > 0) {
+                            Text(
+                                text = "（共${snap.tmdbTotal}）",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    } else {
+                        // 没绑 TMDB：没有对比基准，只报盘里最大集号
                         Text(
-                            text = " / 已播 ${episodeText(snap.tmdbLatest)}",
+                            text = "  共${snap.localEpisodes}集",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
@@ -420,14 +436,15 @@ internal object TaskColors {
 
 @Composable
 private fun StatusBadge(snap: SnapshotEntity) {
-    val (text, color) = when (snap.status) {
-        // 全集都到齐：这部剧没得补了，用户看到这个标识自己决定删不删任务
-        SnapshotEntity.STATUS_FINISHED -> "转存完" to TaskColors.ok()
-        SnapshotEntity.STATUS_UP_TO_DATE -> "最新了" to TaskColors.ok()
-        SnapshotEntity.STATUS_BEHIND -> "缺 ${snap.missing} 集" to TaskColors.behind()
+    // 徽标也只看「追剧」：盘里最大集号是否追到 TMDB 最新已播集。
+    // 中间缺了几集不影响这个徽标，缺集数在运行日志里单独给（避免「已最新」和「缺 97 集」打架）。
+    val (text, color) = when {
+        snap.tmdbTotal > 0 && snap.localLastEpisode >= snap.tmdbTotal -> "全剧收齐" to TaskColors.ok()
+        snap.tmdbLatest > 0 && snap.localLastEpisode >= snap.tmdbLatest -> "已最新" to TaskColors.ok()
+        snap.tmdbLatest > 0 -> "待更新" to TaskColors.behind()
         // 没绑 TMDB：不讲「缺几集」，只讲这一轮的结果
-        SnapshotEntity.STATUS_LOCAL_ADDED -> "已转存" to TaskColors.ok()
-        SnapshotEntity.STATUS_LOCAL_LATEST -> "已是最新" to TaskColors.ok()
+        snap.status == SnapshotEntity.STATUS_LOCAL_ADDED -> "已转存" to TaskColors.ok()
+        snap.status == SnapshotEntity.STATUS_LOCAL_LATEST -> "已是最新" to TaskColors.ok()
         else -> "未同步" to TaskColors.unknown()
     }
     Surface(
@@ -527,7 +544,7 @@ private fun EmptyTasks(modifier: Modifier = Modifier, onAdd: () -> Unit) {
 
 /**
  * 三段进度条，分母统一为 TMDB 总集数，铺满整条：
- *  绿 = 盘里已有（已转存）；黄 = 已播出但盘里还没有（缺集）；浅橘粉 = 还没播出。
+ *  绿 = 盘里最大集号追到的进度；黄 = 已播到最新但最大集号还没追上；浅橘粉 = 还没播出。\n * 中间断了几集不会让绿条变短——进度条只回答「追到第几集」。
  * 没绑 TMDB（拿不到总集数）时退回单段绿条，分母用最新集号，避免画出一条「假的三段」。
  */
 @Composable
@@ -547,7 +564,7 @@ private fun EpisodeBar(snap: SnapshotEntity) {
         return
     }
     val seg = com.ashchan.cloudsaver.data.episodeSegments(
-        localEpisodes = snap.localEpisodes,
+        localLastEpisode = snap.localLastEpisode,
         tmdbLatest = snap.tmdbLatest,
         tmdbTotal = total,
     )
@@ -598,5 +615,6 @@ private fun syncText(millis: Long): String {
     val fmt = SimpleDateFormat("MM/dd HH:mm", Locale.getDefault())
     return fmt.format(Date(millis))
 }
+
 
 
