@@ -105,7 +105,11 @@ class SnapshotCalcTest {
         assertEquals(211, g.targetCount)
         assertEquals(114, g.haveCount)
         assertEquals(97, g.missingCount)
-        assertEquals("盘里 114 集 / 共 211 集，缺 97 集", SnapshotCalc.gapText(114, 211))
+        // 新版文案：已播/共/待播/未收到分行；114 集、已播 201、总 211
+        assertEquals(
+            "盘里 114 集 · 已播 201 集 · 共 211 集\n已播的还有 87 集未收到\n还有 10 集待播",
+            SnapshotCalc.gapText(114, 201, 211),
+        )
     }
 
     @Test
@@ -114,14 +118,17 @@ class SnapshotCalcTest {
         val g = SnapshotCalc.gap(localEpisodes = 114, tmdbTotal = 211, fromEpisode = 51)
         assertEquals(161, g.targetCount)
         assertEquals(47, g.missingCount)
-        assertEquals("从第 51 集起 盘里 114 集 / 共 161 集，缺 47 集", SnapshotCalc.gapText(114, 211, 51))
+        assertEquals(
+            "从第 51 集起 盘里 114 集 · 已播 201 集 · 共 161 集\n已播的还有 87 集未收到\n还有 10 集待播",
+            SnapshotCalc.gapText(114, 201, 211, 51),
+        )
     }
 
     @Test
     fun `完整度缺口 盘里比目标多时不出现负数`() {
         assertEquals(0, SnapshotCalc.gap(localEpisodes = 220, tmdbTotal = 211).missingCount)
         assertEquals(0, SnapshotCalc.gap(localEpisodes = 5, tmdbTotal = 0).missingCount)
-        assertEquals("", SnapshotCalc.gapText(5, 0))
+        assertEquals("", SnapshotCalc.gapText(5, 201, 0))
     }
 
     @Test
@@ -142,5 +149,6 @@ class SnapshotCalcTest {
         assertEquals(1000, snap.lastSyncAt)
     }
 }
+
 
 

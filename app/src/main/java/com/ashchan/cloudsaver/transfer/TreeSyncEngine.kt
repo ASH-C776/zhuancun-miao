@@ -306,7 +306,7 @@ class TreeSyncEngine(
                 append("（根下 ${tree.children.size} 项")
                 if (top.isNotBlank()) append("：").append(top)
                 if (tree.children.size > 6) append("…")
-                append("；共 $dirs 个目录，最深 ${minOf(maxDepth, tree.maxDepth())} 层")
+                append("\n共 $dirs 个目录，最深 ${minOf(maxDepth, tree.maxDepth())} 层")
                 if (seasonNo >= 0) append("，").append("只取了").append(seasonLabel(seasonNo))
                 append("）")
             }
@@ -731,3 +731,4 @@ class TreeSyncEngine(
         }
     }
 }
+

@@ -52,12 +52,37 @@ object SnapshotCalc {
         return gap(localEpisodes, target).missingCount
     }
 
-    /** 缺口文案：`盘里 114 集 / 共 211 集，缺 97 集` */
-    fun gapText(localEpisodes: Int, tmdbTotal: Int, fromEpisode: Int = 1): String {
+    /**
+     * 完整度文案（多行，一条事实一行）：
+     *
+     * ```
+     * 盘里 198 集 · 已播 201 集 · 共 211 集
+     * 已播的还有 3 集未收到
+     * 还有 10 集待播
+     * ```
+     *
+     * 口径刻意不用「缺」：总集数里有还没播出的部分，那不是缺口。
+     * - 待播 = 总集数 - TMDB 最新已播集（正常等更新）
+     * - 未收到 = 已播集数 - 盘里集数（真正需要补的）
+     */
+    fun gapText(localEpisodes: Int, tmdbLatest: Int, tmdbTotal: Int, fromEpisode: Int = 1): String {
         val g = gap(localEpisodes, tmdbTotal, fromEpisode)
         if (g.targetCount <= 0) return ""
         val prefix = if (g.fromEpisode > 1) "从第 ${g.fromEpisode} 集起 " else ""
-        return "${prefix}盘里 ${g.haveCount} 集 / 共 ${g.targetCount} 集，缺 ${g.missingCount} 集"
+        val head = if (tmdbLatest > 0) {
+            "${prefix}盘里 ${g.haveCount} 集 · 已播 $tmdbLatest 集 · 共 ${g.targetCount} 集"
+        } else {
+            "${prefix}盘里 ${g.haveCount} 集 · 共 ${g.targetCount} 集"
+        }
+        val lines = mutableListOf(head)
+        // 最新已播集未知时，「待播」也无从判断，宁可不说
+        if (tmdbLatest > 0) {
+            val unaired = (tmdbTotal - tmdbLatest).coerceAtLeast(0)
+            val airedMissing = (tmdbLatest - localEpisodes).coerceAtLeast(0)
+            if (airedMissing > 0) lines += "已播的还有 $airedMissing 集未收到"
+            if (unaired > 0) lines += "还有 $unaired 集待播"
+        }
+        return lines.joinToString("\n")
     }
 
     /**

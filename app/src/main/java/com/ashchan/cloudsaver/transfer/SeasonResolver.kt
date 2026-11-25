@@ -89,9 +89,9 @@ data class SeasonPlan(
         return buildString {
             append("季判定：")
             append(if (parts.isEmpty()) "没有季号线索" else parts.joinToString("、"))
-            if (unknown > 0) append("；无季号 $unknown 个（留在剧名目录下）")
+            if (unknown > 0) append("\n无季号 $unknown 个（留在剧名目录下）")
             if (conflictCount > 0) {
-                append("；").append(conflictCount).append(" 个季号冲突（已按")
+                append("\n").append(conflictCount).append(" 个季号冲突（已按")
                 append(if (prefer == SeasonPrefer.FILE) "文件名" else "目录名").append("）")
             }
         }
@@ -163,3 +163,4 @@ object SeasonResolver {
         }
     }
 }
+

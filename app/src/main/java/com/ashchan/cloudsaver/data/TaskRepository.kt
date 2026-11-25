@@ -157,8 +157,9 @@ class TaskRepository(private val db: AppDatabase) {
         val ok = report?.ok == true
         val msg = when {
             report == null -> errorMessage
-            report.failures.isNotEmpty() -> (report.failures + report.notes).joinToString("；")
-            else -> report.notes.joinToString("；")
+            // 一条说明一行：日志卡片里不再把所有补充说明挤成一大段
+            report.failures.isNotEmpty() -> (report.failures + report.notes).joinToString("\n")
+            else -> report.notes.joinToString("\n")
         }
 
         if (!saveSnapshot) {

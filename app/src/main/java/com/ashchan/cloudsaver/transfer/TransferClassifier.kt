@@ -59,9 +59,10 @@ object TransferClassifier {
                 return@buildString
             }
             append("命中 ").append(distinctEpisodes).append(" 集（转存 ").append(kept.size).append(" 个文件）")
-            if (duplicates.isNotEmpty()) append("；同集多版本 ").append(duplicates.size).append(" 个只留 1 个")
-            if (unmatched.isNotEmpty()) append("；未命中 ").append(unmatched.size).append(" 个未转存")
-            if (movies.isNotEmpty()) append("；剧场版 ").append(movies.size).append(" 个跳过")
+            // 每条结论一行，日志里不再挤成一大段
+            if (duplicates.isNotEmpty()) append("\n同集多版本 ").append(duplicates.size).append(" 个只留 1 个")
+            if (unmatched.isNotEmpty()) append("\n未命中 ").append(unmatched.size).append(" 个未转存")
+            if (movies.isNotEmpty()) append("\n剧场版 ").append(movies.size).append(" 个跳过")
         }
     }
 

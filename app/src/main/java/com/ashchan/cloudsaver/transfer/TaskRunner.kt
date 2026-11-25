@@ -440,7 +440,7 @@ class TaskRunner(
 
             // 「命中才转存」的结论写进日志：命中几集、几个多版本被合并、几个未命中没转
             val summary = plan.summary() + if (droppedByRule > 0) {
-                "；规则未匹配 $droppedByRule 个未转存"
+                "\n规则未匹配 $droppedByRule 个未转存"
             } else {
                 ""
             }
@@ -483,7 +483,7 @@ class TaskRunner(
         // 这里补一句「盘里 114 集 / 共 211 集，缺 97 集」，两者互不顶替。
         val finalReport = if (tmdb.bound && tmdb.totalEpisodes > 0) {
             report.copy(
-                notes = report.notes + SnapshotCalc.gapText(counted.episodes, tmdb.totalEpisodes),
+                notes = report.notes + SnapshotCalc.gapText(counted.episodes, tmdb.latestEpisode, tmdb.totalEpisodes),
             )
         } else {
             report
@@ -693,6 +693,8 @@ class TaskRunner(
     /** 目标侧季目录名（选了季度才建） */
     private fun seasonFolderName(no: Int): String = "Season $no"
 }
+
+
 
 
 
