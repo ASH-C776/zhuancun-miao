@@ -38,11 +38,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
-import com.ashchan.cloudsaver.sync.AutoSyncSummary
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.ashchan.cloudsaver.sync.AutoSyncConfig
-import com.ashchan.cloudsaver.sync.AutoSyncNotifier
+import com.ashchan.cloudsaver.notify.AlertPublisher
+import com.ashchan.cloudsaver.notify.ShowAlert
 import com.ashchan.cloudsaver.sync.AutoSyncPrefs
 import com.ashchan.cloudsaver.sync.AutoSyncScheduler
 import java.time.Instant
@@ -94,7 +94,7 @@ fun AutoSyncSection() {
             if (v) {
                 AutoSyncScheduler.rescheduleAll(context)
                 // Android 13+ 首次开启时顺手要通知权限；不给也能用，只是不提醒
-                if (!AutoSyncNotifier.canNotify(context)) {
+                if (!AlertPublisher.canNotify(context)) {
                     notifPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
                 }
             } else {
@@ -153,7 +153,7 @@ fun AutoSyncSection() {
         onCheckedChange = { v ->
             notifyEnabled = v
             prefs.notifyEnabled = v
-            if (v && !AutoSyncNotifier.canNotify(context)) {
+            if (v && !AlertPublisher.canNotify(context)) {
                 notifPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
             }
             rev++
@@ -161,31 +161,20 @@ fun AutoSyncSection() {
     )
 
     Spacer(Modifier.height(12.dp))
-    // 仅 debug 包：点一下按真实格式发一条，验证「一部剧一条 + 悬浮」是否生效
+    // 仅 debug 包：一次发 4 条样例，覆盖「单集 / 连更范围 / 多部剧 / 无集号兜底」
     if (com.ashchan.cloudsaver.BuildConfig.DEBUG) {
         SwitchRow(
-            title = "试发一条通知",
-            subtitle = "debug 专用：按真实格式发「斗破苍穹更新 S05E207 · 共 1 集」",
+            title = "通知实验室",
+            subtitle = "debug 专用：一次发 4 条样例，验证一剧一条、集号范围与角标",
             checked = false,
             onCheckedChange = {
-                AutoSyncNotifier.notifyDone(
+                AlertPublisher.publish(
                     context,
-                    AutoSyncSummary(
-                        total = 1,
-                        newFiles = 1,
-                        renamed = 1,
-                        failed = 0,
-                        firstError = null,
-                        updates = listOf(
-                            com.ashchan.cloudsaver.data.ShowUpdate(
-                                taskId = 1,
-                                title = "斗破苍穹",
-                                season = 5,
-                                firstEpisode = 207,
-                                lastEpisode = null,
-                                count = 1,
-                            ),
-                        ),
+                    listOf(
+                        ShowAlert(1, "斗破苍穹", 5, 207, null, 1),
+                        ShowAlert(2, "剑来", 1, 52, 53, 2),
+                        ShowAlert(3, "仙逆", 1, 168, null, 1),
+                        ShowAlert(4, "玫瑰战争", null, null, null, 2),
                     ),
                 )
             },

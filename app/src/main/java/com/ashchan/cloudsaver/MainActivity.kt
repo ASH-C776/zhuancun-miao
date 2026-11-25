@@ -67,8 +67,22 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        // 通知判定要知道「App 是否在前台」：前台时系统会压掉横幅，我们改成只进通知栏
+        com.ashchan.cloudsaver.notify.AppForeground.value = true
+    }
+
+    override fun onPause() {
+        com.ashchan.cloudsaver.notify.AppForeground.value = false
+        super.onPause()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 通知渠道统一在这里建（含旧渠道清理），进 App 顺手清掉追剧通知与角标
+        com.ashchan.cloudsaver.notify.Channels.ensureAll(this)
+        com.ashchan.cloudsaver.notify.AlertPublisher.clearEpisodeAlerts(this)
         // 全局未捕获异常落盘（崩溃后可在文件里查堆栈，纯单机没有服务端日志）
         com.ashchan.cloudsaver.core.AppLog.install(this)
         // 调试/联调用：--ez wakeScreen true 让本页把屏幕点亮（HyperOS 拒绝 adb input 注入，
@@ -126,26 +140,15 @@ class MainActivity : ComponentActivity() {
             if (intent?.getBooleanExtra("debugRunAll", false) == true) {
                 tasksViewModel.runAll()
             }
-            // --ez debugNotifySample true 发一条样例通知，验证「一部剧一条 + 悬浮」
+            // --ez debugNotifySample true 发 4 条样例通知（单集/范围/多部剧/无集号）
             if (intent?.getBooleanExtra("debugNotifySample", false) == true) {
-                com.ashchan.cloudsaver.sync.AutoSyncNotifier.notifyDone(
+                com.ashchan.cloudsaver.notify.AlertPublisher.publish(
                     this,
-                    com.ashchan.cloudsaver.sync.AutoSyncSummary(
-                        total = 1,
-                        newFiles = 1,
-                        renamed = 1,
-                        failed = 0,
-                        firstError = null,
-                        updates = listOf(
-                            com.ashchan.cloudsaver.data.ShowUpdate(
-                                taskId = 1,
-                                title = "斗破苍穹",
-                                season = 5,
-                                firstEpisode = 207,
-                                lastEpisode = null,
-                                count = 1,
-                            ),
-                        ),
+                    listOf(
+                        com.ashchan.cloudsaver.notify.ShowAlert(1, "斗破苍穹", 5, 207, null, 1),
+                        com.ashchan.cloudsaver.notify.ShowAlert(2, "剑来", 1, 52, 53, 2),
+                        com.ashchan.cloudsaver.notify.ShowAlert(3, "仙逆", 1, 168, null, 1),
+                        com.ashchan.cloudsaver.notify.ShowAlert(4, "玫瑰战争", null, null, null, 2),
                     ),
                 )
             }

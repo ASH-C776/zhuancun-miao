@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.ashchan.cloudsaver.data.db.RunRecordEntity
+import com.ashchan.cloudsaver.notify.AlertPublisher
 
 /**
  * 后台执行一轮「全部检测」。
@@ -52,7 +53,7 @@ class AutoSyncWorker(
             )
             // 只在「有新集」时提醒（用户口径：一部剧一条；没有新增就不打扰，失败只在日志页看）
             if (prefs.notifyEnabled && summary.newFiles > 0) {
-                AutoSyncNotifier.notifyDone(applicationContext, summary)
+                AlertPublisher.publish(applicationContext, summary.updates)
             }
             return Result.success()
         } catch (t: Throwable) {
@@ -80,7 +81,7 @@ data class AutoSyncSummary(
     val failed: Int,
     val firstError: String?,
     /** 本轮有新集的剧，按任务拆开（一部剧一条通知） */
-    val updates: List<com.ashchan.cloudsaver.data.ShowUpdate> = emptyList(),
+    val updates: List<com.ashchan.cloudsaver.notify.ShowAlert> = emptyList(),
 )
 
 /**
@@ -102,7 +103,7 @@ class AutoSyncEngine(private val context: Context) {
         var renamed = 0
         var failed = 0
         var firstError: String? = null
-        val updates = mutableListOf<com.ashchan.cloudsaver.data.ShowUpdate>()
+        val updates = mutableListOf<com.ashchan.cloudsaver.notify.ShowAlert>()
 
         val results = runner.runAll(tasks, RunRecordEntity.TRIGGER_BACKGROUND)
         results.forEach { (task, result) ->
@@ -110,11 +111,11 @@ class AutoSyncEngine(private val context: Context) {
                 newFiles += report.restoredFiles
                 renamed += report.renamedItems
                 if (report.restoredFiles > 0) {
-                    com.ashchan.cloudsaver.data.ShowUpdate.from(
+                    com.ashchan.cloudsaver.notify.AlertSource.build(
                         taskId = task.id,
                         taskName = task.name,
                         seasonNo = task.seasonNo,
-                        names = report.restoredNames,
+                        items = report.restoredEpisodes,
                         restoredFiles = report.restoredFiles,
                     )?.let { updates += it }
                 }

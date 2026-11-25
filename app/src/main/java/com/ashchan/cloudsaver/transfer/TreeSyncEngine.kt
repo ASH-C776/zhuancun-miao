@@ -3,6 +3,7 @@ package com.ashchan.cloudsaver.transfer
 import com.ashchan.cloudsaver.core.adapter.CloudDriveAdapter
 import com.ashchan.cloudsaver.core.adapter.RestoredFile
 import com.ashchan.cloudsaver.core.model.DriveFile
+import com.ashchan.cloudsaver.core.model.EpisodeTag
 import com.ashchan.cloudsaver.core.model.NaturalOrder
 import com.ashchan.cloudsaver.core.model.ShareInfo
 import com.ashchan.cloudsaver.core.model.EpisodeParser
@@ -54,10 +55,10 @@ class TreeSyncEngine(
         /** 不是错误、但要让人看到的结论（季判定 / 冲突已按文件名处理等） */
         val notes: List<String> = emptyList(),
         /**
-         * 本轮真正落盘的文件名（按改名后的最终名字记）。
-         * 只给通知用：从里面解析出「这次新增了哪几集」，不再靠集数差猜测。
+         * 本轮真正落盘的集（结构化季/集）。
+         * 给通知用：转存那一刻就解析好，后面不再从文件名反推。
          */
-        val restoredNames: List<String> = emptyList(),
+        val restoredEpisodes: List<com.ashchan.cloudsaver.core.model.EpisodeTag> = emptyList(),
     ) {
         val ok: Boolean get() = explicitOk ?: failures.isEmpty()
     }
@@ -217,8 +218,8 @@ class TreeSyncEngine(
         /** 不是错、但需要让人看到的结论（如「季判定：Season 1 × 12、3 个冲突已按文件名」） */
         private val notes = mutableListOf<String>()
         private val depthSkipped = mutableListOf<String>()
-        /** 本轮落盘文件名（改名后口径），供通知解析「新增了哪几集」 */
-        private val restoredNames = mutableListOf<String>()
+        /** 本轮落盘的集（季/集结构化字段），供通知使用 */
+        private val restoredEpisodes = mutableListOf<EpisodeTag>()
 
         /**
          * 目标目录内容缓存：同一次同步里同一目录只列一次。
@@ -234,7 +235,7 @@ class TreeSyncEngine(
             skippedFiles = skippedFiles,
             failures = (failures + depthSkipped).toList(),
             notes = notes.toList(),
-            restoredNames = restoredNames.toList(),
+            restoredEpisodes = restoredEpisodes.toList(),
         )
 
         /** 只转树根的直接视频文件，不建文件夹、不下钻（对应平铺型分享） */
@@ -585,7 +586,7 @@ class TreeSyncEngine(
                 byShareFid[restored.shareFileId]?.let { index[it.name] = restored.file }
             }
             saved.forEach { restored ->
-                byShareFid[restored.shareFileId]?.let { restoredNames += expectedName(it) }
+                byShareFid[restored.shareFileId]?.let { restoredEpisodes += tagOf(expectedName(it)) }
             }
             reportRestore(restoredFiles)
 
@@ -618,6 +619,14 @@ class TreeSyncEngine(
         /** 分享文件按命名规则应有的最终文件名（没配规则就是原名） */
         private fun expectedName(node: ShareNode): String =
             renamePlan[node.fid]?.trim()?.takeIf { it.isNotBlank() } ?: node.name
+
+        /** 落盘文件的季/集（结构化，供通知使用）：解析不出集号就留空，绝不猜 */
+        private fun tagOf(name: String): EpisodeTag {
+            val ctx = FileNameContext(name)
+            val ep = ctx.episodeRaw?.toIntOrNull()?.takeIf { it in 1..9999 }
+            val season = ctx.season?.drop(1)?.toIntOrNull()?.takeIf { it in 0..99 }
+            return EpisodeTag(season = season, episode = ep)
+        }
 
         /** 从文件名解析集号（只用于「盘里是否已有这一集」的判断，与改名规则同源） */
         private fun episodeOf(name: String): Int? =
@@ -674,7 +683,7 @@ class TreeSyncEngine(
                 return false
             }
             restoredFiles++
-            restoredNames += expected
+            restoredEpisodes += tagOf(expected)
             index[node.name] = newFile
             reportRestore(restoredFiles)
 
