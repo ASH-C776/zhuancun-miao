@@ -9,6 +9,7 @@ import com.ashchan.cloudsaver.core.model.EpisodeParser
 import com.ashchan.cloudsaver.core.model.ShareNode
 import com.ashchan.cloudsaver.data.SeasonParser
 import com.ashchan.cloudsaver.data.db.TaskEntity
+import com.ashchan.cloudsaver.rename.FileNameContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -455,6 +456,13 @@ class TreeSyncEngine(
             // 需要改名的文件数：分母只统计「最终名 ≠ 原名」的，避免「改名 0/0」
             renameTotal += files.count { expectedName(it) != it.name }
 
+            // 本地已有文件按「集号」建一份索引：用户手动把某集改成 001.mp4 这类不规范名字时，
+            // 转存 diff 按文件名找不到它，会误判缺集又转一份回来。先按集号兜住这种情况。
+            val localByEpisode = index.values.asSequence()
+                .filter { !it.isDir && isVideoName(it.name) }
+                .mapNotNull { f -> episodeOf(f.name)?.let { it to f } }
+                .toList()
+
             files.sortedWith(NATURAL).forEach { node ->
                 val expected = expectedName(node)
                 val current = index[node.name]
@@ -468,7 +476,23 @@ class TreeSyncEngine(
                             inPlace += RenameItem(current.fid, node.name, expected, current)
                         }
                     }
-                    else -> missing += node
+                    else -> {
+                        // 目标名没有，但盘里可能已经有「同一集、只是名字不规范」的文件：
+                        // 唯一一份 → 直接把它就地改成规范名；多份 → 不重复转存，避免越补越多。
+                        val ep = episodeOf(node.name)
+                        val same = if (ep == null) emptyList() else localByEpisode.filter { it.first == ep }.map { it.second }
+                        when {
+                            same.size == 1 -> {
+                                val found = same.first()
+                                inPlace += RenameItem(found.fid, found.name, expected, found)
+                            }
+                            same.size > 1 -> {
+                                skippedFiles++
+                                failures += "第 $ep 集盘里已有 ${same.size} 个文件，未重复转存（可先跑「统一重命名」清理）"
+                            }
+                            else -> missing += node
+                        }
+                    }
                 }
             }
 
@@ -558,6 +582,15 @@ class TreeSyncEngine(
         /** 分享文件按命名规则应有的最终文件名（没配规则就是原名） */
         private fun expectedName(node: ShareNode): String =
             renamePlan[node.fid]?.trim()?.takeIf { it.isNotBlank() } ?: node.name
+
+        /** 从文件名解析集号（只用于「盘里是否已有这一集」的判断，与改名规则同源） */
+        private fun episodeOf(name: String): Int? =
+            FileNameContext(name).episodeRaw?.toIntOrNull()
+
+        private fun isVideoName(name: String): Boolean =
+            name.substringAfterLast('.', "").lowercase() in setOf(
+                "mp4", "mkv", "mov", "m4v", "avi", "mpeg", "mpg", "ts", "zip", "cas", "iso",
+            )
 
         /** 单个文件转存（批量失败时的兜底）；成功返回 true */
         private suspend fun syncFile(
