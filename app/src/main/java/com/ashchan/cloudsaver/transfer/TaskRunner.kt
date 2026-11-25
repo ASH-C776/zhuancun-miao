@@ -150,7 +150,8 @@ class TaskRunner(
         }
     }
 
-    /** 一个要跑的源：行号（用于回写状态）+ 链接 + 上一轮结论 */    internal data class RunTarget(
+    /** 一个要跑的源：行号（用于回写状态）+ 链接 + 上一轮结论 */
+    internal data class RunTarget(
         val position: Int,
         val url: String,
         val previousStatus: String = TaskSourceEntity.STATUS_UNKNOWN,

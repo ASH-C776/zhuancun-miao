@@ -14,7 +14,7 @@ android {
      * 客户端更新检测解析 Release tag 用的是**同一公式**（UpdateRules.parseVersionCode），
      * 两边必须一字不差，否则会出现「提示降级」或「永远提示有新版」。
      */
-    val appVersionName = "0.15.3"
+    val appVersionName = "0.15.4"
     val appVersionCode = appVersionName
         .split(".")
         .map { it.toInt() }
