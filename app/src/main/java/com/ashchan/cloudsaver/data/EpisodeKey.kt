@@ -63,7 +63,10 @@ object EpisodeKey {
      */
     fun analyze(fileName: String, dirNames: List<String> = emptyList()): Analysis {
         val raw = fileName.substringBeforeLast('.', fileName)
-        if (MOVIE.containsMatchIn(raw) || dirNames.any { MOVIE.containsMatchIn(it) }) {
+        // 只认「文件名」和「紧邻父目录」，且父目录必须是纯剧场版目录。
+        // 分享根/上层容器（如「F 凡人修.XZ 4K 附剧场版」）只是说明里面有剧场版，
+        // 不能把整棵树都判成电影 —— 实测这会把整部剧 211 集全砍掉。
+        if (MOVIE.containsMatchIn(raw) || isMovieFolder(dirNames.lastOrNull())) {
             return Analysis(movie = true)
         }
 
@@ -119,6 +122,24 @@ object EpisodeKey {
             SeasonParser.parse(name)?.let { return it }
         }
         return null
+    }
+
+    /**
+     * 只有「纯剧场版语义」的目录才算电影目录：`剧场版`、`剧场版 1080p`、`Movie`。
+     * `凡人修仙传 剧场版合集` 这种带剧名的容器目录不算 —— 里面通常主要是正片。
+     */
+    fun isMovieFolder(name: String?): Boolean {
+        val n = name?.trim().orEmpty()
+        if (n.isEmpty() || !MOVIE.containsMatchIn(n)) return false
+        val rest = n
+            .replace(MOVIE, "")
+            .replace(
+                Regex(
+                    """(?i)1080p|2160p|1440p|720p|576p|480p|4k|uhd|web-?dl|webrip|blu-?ray|hdtv|remux|hevc|h\.?26[45]|aac|ddp?[\d.]*|flac|[\s._\-\[\]()【】]"""
+                ),
+                "",
+            )
+        return rest.isBlank()
     }
 
     /** 抹掉技术参数，剩下的数字才有可能是集号 */

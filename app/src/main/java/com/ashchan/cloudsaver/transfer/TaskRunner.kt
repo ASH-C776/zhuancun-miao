@@ -346,7 +346,7 @@ class TaskRunner(
 
         // ③ 按顺序转存；多源时每跑完一个就重算缺口，补齐了就停
         var stoppedForGap = false
-        var lastCount: EpisodeCounter.Result? = null
+        var lastCount: EpisodeStats.Result? = null
 
         for (p in ordered) {
             if (stoppedForGap) {
@@ -372,6 +372,13 @@ class TaskRunner(
                 0
             }
             val hasWork = workTree.flattenFiles().any { it.isVideo }
+            android.util.Log.i(
+                "TransferPlan",
+                "$label 树内视频=${p.tree.flattenFiles().count { it.isVideo }} " +
+                    "命中=${plan.kept.size} 未命中=${plan.unmatched.size} 剧场版=${plan.movies.size} " +
+                    "多版本=${plan.duplicates.size} 规则未匹配=$droppedByRule 实际转存=${workTree.flattenFiles().count { it.isVideo }} " +
+                    "未命中样例=${plan.unmatched.take(5).map { it.name }}",
+            )
 
             var errorNote = ""
             val outcome: Result<TreeSyncEngine.Report> = try {
@@ -539,7 +546,7 @@ class TaskRunner(
         mode: EpisodeStats.Mode,
         fixedSeason: Int = 1,
         targetSeason: Int = 1,
-    ): EpisodeCounter.Result {
+    ): EpisodeStats.Result {
         val entries = mutableListOf<EpisodeStats.Entry>()
 
         suspend fun walk(fid: String, dirs: List<String>, depth: Int) {
@@ -550,8 +557,22 @@ class TaskRunner(
         }
 
         walk(destFid, emptyList(), 0)
+        // 目录分布：盘里 114 个还是 201 个，一眼看出是「只扫到一个子目录」还是「目录确实只有这些」
+        val byDir = entries.groupBy { it.dirs.joinToString("/").ifEmpty { "<根>" } }
+            .mapValues { (_, list) -> list.size }
+        android.util.Log.i("EpisodeStats", "dest=$destFid 目录分布=$byDir")
         val counted = EpisodeStats.count(entries, mode, fixedSeason, targetSeason)
-        return EpisodeCounter.Result(counted.episodes, counted.lastEpisode)
+        // 诊断打点：卡片数字对不上时，直接看 logcat 就知道是漏扫、重复、还是解析失败
+        android.util.Log.i(
+            "EpisodeStats",
+            "dest=$destFid mode=$mode fixed=$fixedSeason target=$targetSeason " +
+                "→ 集数=${counted.episodes} 末集=${counted.lastEpisode} " +
+                "扫到=${counted.scanned} 入桶=${counted.counted} 重复=${counted.duplicates} " +
+                "其它季=${counted.otherSeason} 解析失败=${counted.unparsedCount}(歧义${counted.ambiguous}) " +
+                "剧场版=${counted.movies} 季分布=${counted.bySeason} " +
+                "样例失败=${counted.unparsed.take(5)}",
+        )
+        return counted
     }
 
     /** TMDB 解析结果（失败一律回 0/null，不影响转存主流程） */
@@ -662,5 +683,6 @@ class TaskRunner(
     /** 目标侧季目录名（选了季度才建） */
     private fun seasonFolderName(no: Int): String = "Season $no"
 }
+
 
 

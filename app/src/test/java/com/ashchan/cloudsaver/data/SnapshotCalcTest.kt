@@ -17,7 +17,7 @@ class SnapshotCalcTest {
     @Test
     fun `盘里落后最新集时 缺集数等于差值`() {
         // 总 30 集、播到 20、盘里 19 → 缺 1 集
-        assertEquals(1, SnapshotCalc.missing(localEpisodes = 19, tmdbLatest = 20))
+        assertEquals(11, SnapshotCalc.missing(localEpisodes = 19, tmdbLatest = 20, tmdbTotal = 30))
         assertEquals(
             SnapshotEntity.STATUS_BEHIND,
             SnapshotCalc.status(localEpisodes = 19, tmdbLatest = 20, tmdbTotal = 30)
@@ -25,10 +25,10 @@ class SnapshotCalcTest {
     }
 
     @Test
-    fun `追平最新集但没到总集数 显示最新了`() {
-        assertEquals(0, SnapshotCalc.missing(20, 20))
+    fun `追平最新集但没到总集数 仍按总集数算缺`() {
+        assertEquals(10, SnapshotCalc.missing(20, 20, 30))
         assertEquals(
-            SnapshotEntity.STATUS_UP_TO_DATE,
+            SnapshotEntity.STATUS_BEHIND,
             SnapshotCalc.status(localEpisodes = 20, tmdbLatest = 20, tmdbTotal = 30)
         )
     }
@@ -52,10 +52,10 @@ class SnapshotCalcTest {
     }
 
     @Test
-    fun `盘里超前最新集 仍算最新了`() {
-        assertEquals(0, SnapshotCalc.missing(12, 10))
+    fun `盘里超前最新集 但总数没到 仍算缺集`() {
+        assertEquals(18, SnapshotCalc.missing(12, 10, 30))
         assertEquals(
-            SnapshotEntity.STATUS_UP_TO_DATE,
+            SnapshotEntity.STATUS_BEHIND,
             SnapshotCalc.status(localEpisodes = 12, tmdbLatest = 10, tmdbTotal = 30)
         )
     }
@@ -110,9 +110,11 @@ class SnapshotCalcTest {
         )
         assertEquals(7, snap.taskId)
         assertEquals(168, snap.localEpisodes)
-        assertEquals(2, snap.missing)
+        assertEquals(32, snap.missing)
         assertEquals(200, snap.tmdbTotal)
         assertEquals(SnapshotEntity.STATUS_BEHIND, snap.status)
         assertEquals(1000, snap.lastSyncAt)
     }
 }
+
+

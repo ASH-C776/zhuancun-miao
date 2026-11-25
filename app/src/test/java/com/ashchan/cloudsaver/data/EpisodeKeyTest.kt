@@ -60,8 +60,18 @@ class EpisodeKeyTest {
         assertTrue(file.movie)
         assertFalse(file.isHit)
 
-        val dir = EpisodeKey.analyze("E01.mp4", listOf("某某剧 剧场版"))
+        // 纯剧场版目录才算电影目录
+        val dir = EpisodeKey.analyze("E01.mp4", listOf("某某剧", "剧场版"))
         assertTrue(dir.movie)
+    }
+
+    @Test
+    fun `剧名里带剧场版的容器目录不误杀正片`() {
+        // 回报的真实分享名：F 凡人修.XZ 4K 附剧场版 —— 里面主要是正片
+        val a = EpisodeKey.analyze("181 4K.mp4", listOf("F 凡人修.XZ 4K 附剧场版", "1-190集"))
+        assertTrue(a.isHit)
+        assertFalse(a.movie)
+        assertEquals(181, a.parsed?.episode)
     }
 
     @Test

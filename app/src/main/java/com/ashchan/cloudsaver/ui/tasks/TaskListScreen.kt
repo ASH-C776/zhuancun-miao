@@ -281,45 +281,30 @@ private fun TaskRow(
                     modifier = Modifier.weight(1f),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    val hasTmdb = snap.tmdbLatest > 0 || snap.tmdbTotal > 0
+                    // 「已收」与「共」两个数字直接相减就是「缺 N 集」，卡片上的数看得见、算得对
                     Text(
-                        text = episodeText(snap.localLastEpisode),
+                        text = "已收 ${snap.localEpisodes} 集",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                     )
-                    if (!hasTmdb) {
-                        // 没绑 TMDB：没有「最新集」可比，只报盘里有多少集，别再画一个「→ E—」
+                    if (snap.tmdbTotal > 0) {
                         Text(
-                            text = "  共${snap.localEpisodes}集",
+                            text = " / 共 ${snap.tmdbTotal} 集",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    } else if (snap.tmdbLatest > 0) {
+                        // 只知道最新已播集、不知道总集数时，只能拿最新集当尺子
+                        Text(
+                            text = " / 已播 ${episodeText(snap.tmdbLatest)}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
-                    } else {
-                        Text(
-                            text = "  →  ",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.outline,
-                            maxLines = 1,
-                        )
-                        Text(
-                            text = episodeText(snap.tmdbLatest),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                        )
-                        // 全剧总集数：只有绑了 TMDB 才知道
-                        if (snap.tmdbTotal > 0) {
-                            Text(
-                                text = "（共${snap.tmdbTotal}）",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
                     }
                 }
                 Text(
