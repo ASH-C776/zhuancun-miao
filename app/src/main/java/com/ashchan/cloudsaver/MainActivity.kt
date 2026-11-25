@@ -141,16 +141,40 @@ class MainActivity : ComponentActivity() {
                 tasksViewModel.runAll()
             }
             // --ez debugNotifySample true 发 4 条样例通知（单集/范围/多部剧/无集号）
+            // --es debugNotifyDelayMs 6000 先退回后台等几秒再发，用来验证横幅（前台会被系统压掉）
             if (intent?.getBooleanExtra("debugNotifySample", false) == true) {
-                com.ashchan.cloudsaver.notify.AlertPublisher.publish(
-                    this,
-                    listOf(
-                        com.ashchan.cloudsaver.notify.ShowAlert(1, "斗破苍穹", 5, 207, null, 1),
-                        com.ashchan.cloudsaver.notify.ShowAlert(2, "剑来", 1, 52, 53, 2),
-                        com.ashchan.cloudsaver.notify.ShowAlert(3, "仙逆", 1, 168, null, 1),
-                        com.ashchan.cloudsaver.notify.ShowAlert(4, "玫瑰战争", null, null, null, 2),
-                    ),
+                // --ez debugNotifyReset true 先清掉“已提醒”指纹，方便重复验证
+                if (intent.getBooleanExtra("debugNotifyReset", false)) {
+                    com.ashchan.cloudsaver.notify.AlertStore.of(this).clear()
+                }
+                val sample = listOf(
+                    com.ashchan.cloudsaver.notify.ShowAlert(1, "斗破苍穹", 5, 207, null, 1),
+                    com.ashchan.cloudsaver.notify.ShowAlert(2, "剑来", 1, 52, 53, 2),
+                    com.ashchan.cloudsaver.notify.ShowAlert(3, "仙逆", 1, 168, null, 1),
+                    com.ashchan.cloudsaver.notify.ShowAlert(4, "玫瑰战争", null, null, null, 2),
                 )
+                val delayMs = intent.getLongExtra("debugNotifyDelayMs", 0L)
+                if (delayMs > 0) {
+                    // 屏亮着、App 在后台时才可能看到横幅：先退后台，再亮屏保活一会儿
+                    moveTaskToBack(true)
+                    @Suppress("DEPRECATION")
+                    (getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager)
+                        .newWakeLock(
+                            android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
+                                android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                            "zhuancunmiao:notify-test",
+                        )
+                        .acquire(60_000L)
+                    android.os.Handler(mainLooper).postDelayed({
+                        // 先退回后台（横幅只对后台应用生效），再发
+                        moveTaskToBack(true)
+                    }, (delayMs - 2000).coerceAtLeast(0))
+                    android.os.Handler(mainLooper).postDelayed({
+                        com.ashchan.cloudsaver.notify.AlertPublisher.publish(this, sample)
+                    }, delayMs)
+                } else {
+                    com.ashchan.cloudsaver.notify.AlertPublisher.publish(this, sample)
+                }
             }
             // --ez openRunLog true 直接进「运行日志」页
             if (intent?.getBooleanExtra("openRunLog", false) == true) {

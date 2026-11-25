@@ -159,6 +159,24 @@ fun AutoSyncSection() {
             rev++
         },
     )
+    // HyperOS/MIUI 的「横幅/悬浮」是应用级开关，代码改不了；给一个直达入口，省得在系统设置里翻
+    TextButton(
+        onClick = {
+            runCatching {
+                context.startActivity(
+                    android.content.Intent(android.provider.Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                        .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
+                        .putExtra(
+                            android.provider.Settings.EXTRA_CHANNEL_ID,
+                            com.ashchan.cloudsaver.notify.Channels.EPISODE_ALERTS,
+                        )
+                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            }
+        },
+    ) {
+        Text("检查「追剧更新」的横幅/悬浮开关", style = MaterialTheme.typography.bodySmall)
+    }
 
     Spacer(Modifier.height(12.dp))
     // 仅 debug 包：一次发 4 条样例，覆盖「单集 / 连更范围 / 多部剧 / 无集号兜底」
