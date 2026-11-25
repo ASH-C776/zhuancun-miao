@@ -475,10 +475,10 @@ class TreeSyncEngine(
 
             // 本地已有文件按「集号」建一份索引：用户手动把某集改成 001.mp4 这类不规范名字时，
             // 转存 diff 按文件名找不到它，会误判缺集又转一份回来。先按集号兜住这种情况。
-            val localByEpisode = index.values.asSequence()
+            val localByEpisode: Map<Int, List<DriveFile>> = index.values.asSequence()
                 .filter { !it.isDir && isVideoName(it.name) }
                 .mapNotNull { f -> episodeOf(f.name)?.let { it to f } }
-                .toList()
+                .groupBy({ it.first }, { it.second })
 
             files.sortedWith(NATURAL).forEach { node ->
                 val expected = expectedName(node)
@@ -499,7 +499,7 @@ class TreeSyncEngine(
                         // 改名统一交给长按菜单里的「统一重命名」。
                         // 这里只判定「这一集已经有了」，跳过转存，避免越补越多。
                         val ep = episodeOf(node.name)
-                        val same = if (ep == null) emptyList() else localByEpisode.filter { it.first == ep }.map { it.second }
+                        val same = if (ep == null) emptyList() else localByEpisode[ep].orEmpty()
                         when {
                             same.size == 1 -> {
                                 skippedFiles++
