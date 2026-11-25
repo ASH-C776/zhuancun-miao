@@ -155,9 +155,6 @@ fun NewTaskScreen(
     var seasonNo by remember {
         mutableStateOf(stash?.seasonNo ?: editingTask?.seasonNo ?: TaskEntity.SEASON_FLAT)
     }
-    // 自定义分季：TMDB 把多篇并成一季时用（本季从全剧第几集开始 / 本季共几集）
-    var seasonStartEp by remember { mutableStateOf(stash?.seasonStartEp ?: editingTask?.seasonStartEp ?: 0) }
-    var seasonEpCount by remember { mutableStateOf(stash?.seasonEpCount ?: editingTask?.seasonEpCount ?: 0) }
     // 开始保存：单季只看集，多季看季 + 集；1/1 = 从头
     var saveStartSeason by remember {
         mutableStateOf((stash?.saveStartSeason ?: editingTask?.saveStartSeason ?: 1).takeIf { it > 1 } ?: 0)
@@ -197,7 +194,7 @@ fun NewTaskScreen(
     }
 
     // 新建任务页的表单随改随存一份快照（离开页面时组合被销毁，切 tab 回来靠它回填）
-    LaunchedEffect(editing, name, slots.map { it.text }, drive, saveFid, savePathLabel, seasonNo, seasonStartEp, seasonEpCount, saveStartSeason, saveStartEpisode, folderWithTmdbId, ruleKey, tmdbId, tmdbTitle, weekdays, weekdaysManual, updateModeAuto) {
+    LaunchedEffect(editing, name, slots.map { it.text }, drive, saveFid, savePathLabel, seasonNo, saveStartSeason, saveStartEpisode, folderWithTmdbId, ruleKey, tmdbId, tmdbTitle, weekdays, weekdaysManual, updateModeAuto) {
         if (editing) return@LaunchedEffect
         viewModel.stashDraftForm(
             TasksViewModel.DraftForm(
@@ -207,8 +204,6 @@ fun NewTaskScreen(
                 saveFid = saveFid,
                 savePathLabel = savePathLabel,
                 seasonNo = seasonNo,
-                seasonStartEp = seasonStartEp,
-                seasonEpCount = seasonEpCount,
                 saveStartSeason = saveStartSeason,
                 saveStartEpisode = saveStartEpisode,
                 folderWithTmdbId = folderWithTmdbId,
@@ -303,8 +298,6 @@ fun NewTaskScreen(
                         savePathLabel = savePathLabel,
                         ruleKey = ruleKey,
                         seasonNo = seasonNo,
-                        seasonStartEp = seasonStartEp,
-                        seasonEpCount = seasonEpCount,
                         saveStartSeason = saveStartSeason,
                         saveStartEpisode = saveStartEpisode,
                         folderWithTmdbId = effectiveFolder,
@@ -321,8 +314,6 @@ fun NewTaskScreen(
                         savePathLabel = savePathLabel,
                         ruleKey = ruleKey,
                         seasonNo = seasonNo,
-                        seasonStartEp = seasonStartEp,
-                        seasonEpCount = seasonEpCount,
                         saveStartSeason = saveStartSeason,
                         saveStartEpisode = saveStartEpisode,
                         folderWithTmdbId = effectiveFolder,
@@ -340,8 +331,6 @@ fun NewTaskScreen(
                         savePathLabel = savePathLabel,
                         ruleKey = ruleKey,
                         seasonNo = seasonNo,
-                        seasonStartEp = seasonStartEp,
-                        seasonEpCount = seasonEpCount,
                         saveStartSeason = saveStartSeason,
                         saveStartEpisode = saveStartEpisode,
                         folderWithTmdbId = effectiveFolder,
@@ -653,15 +642,7 @@ fun NewTaskScreen(
                 }
             )
             // 选了 TMDB 上不存在的季：这里直接拦住，别等跑完才发现 E—、盘里 0 集
-            if (seasonEpCount > 0 && seasonStartEp > 0) {
-                Text(
-                    text = "自定义分季：本季从全剧第 $seasonStartEp 集起，共 $seasonEpCount 集" +
-                        "（本季集号 = 全剧集号 − ${seasonStartEp - 1}）",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-            } else if (tmdbSeasonNumbers.isNotEmpty() && seasonNo > 0 && seasonNo !in tmdbSeasonNumbers) {
+            if (tmdbSeasonNumbers.isNotEmpty() && seasonNo > 0 && seasonNo !in tmdbSeasonNumbers) {
                 Text(
                     text = "TMDB 上这部剧只有 S${tmdbSeasonNumbers.min()}–S${tmdbSeasonNumbers.max()}，" +
                         "没有 S$seasonNo，请改选季度或选「多季」；要按资源的分篇算，可在季度里填自定义起点/集数",
@@ -866,8 +847,6 @@ fun NewTaskScreen(
     }
 
     if (showCustomSeason) {
-        var startInput by remember { mutableStateOf(if (seasonStartEp > 0) seasonStartEp.toString() else "") }
-        var countInput by remember { mutableStateOf(if (seasonEpCount > 0) seasonEpCount.toString() else "") }
         AlertDialog(
             shape = RoundedCornerShape(24.dp),
             onDismissRequest = { showCustomSeason = false },
@@ -889,35 +868,11 @@ fun NewTaskScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 8.dp),
                     )
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        "TMDB 只有一季、但资源按「篇」分季时，填这两个数（不填就按 TMDB 的季集数）",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    OutlinedTextField(
-                        value = startInput,
-                        onValueChange = { startInput = it.filter { c -> c.isDigit() } },
-                        placeholder = { Text("本季从全剧第几集开始，如 166") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                    )
-                    OutlinedTextField(
-                        value = countInput,
-                        onValueChange = { countInput = it.filter { c -> c.isDigit() } },
-                        placeholder = { Text("本季共几集，如 46") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                    )
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
                     seasonInput.toIntOrNull()?.takeIf { it in 0..99 }?.let { seasonNo = it }
-                    seasonStartEp = startInput.toIntOrNull()?.takeIf { it > 0 } ?: 0
-                    seasonEpCount = countInput.toIntOrNull()?.takeIf { it > 0 } ?: 0
                     showCustomSeason = false
                 }) { Text("确定") }
             },
@@ -982,7 +937,7 @@ private const val MAX_SOURCES = 5
 private val ROW_HEIGHT = 48.dp
 
 /**
- * 紧凑数字框：56dp 宽、48dp 高，数字居中，空白显示占位 1。
+ * 胶囊数字框：72dp × 48dp、全圆角，底色与「季度」选项胶囊一致。
  * 只收数字，最多 3 位；0 当作「没填」，提交时统一按 1 处理。
  */
 @Composable
@@ -999,34 +954,37 @@ private fun CompactNumberField(
         },
         singleLine = true,
         textStyle = MaterialTheme.typography.bodyLarge.copy(
-            color = MaterialTheme.colorScheme.onSurface,
+            color = if (focused) {
+                MaterialTheme.colorScheme.onPrimaryContainer
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            },
             textAlign = TextAlign.Center,
         ),
         cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
         modifier = Modifier
-            .width(56.dp)
+            .width(72.dp)
             .height(ROW_HEIGHT)
+            .clip(RoundedCornerShape(50))
+            .background(
+                if (focused) {
+                    MaterialTheme.colorScheme.primaryContainer
+                } else {
+                    MaterialTheme.colorScheme.surfaceContainerLow
+                }
+            )
             .onFocusChanged { focused = it.isFocused },
         decorationBox = { inner ->
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .border(
-                        width = if (focused) 2.dp else 1.dp,
-                        color = if (focused) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
-                        },
-                        shape = RoundedCornerShape(12.dp),
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 if (value <= 0) {
                     Text(
                         "1",
                         style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = if (focused) {
+                            MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.55f)
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
                     )
                 }
                 inner()
@@ -1668,6 +1626,7 @@ private fun DraftRunText(text: String, color: Color, animated: Boolean) {
             .padding(bottom = 6.dp),
     )
 }
+
 
 
 
