@@ -28,18 +28,32 @@ class CredentialStore private constructor(context: Context) {
         )
     }
 
+    /**
+     * 内存缓存：EncryptedSharedPreferences 每次 getString 都要走 Keystore 解密，
+     * 界面在重组里反复查登录态会明显掉帧。写操作统一走本类，缓存与磁盘不会不一致。
+     */
+    private val cacheLock = Any()
+    /** 值用空串表示「确认没有登录态」，与「还没查过」（键不存在）区分开 */
+    private val cache = mutableMapOf<DriveType, String>()
+
     /** 保存某网盘的登录凭证（光鸭：access_token|refresh_token；夸克：cookie） */
     fun saveCredential(driveType: DriveType, credential: String) {
         prefs.edit().putString(keyOf(driveType), credential).apply()
+        synchronized(cacheLock) { cache[driveType] = credential }
     }
 
     /** 读取某网盘的登录凭证，无则返回 null */
-    fun loadCredential(driveType: DriveType): String? =
-        prefs.getString(keyOf(driveType), null)
+    fun loadCredential(driveType: DriveType): String? {
+        synchronized(cacheLock) { cache[driveType] }?.let { return it.ifEmpty { null } }
+        val value = prefs.getString(keyOf(driveType), null)
+        synchronized(cacheLock) { cache[driveType] = value.orEmpty() }
+        return value
+    }
 
     /** 清除某网盘登录态 */
     fun clearCredential(driveType: DriveType) {
         prefs.edit().remove(keyOf(driveType)).apply()
+        synchronized(cacheLock) { cache[driveType] = "" }
     }
 
     /** 保存扩展字段（光鸭的 refresh_token / device_id 等） */
