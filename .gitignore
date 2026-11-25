@@ -24,3 +24,6 @@ screenshots/*.jpg
 tools/*.py
 tools/normalize_*.ps1
 tools/*_probe.ps1
+
+hs_err_pid*.log
+replay_pid*.log

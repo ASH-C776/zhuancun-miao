@@ -549,28 +549,29 @@ class TreeSyncEngine(
             onProgress(0, 0, "转存 $done/$total")
         }
 
-        /** 一批转存 + 并发改名；批次的 diff 对不上时退回逐个转存 */
+        /** 一批转存 + 并发改名；只补这一批里没转成功的，已成功的绝不重转 */
         private suspend fun restoreChunk(
             chunk: List<ShareNode>,
             destFid: String,
             index: MutableMap<String, DriveFile>,
         ) {
             val attempt = restoreWithRetry(chunk, destFid)
-            val saved = attempt.getOrNull()
-            if (attempt.isFailure || saved == null || saved.size != chunk.size) {
-                // 断网/域名解析失败：整轮没意义了，记一条就中止，别把 20 个文件各刷一条一样的错
-                val msg = attempt.exceptionOrNull()?.message.orEmpty()
-                if (attempt.isFailure && isNetworkError(msg)) {
-                    aborted = true
-                    failures += "网络中断，本轮中止：$msg"
-                    return
-                }
+            val saved = attempt.getOrNull().orEmpty()
+            val failMsg = attempt.exceptionOrNull()?.message.orEmpty()
+            // 断网/域名解析失败：整轮没意义了，记一条就中止，别把 20 个文件各刷一条一样的错
+            if (attempt.isFailure && isNetworkError(failMsg)) {
+                aborted = true
+                failures += "网络中断，本轮中止：$failMsg"
+                return
+            }
+            if (saved.isEmpty()) {
                 chunk.forEach { node -> syncFile(node, destFid, index, expectedName(node)) }
                 return
             }
+
             val byShareFid = chunk.associateBy { it.fid }
+            // 部分成功时也要先记账，否则已落盘的文件会被当成没转，下一轮判断出错
             restoredFiles += saved.size
-            // 转存落的是原名：先按原名记账，改完名再改键，全程不用重新列目录
             saved.forEach { restored ->
                 byShareFid[restored.shareFileId]?.let { index[it.name] = restored.file }
             }
@@ -582,19 +583,24 @@ class TreeSyncEngine(
                 if (expected == node.name) null
                 else RenameItem(restored.file.fid, node.name, expected, restored.file)
             }
-            if (items.isEmpty()) return
-
-            renameMany(items).forEach { outcome ->
-                val item = outcome.item
-                index.remove(item.oldName)
-                if (outcome.ok) {
-                    renamedItems++
-                    index[item.newName] = item.file.copy(name = item.newName)
-                } else {
-                    failures += "改名失败：${item.oldName} -> ${item.newName}（${outcome.reason}）"
+            if (items.isNotEmpty()) {
+                renameMany(items).forEach { outcome ->
+                    val item = outcome.item
+                    index.remove(item.oldName)
+                    if (outcome.ok) {
+                        renamedItems++
+                        index[item.newName] = item.file.copy(name = item.newName)
+                    } else {
+                        failures += "改名失败：${item.oldName} -> ${item.newName}（${outcome.reason}）"
+                    }
                 }
+                reportRename()
             }
-            reportRename()
+
+            // 只对这批里没成功的文件逐个补转，避免整批重搬
+            val savedIds = saved.mapNotNull { it.shareFileId }.toSet()
+            chunk.filterNot { it.fid in savedIds }
+                .forEach { node -> syncFile(node, destFid, index, expectedName(node)) }
         }
 
         /** 分享文件按命名规则应有的最终文件名（没配规则就是原名） */

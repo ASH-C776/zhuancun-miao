@@ -70,6 +70,9 @@ class TreeSyncEngineTest {
         var restoreAttempts = 0
             private set
 
+        /** 首次成功转存只落盘前 N 个文件，模拟「批量里只成功一部分」 */
+        var partialFirst: Int? = null
+
         override suspend fun restoreShare(
             share: ShareInfo,
             files: List<DriveFile>,
@@ -78,9 +81,11 @@ class TreeSyncEngineTest {
             restoreAttempts++
             failRestoreWith?.let { return Result.failure(java.io.IOException(it)) }
             restoreShareCalls++
-            val created = files.map { copyInto(it, parentId) }
+            val cut = partialFirst?.also { partialFirst = null }
+            val toSave = if (cut != null && cut in 0 until files.size) files.take(cut) else files
+            val created = toSave.map { copyInto(it, parentId) }
             return Result.success(
-                created.mapIndexed { i, f -> RestoredFile(f, files[i].fid, files[i].name) }
+                created.mapIndexed { i, f -> RestoredFile(f, toSave[i].fid, toSave[i].name) }
             )
         }
 
@@ -514,6 +519,26 @@ class TreeSyncEngineTest {
 
         assertEquals(2, report.restoredFiles)
         assertEquals(setOf("Season 2", "Season 3"), adapter.mine["0"]!!.filter { it.isDir }.map { it.name }.toSet())
+    }
+
+    @Test
+    fun `批次只成功一部分时 只补缺失的文件 不整批重转`() = runBlocking {
+        val adapter = FakeDriveAdapter(
+            mapOf(null to (1..4).map { adapterFile("s_$it", "EP%02d.mkv".format(it)) })
+        )
+        adapter.partialFirst = 2   // 第一次批量只成功前 2 个
+
+        val tree = buildTree(adapter)
+        val report = TreeSyncEngine(adapter).sync(
+            share = shareInfo(), tree = tree, destRootFid = "0",
+        ).getOrThrow()
+
+        // 4 个文件最终都在，且没有重复（没把已成功的 2 个再转一遍）
+        assertEquals(4, adapter.mine["0"]!!.size)
+        assertEquals(setOf("EP01.mkv", "EP02.mkv", "EP03.mkv", "EP04.mkv"),
+            adapter.mine["0"]!!.map { it.name }.toSet())
+        assertEquals(4, report.restoredFiles)
+        assertTrue(report.ok)
     }
 
     private fun adapterDir(fid: String, name: String) = DriveFile(fid = fid, name = name, isDir = true)
