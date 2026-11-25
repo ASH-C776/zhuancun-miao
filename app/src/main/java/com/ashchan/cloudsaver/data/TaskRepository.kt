@@ -214,8 +214,4 @@ class TaskRepository(private val db: AppDatabase) {
         )
         runDao.trimTo(200)
     }
-
-    /** 最近一次成功快照（用于判断「是否最新」） */
-    fun observeStatusOf(taskId: Long): Flow<SnapshotEntity?> =
-        snapshotDao.observeAll().map { list -> list.firstOrNull { it.taskId == taskId } }
 }

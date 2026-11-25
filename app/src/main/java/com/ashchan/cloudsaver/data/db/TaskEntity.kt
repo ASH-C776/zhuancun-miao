@@ -128,9 +128,8 @@ data class TaskEntity(
         const val SEASON_SPECIALS: Int = 0
         const val SEASON_MULTI: Int = -1
 
-        /** 集数口径 */
+        /** 集数口径（已废弃，仅作历史列默认值保留） */
         const val EPISODE_MODE_TMDB: Int = 0
-        const val EPISODE_MODE_CUSTOM: Int = 1
     }
 }
 

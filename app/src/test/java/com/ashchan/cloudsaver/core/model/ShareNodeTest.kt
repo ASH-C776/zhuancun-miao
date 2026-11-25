@@ -63,7 +63,6 @@ class ShareNodeTest {
         assertEquals("第01季", s1.name)
         assertEquals(2, s1.depth)
         assertEquals(12, s1.directVideoCount)
-        assertEquals(12, s1.videoCount)
         assertTrue(s1.children.all { it.isVideo })
     }
 
@@ -80,41 +79,11 @@ class ShareNodeTest {
     }
 
     @Test
-    fun `剧集目录只按直接子级判定 不会把上层容器误判`() {
-        val tree = ShareNode(
-            file = dir("0", "根"),
-            children = listOf(
-                ShareNode(
-                    file = dir("d_show", "凡人修仙传"),
-                    depth = 1,
-                    children = listOf(
-                        ShareNode(
-                            file = dir("d_s1", "第01季"),
-                            depth = 2,
-                            children = (1..3).map { ShareNode(file("v$it", "EP$it.mkv"), depth = 3) }
-                        )
-                    )
-                )
-            )
-        )
-
-        val hits = tree.findVideoDirs(minVideos = 2)
-        assertEquals(1, hits.size)
-        assertEquals("第01季", hits[0].name)
-        // 上层容器 [凡人修仙传] 有 3 个后代视频，但直接子级是 1 个目录，不应命中
-        assertFalse(tree.children[0].findVideoDirs(minVideos = 2).isEmpty() &&
-            tree.children[0].directVideoCount >= 2)
-        assertEquals(0, tree.children[0].directVideoCount)
-        assertEquals(3, tree.children[0].videoCount)
-    }
-
-    @Test
-    fun `单文件分享不会命中剧集目录`() {
+    fun `单文件分享的 flattenFiles 只含该文件`() {
         val tree = ShareNode(
             file = dir("0", "根"),
             children = listOf(ShareNode(file("v1", "某电影.2024.mkv"), depth = 1))
         )
-        assertTrue(tree.findVideoDirs(minVideos = 2).isEmpty())
         assertEquals(1, tree.flattenFiles().size)
     }
 

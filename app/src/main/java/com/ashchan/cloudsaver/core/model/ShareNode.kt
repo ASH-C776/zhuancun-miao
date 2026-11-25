@@ -23,14 +23,6 @@ data class ShareNode(
 
     val isVideo: Boolean get() = !isDir && VideoTypes.isVideo(name)
 
-    /** 自己 + 所有后代的总节点数（含目录） */
-    val totalCount: Int
-        get() = 1 + children.sumOf { it.totalCount }
-
-    /** 自身及后代中视频文件的总数（用于判断"这一层是不是剧集目录"） */
-    val videoCount: Int
-        get() = (if (isVideo) 1 else 0) + children.sumOf { it.videoCount }
-
     /** 直接子节点里的视频文件数（判断"我这一层是不是剧集目录"的关键指标） */
     val directVideoCount: Int
         get() = children.count { it.isVideo }
@@ -42,23 +34,6 @@ data class ShareNode(
             .sortedWith(compareBy(NaturalOrder) { it.name })
             .flatMap { it.flattenFiles() }
     }
-
-    /**
-     * 找出「剧集目录」：直接包含 ≥ [minVideos] 个视频文件的目录。
-     *
-     * 只按直接子级计数，不做后代累计——否则 `[剧名]` 这种上层容器会因为
-     * 子孙视频多而被误判成剧集目录，导致改名层级错位。
-     */
-    fun findVideoDirs(minVideos: Int = DEFAULT_MIN_VIDEOS): List<ShareNode> {
-        val hits = if (isDir && directVideoCount >= minVideos) listOf(this) else emptyList()
-        return hits + children.flatMap { it.findVideoDirs(minVideos) }
-    }
-
-    /** 以当前节点为根的子树里，所有剧集目录的直接视频文件（用于转存单元） */
-    fun videoFilesInDirs(minVideos: Int = DEFAULT_MIN_VIDEOS): List<ShareNode> =
-        findVideoDirs(minVideos).flatMap { dir ->
-            dir.children.filter { it.isVideo }.sortedWith(compareBy(NaturalOrder) { it.name })
-        }
 
     /** 整棵树的最大深度（根=0） */
     fun maxDepth(): Int = children.maxOfOrNull { it.maxDepth() }?.let { maxOf(depth, it) } ?: depth
@@ -74,7 +49,7 @@ data class ShareNode(
     }
 
     companion object {
-        /** 直接子级视频数达到此值即视为剧集目录。资源以剧集为主，2 集起步合理。 */
+        /** 直接子级视频数达到此值即视为剧集目录（仅用于 toString 的 📁★ 标记） */
         const val DEFAULT_MIN_VIDEOS: Int = 2
     }
 }

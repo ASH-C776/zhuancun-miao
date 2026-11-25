@@ -148,10 +148,4 @@ class UpdateManager(private val context: Context) {
             context.startActivity(intent)
         }
     }
-
-    /** 下载后清理旧包，避免 filesDir 堆一堆历史 APK */
-    suspend fun cleanupOldApks(keep: File? = null) = withContext(Dispatchers.IO) {
-        val dir = File(context.filesDir, "update")
-        dir.listFiles()?.forEach { file -> if (file != keep) runCatching { file.delete() } }
-    }
 }
