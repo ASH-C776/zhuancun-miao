@@ -10,6 +10,7 @@ import com.ashchan.cloudsaver.core.tmdb.TmdbClient
 import com.ashchan.cloudsaver.core.tmdb.TmdbSearchItem
 import com.ashchan.cloudsaver.data.TaskCard
 import com.ashchan.cloudsaver.data.SourceDraft
+import com.ashchan.cloudsaver.data.SeasonCustomMerge
 import com.ashchan.cloudsaver.data.TaskDraftParser
 import com.ashchan.cloudsaver.data.TaskRepository
 import com.ashchan.cloudsaver.data.Weekdays
@@ -390,8 +391,9 @@ class TasksViewModel(
         savePathLabel: String,
         ruleKey: String,
         seasonNo: Int,
-        seasonStartEp: Int = 0,
-        seasonEpCount: Int = 0,
+        /** null / 0 = 这次没改「自定义分季」，沿用旧任务的设置（新建页已无此输入框） */
+        seasonStartEp: Int? = null,
+        seasonEpCount: Int? = null,
         saveStartSeason: Int = 1,
         saveStartEpisode: Int = 1,
         folderWithTmdbId: Boolean,
@@ -407,6 +409,13 @@ class TasksViewModel(
         }
         val parsed = parseLinks(links, driveOverride) ?: return
         val (inspected, drive) = parsed
+        // 新建页已经没有「自定义分季」输入框：这次没传值就保留老任务的原设置，不能写成 0
+        val (mergedStartEp, mergedEpCount) = SeasonCustomMerge.merge(
+            baseStartEp = base.seasonStartEp,
+            baseEpCount = base.seasonEpCount,
+            inputStartEp = seasonStartEp,
+            inputEpCount = seasonEpCount,
+        )
         viewModelScope.launch {
             val updated = base.copy(
                 name = title,
@@ -422,8 +431,8 @@ class TasksViewModel(
                 posterPath = if (posterPath.isBlank()) base.posterPath else posterPath.trim(),
                 ruleKey = ruleKey,
                 seasonNo = seasonNo,
-                seasonStartEp = seasonStartEp,
-                seasonEpCount = seasonEpCount,
+                seasonStartEp = mergedStartEp,
+                seasonEpCount = mergedEpCount,
                 saveStartSeason = saveStartSeason.coerceAtLeast(1),
                 saveStartEpisode = saveStartEpisode.coerceAtLeast(1),
                 folderWithTmdbId = folderWithTmdbId,
