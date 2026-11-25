@@ -105,11 +105,8 @@ class MainActivity : ComponentActivity() {
             // 关闭系统自动加的导航栏对比度遮罩，彻底透明
             window.isNavigationBarContrastEnforced = false
         }
-        // 处理从外部打开/分享的链接
-        val sharedText = intent?.getStringExtra(Intent.EXTRA_TEXT)
-        if (!sharedText.isNullOrBlank()) {
-            viewModel.pendingExternalLink = sharedText
-        }
+        // 处理从外部打开/分享的链接（只在首次创建时处理；旋转重建不会重复回填）
+        if (savedInstanceState == null) handleShareIntent(intent)
         // 调试/联调用入口：只在 debug 包生效；release 包里这些 extra 全部失效
         val openNewTask = BuildConfig.DEBUG && (intent?.getBooleanExtra("openNewTask", false) ?: false)
         if (BuildConfig.DEBUG) {
@@ -192,6 +189,29 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * 外部分享/点链接进来：先记下链接，再直接进「新建任务」页由表单回填。
+     * 只接受能识别网盘的文本（夸克/光鸭），避免把普通分享的正文塞进输入框。
+     */
+    private fun handleShareIntent(intent: Intent?) {
+        val text = (intent?.getStringExtra(Intent.EXTRA_TEXT) ?: intent?.dataString)
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?: return
+        if (com.ashchan.cloudsaver.data.TaskDraftParser.detectDriveType(text) == null) return
+        // 分享进来意味着开一个新任务：丢掉可能还停在编辑态的任务
+        tasksViewModel.clearEdit()
+        tasksViewModel.offerShareLink(text)
+        viewModel.go(com.ashchan.cloudsaver.ui.Screen.NEW_TASK)
+    }
+
+    /** singleTask：App 已在前台时再分享一次，走这里（不会重建页面） */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleShareIntent(intent)
     }
 
     private companion object {

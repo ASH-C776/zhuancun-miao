@@ -62,6 +62,24 @@ class TasksViewModel(
     val toast: StateFlow<String?> = _toast.asStateFlow()
 
     /**
+     * 从外部分享进来的链接（"分享到转存喵" / 点开夸克链接）。
+     * 新建页消费一次后自行清空，避免来回切页重复填同一行。
+     */
+    private val _pendingShareLink = MutableStateFlow<String?>(null)
+    val pendingShareLink: StateFlow<String?> = _pendingShareLink.asStateFlow()
+
+    /** 外部入口收到分享文本时调用：先记下链接，再导航到新建页 */
+    fun offerShareLink(link: String) {
+        val trimmed = link.trim()
+        if (trimmed.isNotBlank()) _pendingShareLink.value = trimmed
+    }
+
+    /** 新建页把链接放进表单后调用 */
+    fun clearPendingShareLink() {
+        _pendingShareLink.value = null
+    }
+
+    /**
      * 正在执行的任务：id → 当前阶段文案（「准备中 / 读取目录 / 转存 3/20 …」）。
      * 卡片左侧那个刷新按钮在跑的时候不显示图标，直接把这句文字写在原位置。
      */

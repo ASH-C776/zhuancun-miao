@@ -249,6 +249,39 @@ fun NewTaskScreen(
         }
     }
 
+    // 外部分享进来的链接：优先填进第一条空行；行满了就替换第一行。
+    // 只在新建状态处理，编辑态忽略并清空，避免把正在编辑的任务串掉。
+    val pendingShareLink by viewModel.pendingShareLink.collectAsState()
+    LaunchedEffect(pendingShareLink) {
+        val link = pendingShareLink?.trim().orEmpty()
+        if (link.isEmpty()) return@LaunchedEffect
+        if (editing) {
+            viewModel.clearPendingShareLink()
+            return@LaunchedEffect
+        }
+        if (slots.none { it.text.trim() == link }) {
+            val blank = slots.indexOfFirst { it.text.isBlank() }
+            when {
+                blank >= 0 -> {
+                    slots[blank] = slots[blank].copy(text = link)
+                    if (blank < slotStates.size) slotStates[blank] = SlotState()
+                }
+                slots.size < MAX_SOURCES -> {
+                    slots += LinkSlot(id = nextSlotId++, text = link)
+                    slotStates += SlotState()
+                }
+                else -> {
+                    slots[0] = slots[0].copy(text = link)
+                    slotStates[0] = SlotState()
+                }
+            }
+            // 分享进来视为一次新的填写：清掉上一次试跑结果，清掉顶部的旧错误
+            viewModel.clearDraftResult()
+            error = null
+        }
+        viewModel.clearPendingShareLink()
+    }
+
     // 网盘按第一行自动识别：用户没手动选过保存位置时，跟着第一行链接走
     val firstLink = slots.firstOrNull()?.text.orEmpty()
     LaunchedEffect(firstLink) {
