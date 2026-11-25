@@ -60,12 +60,21 @@ object VideoTypes {
         "mkv", "mp4", "ts", "avi", "rmvb", "rm", "mov", "wmv", "flv", "m4v", "webm", "mpg", "mpeg", "iso"
     )
 
+    /** 光鸭等网盘会把整季打成压缩包，转存/改名时也算「像视频的文件」 */
+    private val ARCHIVE = setOf("zip", "cas")
+
     /** 明显不是正片的（样本/预告/花絮），用于后续过滤，暂不参与剧集目录判定 */
     private val NOISE_MARKERS = listOf("sample", "trailer", "预告", "花絮", "彩蛋", "幕后")
 
     fun isVideo(fileName: String): Boolean {
         val ext = fileName.substringAfterLast('.', "").lowercase()
         return ext in EXTENSIONS
+    }
+
+    /** 视频或整季压缩包（转存/改名的目标集合，比 [isVideo] 宽） */
+    fun isVideoLike(fileName: String): Boolean {
+        val ext = fileName.substringAfterLast('.', "").lowercase()
+        return ext in EXTENSIONS || ext in ARCHIVE
     }
 
     fun isNoise(fileName: String): Boolean {

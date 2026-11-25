@@ -3,6 +3,7 @@ package com.ashchan.cloudsaver.transfer
 import com.ashchan.cloudsaver.core.adapter.CloudDriveAdapter
 import com.ashchan.cloudsaver.core.model.DriveFile
 import com.ashchan.cloudsaver.core.model.RenameRule
+import com.ashchan.cloudsaver.core.model.VideoTypes
 import com.ashchan.cloudsaver.data.SeasonParser
 import com.ashchan.cloudsaver.data.TaskRepository
 import com.ashchan.cloudsaver.data.db.RunRecordEntity
@@ -46,7 +47,6 @@ class RenamePass(
         private const val ATTEMPTS = 4
         private const val RETRY_DELAY_MS = 1000L
         private const val THROTTLE_DELAY_MS = 2500L
-        private val VIDEO_EXTS = setOf("mp4", "mkv", "mov", "m4v", "avi", "mpeg", "mpg", "ts", "zip", "cas", "iso")
     }
 
     data class Result(
@@ -242,7 +242,7 @@ class RenamePass(
         val season = SeasonParser.parse(dirNames.lastOrNull().orEmpty())
             ?: dirNames.mapNotNull { SeasonParser.parse(it) }.lastOrNull()
             ?: TaskEntity.SEASON_FLAT
-        items.filter { !it.isDir && it.extension in VIDEO_EXTS }.forEach {
+        items.filter { !it.isDir && VideoTypes.isVideoLike(it.name) }.forEach {
             out += Entry(dirFid, dirNames, season, it)
         }
         if (depth >= MAX_DEPTH) return

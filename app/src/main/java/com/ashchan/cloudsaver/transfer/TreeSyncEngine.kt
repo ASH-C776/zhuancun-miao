@@ -7,6 +7,7 @@ import com.ashchan.cloudsaver.core.model.NaturalOrder
 import com.ashchan.cloudsaver.core.model.ShareInfo
 import com.ashchan.cloudsaver.core.model.EpisodeParser
 import com.ashchan.cloudsaver.core.model.ShareNode
+import com.ashchan.cloudsaver.core.model.VideoTypes
 import com.ashchan.cloudsaver.data.SeasonParser
 import com.ashchan.cloudsaver.data.db.TaskEntity
 import com.ashchan.cloudsaver.rename.FileNameContext
@@ -642,9 +643,7 @@ class TreeSyncEngine(
             "开始保存设为第 $startSeason 季第 $startEpisode 集，但分享里没有这之后的视频"
 
         private fun isVideoName(name: String): Boolean =
-            name.substringAfterLast('.', "").lowercase() in setOf(
-                "mp4", "mkv", "mov", "m4v", "avi", "mpeg", "mpg", "ts", "zip", "cas", "iso", "",
-            )
+            VideoTypes.isVideoLike(name) || name.substringAfterLast('.', "").isEmpty()
 
         /** 单个文件转存（批量失败时的兜底）；成功返回 true */
         private suspend fun syncFile(
