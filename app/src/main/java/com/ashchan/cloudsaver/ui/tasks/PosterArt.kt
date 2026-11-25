@@ -17,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -32,7 +33,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
- * 卡片左侧的海报位：固定 56×84、2:3、圆角 8。
+ * 卡片左侧的海报位：默认 64×96、2:3、圆角 8；卡片内传 97×146 并只圆左侧两角，贴住卡片上/左/下。
  *
  * - 有海报：读 `filesDir/posters/<tmdbId>.jpg`，本地解码，不联网；
  * - 没海报（未绑 TMDB / 下载失败）：同尺寸占位块，淡主题色底 + 剧名首字，尺寸与圆角完全一致；
@@ -48,9 +49,9 @@ fun PosterArt(
     height: Dp = 96.dp,
     reloadKey: Int = 0,
     modifier: Modifier = Modifier,
+    shape: Shape = RoundedCornerShape(8.dp),
 ) {
     val context = LocalContext.current
-    val shape = RoundedCornerShape(8.dp)
     val bitmap by produceState<ImageBitmap?>(initialValue = null, tmdbId, posterPath, reloadKey) {
         value = withContext(Dispatchers.IO) {
             val id = tmdbId ?: return@withContext null
@@ -88,16 +89,16 @@ fun PosterArt(
             Box(
                 Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 4.dp)
+                    .padding(bottom = 5.dp)
                     .widthIn(max = width - 8.dp)
-                    .clip(CircleShape)
+                    .clip(RoundedCornerShape(6.dp))
                     .background(Color(0x99000000))
-                    .padding(horizontal = 4.dp, vertical = 1.dp),
+                    .padding(horizontal = 6.dp, vertical = 1.dp),
             ) {
                 Text(
                     text = totalBadge,
                     color = Color.White,
-                    fontSize = 9.sp,
+                    fontSize = 8.sp,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
                     letterSpacing = 0.sp,
@@ -116,6 +117,7 @@ private fun decodePoster(file: File): ImageBitmap? = runCatching {
     val opts = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
     android.graphics.BitmapFactory.decodeFile(file.absolutePath, opts)?.asImageBitmap()
 }.getOrNull()
+
 
 
 

@@ -13,7 +13,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  */
 @Database(
     entities = [TaskEntity::class, SnapshotEntity::class, RunRecordEntity::class, TaskSourceEntity::class],
-    version = 14,
+    version = 15,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -231,6 +231,21 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v15：tasks 加「集数口径」两列。
+         *
+         * episodeMode：0=跟随 TMDB，1=自定义（卡片弹窗可改）。
+         * customLatestEp：自定义口径下「本季已播到第几集」，0=按起点从 TMDB 推算。
+         * 迁移时把已经填过 seasonEpCount 的老任务置为自定义，保持原来的算法不变。
+         */
+        val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE tasks ADD COLUMN episodeMode INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE tasks ADD COLUMN customLatestEp INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("UPDATE tasks SET episodeMode = 1 WHERE seasonEpCount > 0")
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -251,9 +266,11 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_11_12,
                     MIGRATION_12_13,
                     MIGRATION_13_14,
+                    MIGRATION_14_15,
                 ).build().also { instance = it }
             }
     }
 }
+
 
 

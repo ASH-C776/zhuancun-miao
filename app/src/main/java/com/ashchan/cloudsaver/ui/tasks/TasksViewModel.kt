@@ -259,6 +259,7 @@ class TasksViewModel(
                 seasonNo = seasonNo,
                 seasonStartEp = seasonStartEp,
                 seasonEpCount = seasonEpCount,
+                episodeMode = if (seasonEpCount > 0) TaskEntity.EPISODE_MODE_CUSTOM else TaskEntity.EPISODE_MODE_TMDB,
                 folderWithTmdbId = folderWithTmdbId,
                 updateMode = if (updateModeAuto || weekdays.isBlank()) {
                     TaskEntity.UPDATE_MODE_TMDB
@@ -396,6 +397,7 @@ class TasksViewModel(
                 seasonNo = seasonNo,
                 seasonStartEp = seasonStartEp,
                 seasonEpCount = seasonEpCount,
+                episodeMode = if (seasonEpCount > 0) TaskEntity.EPISODE_MODE_CUSTOM else TaskEntity.EPISODE_MODE_TMDB,
                 folderWithTmdbId = folderWithTmdbId,
                 updateMode = if (updateModeAuto || weekdays.isBlank()) {
                     TaskEntity.UPDATE_MODE_TMDB
@@ -408,6 +410,55 @@ class TasksViewModel(
             repo.saveSources(base.id, inspected, updated)
             _toast.value = "已保存"
             clearEdit()
+        }
+    }
+
+    /**
+     * 卡片长按「集数口径」弹窗保存：只改这一个任务的覆盖值，不联网、不动转存。
+     *
+     * - 自定义：立刻按新总集数/已播最新重算快照，卡片马上变；
+     * - 跟随 TMDB：清空覆盖值的生效标记，卡片等下一次检测按官方数据刷新。
+     */
+    fun saveEpisodeSettings(
+        task: TaskEntity,
+        custom: Boolean,
+        totalEpisodes: Int,
+        startEpisode: Int,
+        latestEpisode: Int,
+    ) {
+        viewModelScope.launch {
+            val mode = if (custom) TaskEntity.EPISODE_MODE_CUSTOM else TaskEntity.EPISODE_MODE_TMDB
+            val updated = task.copy(
+                episodeMode = mode,
+                seasonEpCount = if (custom) totalEpisodes.coerceAtLeast(0) else task.seasonEpCount,
+                seasonStartEp = if (custom) startEpisode.coerceAtLeast(0) else task.seasonStartEp,
+                customLatestEp = if (custom) latestEpisode.coerceAtLeast(0) else 0,
+            )
+            repo.update(updated)
+            if (custom && totalEpisodes > 0) {
+                val old = repo.snapshotOf(task.id)
+                    ?: com.ashchan.cloudsaver.data.db.SnapshotEntity(taskId = task.id)
+                run {
+                    val total = totalEpisodes
+                    val latest = (if (latestEpisode > 0) latestEpisode else old.tmdbLatest)
+                        .coerceIn(0, total)
+                    repo.saveSnapshot(
+                        com.ashchan.cloudsaver.data.SnapshotCalc.build(
+                            taskId = task.id,
+                            localEpisodes = old.localEpisodes,
+                            localLastEpisode = old.localLastEpisode,
+                            tmdbLatest = latest,
+                            tmdbTotal = total,
+                            addedEpisodes = 0,
+                            now = old.lastSyncAt,
+                            message = old.lastMessage,
+                        ).copy(lastOk = old.lastOk)
+                    )
+                }
+                _toast.value = "已按自定义口径更新卡片"
+            } else {
+                _toast.value = "已切回 TMDB，下次检测按官方数据刷新"
+            }
         }
     }
 
@@ -708,6 +759,7 @@ class TasksViewModel(
         }
     }
 }
+
 
 
 
