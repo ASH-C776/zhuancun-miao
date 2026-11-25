@@ -13,7 +13,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  */
 @Database(
     entities = [TaskEntity::class, SnapshotEntity::class, RunRecordEntity::class, TaskSourceEntity::class],
-    version = 13,
+    version = 14,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -219,6 +219,18 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v14：tasks 加自定义分季的两个数（起始集 / 本季集数）。
+         *
+         * 默认 0 = 不启用，仍按 TMDB 的季集数算；只有 TMDB 合并了多篇的剧才需要填。
+         */
+        val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE tasks ADD COLUMN seasonStartEp INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE tasks ADD COLUMN seasonEpCount INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -238,6 +250,7 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_10_11,
                     MIGRATION_11_12,
                     MIGRATION_12_13,
+                    MIGRATION_13_14,
                 ).build().also { instance = it }
             }
     }

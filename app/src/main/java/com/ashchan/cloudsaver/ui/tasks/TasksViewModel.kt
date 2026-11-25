@@ -151,6 +151,8 @@ class TasksViewModel(
         val savePathLabel: String,
         val ruleKey: String,
         val seasonNo: Int,
+        val seasonStartEp: Int = 0,
+        val seasonEpCount: Int = 0,
         val folderWithTmdbId: Boolean,
         val driveOverride: DriveType?,
     )
@@ -169,6 +171,8 @@ class TasksViewModel(
         val saveFid: String = "0",
         val savePathLabel: String = "网盘根目录",
         val seasonNo: Int = TaskEntity.SEASON_FLAT,
+        val seasonStartEp: Int = 0,
+        val seasonEpCount: Int = 0,
         val folderWithTmdbId: Boolean = false,
         val ruleKey: String = "",
         val tmdbId: String = "",
@@ -224,6 +228,9 @@ class TasksViewModel(
         savePathLabel: String = "网盘根目录",
         ruleKey: String = "",
         seasonNo: Int = TaskEntity.SEASON_FLAT,
+        /** 自定义分季：本季起点（全剧连续集号）+ 本季集数；都填了才生效 */
+        seasonStartEp: Int = 0,
+        seasonEpCount: Int = 0,
         folderWithTmdbId: Boolean = false,
         driveOverride: DriveType? = null,
         /** true = 更新日交给 TMDB 自动推断（用户没手动点过星期） */
@@ -250,6 +257,8 @@ class TasksViewModel(
                 posterPath = posterPath.trim(),
                 ruleKey = ruleKey,
                 seasonNo = seasonNo,
+                seasonStartEp = seasonStartEp,
+                seasonEpCount = seasonEpCount,
                 folderWithTmdbId = folderWithTmdbId,
                 updateMode = if (updateModeAuto || weekdays.isBlank()) {
                     TaskEntity.UPDATE_MODE_TMDB
@@ -355,6 +364,8 @@ class TasksViewModel(
         savePathLabel: String,
         ruleKey: String,
         seasonNo: Int,
+        seasonStartEp: Int = 0,
+        seasonEpCount: Int = 0,
         folderWithTmdbId: Boolean,
         driveOverride: DriveType?,
         /** true = 更新日交给 TMDB 自动推断（用户没手动点过星期） */
@@ -383,6 +394,8 @@ class TasksViewModel(
                 posterPath = if (posterPath.isBlank()) base.posterPath else posterPath.trim(),
                 ruleKey = ruleKey,
                 seasonNo = seasonNo,
+                seasonStartEp = seasonStartEp,
+                seasonEpCount = seasonEpCount,
                 folderWithTmdbId = folderWithTmdbId,
                 updateMode = if (updateModeAuto || weekdays.isBlank()) {
                     TaskEntity.UPDATE_MODE_TMDB
@@ -415,6 +428,8 @@ class TasksViewModel(
         savePathLabel: String,
         ruleKey: String,
         seasonNo: Int,
+        seasonStartEp: Int = 0,
+        seasonEpCount: Int = 0,
         folderWithTmdbId: Boolean,
         driveOverride: DriveType?,
     ) {
@@ -424,6 +439,7 @@ class TasksViewModel(
                 posterPath = posterPath,
     saveFid = saveFid, savePathLabel = savePathLabel,
                 ruleKey = ruleKey, seasonNo = seasonNo,
+                seasonStartEp = seasonStartEp, seasonEpCount = seasonEpCount,
                 folderWithTmdbId = folderWithTmdbId, driveOverride = driveOverride,
             ),
             confirmedSeasons = false,
@@ -692,6 +708,7 @@ class TasksViewModel(
         }
     }
 }
+
 
 
 

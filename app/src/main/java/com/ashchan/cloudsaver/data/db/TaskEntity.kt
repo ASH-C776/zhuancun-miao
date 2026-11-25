@@ -42,6 +42,16 @@ data class TaskEntity(
      * 这里只是目标侧要不要多一层季文件夹，两者互不影响。
      */
     val seasonNo: Int = SEASON_FLAT,
+    /**
+     * 自定义分季：本季在「全剧连续集号」里的起始集（0 = 不自定义）。
+     *
+     * 用于 TMDB 把多篇合并成一季的剧（如《一念永恒》TMDB 只有 S1 200 集，
+     * 腾讯却分 4 篇、每篇集号从 1 起）。填 166 + [seasonEpCount]=46，
+     * 程序就拿全剧最新集 189 换算成本季第 24 集。
+     */
+    val seasonStartEp: Int = 0,
+    /** 自定义分季：本季总集数（0 = 不自定义，走 TMDB 的季集数） */
+    val seasonEpCount: Int = 0,
     /** 分享内扫描起点 fid，空 = 分享根；实际执行时优先用 seasonFid */
     val startFid: String = "",
     /**

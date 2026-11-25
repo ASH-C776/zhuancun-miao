@@ -690,22 +690,34 @@ class TaskRunner(
         // - 多季 → 每季集数相加当总数，已播集也用累计口径，盘里同样累计
         val weekdays = client.inferWeekdays(tvId, info)
         val multi = task.seasonNo == TaskEntity.SEASON_MULTI
+        // 自定义分季：TMDB 把多篇并成一季（如《一念永恒》S1 200 集），
+        // 但资源按篇分目录、集号从 1 起；用「本季起点 + 本季集数」换算，不查 TMDB 季号。
+        val customSeason = !multi && task.seasonNo >= 0 && task.seasonEpCount > 0
         val scopeSeason = when {
             multi -> null
+            customSeason -> null
             task.seasonNo == TaskEntity.SEASON_FLAT -> 1
             else -> task.seasonNo.coerceAtLeast(0)
         }
-        val total = if (multi) {
-            info.totalOfProperSeasons()
-        } else {
-            client.totalEpisodes(tvId, scopeSeason, info)
+        val total = when {
+            multi -> info.totalOfProperSeasons()
+            customSeason -> task.seasonEpCount
+            else -> client.totalEpisodes(tvId, scopeSeason, info)
         }
-        val latest = if (multi) {
-            cumulativeAired(info)
-        } else {
-            client.latestAiredEpisode(tvId, scopeSeason ?: 1, info)
+        val latest = when {
+            multi -> cumulativeAired(info)
+            customSeason -> {
+                val globalLatest = info.lastEpisode?.episode ?: client.latestAiredEpisode(tvId, 1, info)
+                val start = task.seasonStartEp
+                if (start > 0) {
+                    (globalLatest - start + 1).coerceIn(0, task.seasonEpCount)
+                } else {
+                    globalLatest.coerceIn(0, task.seasonEpCount)
+                }
+            }
+            else -> client.latestAiredEpisode(tvId, scopeSeason ?: 1, info)
         }
-        val scopeIssue = if (!multi && total == 0 && task.seasonNo >= 0) {
+        val scopeIssue = if (!multi && !customSeason && total == 0 && task.seasonNo >= 0) {
             val label = if (task.seasonNo == 0) "特别版" else "第${task.seasonNo}季"
             "TMDB 上没有${label}（这部剧共 ${info.numberOfSeasons} 季），请检查任务的季度设置"
         } else null

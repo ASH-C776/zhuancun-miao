@@ -155,6 +155,9 @@ fun NewTaskScreen(
     var seasonNo by remember {
         mutableStateOf(stash?.seasonNo ?: editingTask?.seasonNo ?: TaskEntity.SEASON_FLAT)
     }
+    // 自定义分季：TMDB 把多篇并成一季时用（本季从全剧第几集开始 / 本季共几集）
+    var seasonStartEp by remember { mutableStateOf(stash?.seasonStartEp ?: editingTask?.seasonStartEp ?: 0) }
+    var seasonEpCount by remember { mutableStateOf(stash?.seasonEpCount ?: editingTask?.seasonEpCount ?: 0) }
     var folderWithTmdbId by remember { mutableStateOf(stash?.folderWithTmdbId ?: editingTask?.folderWithTmdbId ?: false) }
     var ruleKey by remember { mutableStateOf(stash?.ruleKey ?: editingTask?.ruleKey ?: "") }
     var tmdbId by remember { mutableStateOf(stash?.tmdbId ?: editingTask?.tmdbId?.toString() ?: "") }
@@ -187,7 +190,7 @@ fun NewTaskScreen(
     }
 
     // 新建任务页的表单随改随存一份快照（离开页面时组合被销毁，切 tab 回来靠它回填）
-    LaunchedEffect(editing, name, slots.map { it.text }, drive, saveFid, savePathLabel, seasonNo, folderWithTmdbId, ruleKey, tmdbId, tmdbTitle, weekdays, weekdaysManual, updateModeAuto) {
+    LaunchedEffect(editing, name, slots.map { it.text }, drive, saveFid, savePathLabel, seasonNo, seasonStartEp, seasonEpCount, folderWithTmdbId, ruleKey, tmdbId, tmdbTitle, weekdays, weekdaysManual, updateModeAuto) {
         if (editing) return@LaunchedEffect
         viewModel.stashDraftForm(
             TasksViewModel.DraftForm(
@@ -197,6 +200,8 @@ fun NewTaskScreen(
                 saveFid = saveFid,
                 savePathLabel = savePathLabel,
                 seasonNo = seasonNo,
+                seasonStartEp = seasonStartEp,
+                seasonEpCount = seasonEpCount,
                 folderWithTmdbId = folderWithTmdbId,
                 ruleKey = ruleKey,
                 tmdbId = tmdbId,
@@ -289,6 +294,8 @@ fun NewTaskScreen(
                         savePathLabel = savePathLabel,
                         ruleKey = ruleKey,
                         seasonNo = seasonNo,
+                        seasonStartEp = seasonStartEp,
+                        seasonEpCount = seasonEpCount,
                         folderWithTmdbId = effectiveFolder,
                         driveOverride = drive,
                     )
@@ -303,6 +310,8 @@ fun NewTaskScreen(
                         savePathLabel = savePathLabel,
                         ruleKey = ruleKey,
                         seasonNo = seasonNo,
+                        seasonStartEp = seasonStartEp,
+                        seasonEpCount = seasonEpCount,
                         folderWithTmdbId = effectiveFolder,
                         driveOverride = drive,
                         updateModeAuto = updateModeAuto,
@@ -318,6 +327,8 @@ fun NewTaskScreen(
                         savePathLabel = savePathLabel,
                         ruleKey = ruleKey,
                         seasonNo = seasonNo,
+                        seasonStartEp = seasonStartEp,
+                        seasonEpCount = seasonEpCount,
                         folderWithTmdbId = effectiveFolder,
                         driveOverride = drive,
                         updateModeAuto = updateModeAuto,
@@ -627,10 +638,18 @@ fun NewTaskScreen(
                 }
             )
             // 选了 TMDB 上不存在的季：这里直接拦住，别等跑完才发现 E—、盘里 0 集
-            if (tmdbSeasonNumbers.isNotEmpty() && seasonNo > 0 && seasonNo !in tmdbSeasonNumbers) {
+            if (seasonEpCount > 0 && seasonStartEp > 0) {
+                Text(
+                    text = "自定义分季：本季从全剧第 $seasonStartEp 集起，共 $seasonEpCount 集" +
+                        "（本季集号 = 全剧集号 − ${seasonStartEp - 1}）",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            } else if (tmdbSeasonNumbers.isNotEmpty() && seasonNo > 0 && seasonNo !in tmdbSeasonNumbers) {
                 Text(
                     text = "TMDB 上这部剧只有 S${tmdbSeasonNumbers.min()}–S${tmdbSeasonNumbers.max()}，" +
-                        "没有 S$seasonNo，请改选季度或选「多季」",
+                        "没有 S$seasonNo，请改选季度或选「多季」；要按资源的分篇算，可在季度里填自定义起点/集数",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.padding(top = 4.dp),
@@ -801,6 +820,8 @@ fun NewTaskScreen(
     }
 
     if (showCustomSeason) {
+        var startInput by remember { mutableStateOf(if (seasonStartEp > 0) seasonStartEp.toString() else "") }
+        var countInput by remember { mutableStateOf(if (seasonEpCount > 0) seasonEpCount.toString() else "") }
         AlertDialog(
             shape = RoundedCornerShape(24.dp),
             onDismissRequest = { showCustomSeason = false },
@@ -822,11 +843,35 @@ fun NewTaskScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 8.dp),
                     )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        "TMDB 只有一季、但资源按「篇」分季时，填这两个数（不填就按 TMDB 的季集数）",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    OutlinedTextField(
+                        value = startInput,
+                        onValueChange = { startInput = it.filter { c -> c.isDigit() } },
+                        placeholder = { Text("本季从全剧第几集开始，如 166") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    )
+                    OutlinedTextField(
+                        value = countInput,
+                        onValueChange = { countInput = it.filter { c -> c.isDigit() } },
+                        placeholder = { Text("本季共几集，如 46") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    )
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
                     seasonInput.toIntOrNull()?.takeIf { it in 0..99 }?.let { seasonNo = it }
+                    seasonStartEp = startInput.toIntOrNull()?.takeIf { it > 0 } ?: 0
+                    seasonEpCount = countInput.toIntOrNull()?.takeIf { it > 0 } ?: 0
                     showCustomSeason = false
                 }) { Text("确定") }
             },
