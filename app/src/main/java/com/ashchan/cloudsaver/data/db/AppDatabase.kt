@@ -232,17 +232,14 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         /**
-         * v15：tasks 加「集数口径」两列。
+         * v15：两列是 0.14.0「集数口径」弹窗留下的，该功能已移除。
          *
-         * episodeMode：0=跟随 TMDB，1=自定义（卡片弹窗可改）。
-         * customLatestEp：自定义口径下「本季已播到第几集」，0=按起点从 TMDB 推算。
-         * 迁移时把已经填过 seasonEpCount 的老任务置为自定义，保持原来的算法不变。
+         * 迁移与列都保留，只为兼容已经升到 v15 的设备数据库；业务代码不再读取。
          */
         val MIGRATION_14_15 = object : Migration(14, 15) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE tasks ADD COLUMN episodeMode INTEGER NOT NULL DEFAULT 0")
                 db.execSQL("ALTER TABLE tasks ADD COLUMN customLatestEp INTEGER NOT NULL DEFAULT 0")
-                db.execSQL("UPDATE tasks SET episodeMode = 1 WHERE seasonEpCount > 0")
             }
         }
 

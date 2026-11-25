@@ -53,11 +53,11 @@ data class TaskEntity(
     /** 自定义分季：本季总集数（0 = 不自定义，走 TMDB 的季集数） */
     val seasonEpCount: Int = 0,
     /**
-     * 集数口径：0 = 跟随 TMDB；1 = 自定义（用 [seasonEpCount] / [customLatestEp] / [seasonStartEp]）。
-     * 老版本的「填了 seasonEpCount 就自动自定义」在 v15 迁移里统一置为 1。
+     * 已废弃：0.14.0 曾用于「集数口径」弹窗，该功能已移除。
+     * 列保留只因已升级到 v15 的设备数据库里存在这两列，代码不再读取，也不参与任何计算。
      */
     val episodeMode: Int = EPISODE_MODE_TMDB,
-    /** 自定义口径：本季已播到第几集（本季集号）；0 = 不手填，按起点从 TMDB 推算 */
+    /** 已废弃，见 [episodeMode] */
     val customLatestEp: Int = 0,
     /** 分享内扫描起点 fid，空 = 分享根；实际执行时优先用 seasonFid */
     val startFid: String = "",

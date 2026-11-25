@@ -6,6 +6,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
@@ -28,11 +29,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
@@ -54,8 +52,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -74,6 +70,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -119,7 +116,6 @@ fun TaskListScreen(
     val progress by viewModel.progress.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var pendingDelete by remember { mutableStateOf<TaskEntity?>(null) }
-    var pendingEpisode by remember { mutableStateOf<TaskCard?>(null) }
 
     // 打开 App 自动同步一轮（每个 ViewModel 生命周期一次）
 
@@ -221,24 +217,12 @@ fun TaskListScreen(
                             onEdit = { onOpenEdit(card.task) },
                             onTogglePin = { viewModel.setPinned(card.task, !card.task.pinned) },
                             onRename = { viewModel.renameTask(card.task) },
-                            onEpisodeSettings = { pendingEpisode = card },
                             onRequestDelete = { pendingDelete = card.task },
                         )
                     }
                 }
             }
         }
-    }
-
-    pendingEpisode?.let { card ->
-        EpisodeSettingsDialog(
-            card = card,
-            onDismiss = { pendingEpisode = null },
-            onSave = { custom, total, start, latest ->
-                viewModel.saveEpisodeSettings(card.task, custom, total, start, latest)
-                pendingEpisode = null
-            },
-        )
     }
 
     pendingDelete?.let { task ->
@@ -260,138 +244,6 @@ fun TaskListScreen(
     }
 }
 
-@Composable
-private fun EpisodeSettingsDialog(
-    card: TaskCard,
-    onDismiss: () -> Unit,
-    onSave: (custom: Boolean, total: Int, start: Int, latest: Int) -> Unit,
-) {
-    val task = card.task
-    val snap = card.snapshot
-    val scope = if (task.seasonNo == TaskEntity.SEASON_MULTI) "全剧" else "本季"
-    var custom by remember { mutableStateOf(task.episodeMode == TaskEntity.EPISODE_MODE_CUSTOM) }
-    var totalInput by remember {
-        mutableStateOf(task.seasonEpCount.takeIf { it > 0 }?.toString() ?: "")
-    }
-    var latestInput by remember {
-        mutableStateOf(task.customLatestEp.takeIf { it > 0 }?.toString() ?: "")
-    }
-    var startInput by remember {
-        mutableStateOf(task.seasonStartEp.takeIf { it > 0 }?.toString() ?: "")
-    }
-    val total = totalInput.toIntOrNull()?.takeIf { it > 0 }
-    val latest = latestInput.toIntOrNull()?.takeIf { it > 0 }
-    val start = startInput.toIntOrNull()?.takeIf { it > 0 }
-    val error = when {
-        custom && total == null -> "请填写${scope}总集数"
-        custom && latest != null && total != null && latest > total -> "已播集数不能大于总集数"
-        else -> null
-    }
-    val current = if (snap.tmdbTotal > 0) {
-        "${scope} ${snap.tmdbTotal} 集 · 最新 ${episodeText(snap.tmdbLatest)}"
-    } else {
-        "暂无集数数据，跑一次检测后才有"
-    }
-
-    AlertDialog(
-        shape = RoundedCornerShape(24.dp),
-        onDismissRequest = onDismiss,
-        title = {
-            Text(
-                text = "集数口径 · ${task.name}",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                Text(
-                    text = "当前卡片：$current",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    Modifier.fillMaxWidth().clickable { custom = false },
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    RadioButton(selected = !custom, onClick = { custom = false })
-                    Text("跟随 TMDB（默认）", fontSize = 14.sp)
-                }
-                Row(
-                    Modifier.fillMaxWidth().clickable { custom = true },
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    RadioButton(selected = custom, onClick = { custom = true })
-                    Text("自定义", fontSize = 14.sp)
-                }
-                if (custom) {
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = totalInput,
-                        onValueChange = { totalInput = it.filter(Char::isDigit).take(4) },
-                        label = { Text("${scope}总集数") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(
-                        value = latestInput,
-                        onValueChange = { latestInput = it.filter(Char::isDigit).take(4) },
-                        label = { Text("${scope}已播到第几集（选填）") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    if (task.seasonNo != TaskEntity.SEASON_MULTI) {
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = startInput,
-                            onValueChange = { startInput = it.filter(Char::isDigit).take(5) },
-                            label = { Text("本季第 1 集对应全剧第几集（选填）") },
-                            singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        text = "总集数决定胶囊与进度条；已播集数不填时，按起点从 TMDB 最新集换算。只影响显示和统计，不动网盘文件。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        text = "保存后，下一次检测会按 TMDB 官方季集数刷新卡片。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                error?.let {
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        text = it,
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = !custom || (total != null && error == null),
-                onClick = { onSave(custom, total ?: 0, start ?: 0, latest ?: 0) },
-            ) { Text("保存") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
-        },
-    )
-}
 
 // ---------------- 卡片 ----------------
 
@@ -407,7 +259,6 @@ private fun TaskRow(
     onEdit: () -> Unit,
     onTogglePin: () -> Unit,
     onRename: () -> Unit,
-    onEpisodeSettings: () -> Unit,
     onRequestDelete: () -> Unit,
 ) {
     val task = card.task
@@ -415,16 +266,24 @@ private fun TaskRow(
     var menuOpen by remember { mutableStateOf(false) }
 
     Box {
+        val cardShape = RoundedCornerShape(16.dp)
         Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(146.dp)
-                .clip(RoundedCornerShape(16.dp))
+                // 阴影要画在裁切之前，否则会被圆角 clip 一刀切掉
+                .shadow(elevation = 3.dp, shape = cardShape, clip = false)
+                .clip(cardShape)
                 // 点主体进编辑；长按弹菜单（置顶 / 统一重命名 / 删除）
                 .combinedClickable(onClick = onEdit, onLongClick = { menuOpen = true }),
-            shape = RoundedCornerShape(16.dp),
+            shape = cardShape,
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            ),
+            // 页面底色和卡片底色太接近，补一圈很淡的描边把边界拉出来
+            border = BorderStroke(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f),
             ),
         ) {
             Box(Modifier.fillMaxSize()) {
@@ -451,26 +310,28 @@ private fun TaskRow(
                 Column(
                     Modifier
                         .fillMaxSize()
-                        .padding(start = 111.dp, end = 16.dp),
+                        // 海报 97 + 12dp 呼吸位，文字距右边缘 12dp：
+                        // 不再留 14/16 的内缩，标题和进度条整体往两边靠
+                        .padding(start = 109.dp, end = 12.dp),
                 ) {
-                    Spacer(Modifier.height(30.dp))
+                    Spacer(Modifier.height(12.dp))
                     Row(
                         Modifier.fillMaxWidth().height(26.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
                             text = task.name,
-                            fontSize = 16.sp,
-                            lineHeight = 22.sp,
+                            fontSize = 17.sp,
+                            lineHeight = 23.sp,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f),
                         )
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(6.dp))
                         StatusBadge(snap)
                     }
-                    Spacer(Modifier.height(2.dp))
+                    Spacer(Modifier.height(10.dp))
                     Row(
                         Modifier.fillMaxWidth().height(18.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -519,6 +380,8 @@ private fun TaskRow(
                             )
                         }
                     }
+                    // 失败原因之后留 14dp，集数行落在 100dp，给底部进度条留出空间
+                    Spacer(Modifier.height(14.dp))
                     // 集数行：左对齐，单独一行，不再和刷新按钮挤在一起
                     Row(
                         Modifier.fillMaxWidth().height(18.dp),
@@ -550,10 +413,10 @@ private fun TaskRow(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    // 集数与进度条作为一组：只隔 4dp，条离底 22dp
-                    Spacer(Modifier.height(4.dp))
+                    // 集数与进度条作为一组：隔 10dp；条下移，离底 12dp，正好低于刷新按钮
+                    Spacer(Modifier.height(10.dp))
                     EpisodeBar(snap, Modifier.fillMaxWidth())
-                    Spacer(Modifier.height(22.dp))
+                    Spacer(Modifier.height(12.dp))
                 }
 
                 if (!isRunning) {
@@ -619,13 +482,6 @@ private fun TaskRow(
             onClick = {
                 menuOpen = false
                 onTogglePin()
-            },
-        )
-        DropdownMenuItem(
-            text = { Text("集数口径") },
-            onClick = {
-                menuOpen = false
-                onEpisodeSettings()
             },
         )
         DropdownMenuItem(
@@ -862,6 +718,11 @@ private fun syncText(millis: Long): String {
     val fmt = SimpleDateFormat("MM/dd HH:mm", Locale.getDefault())
     return fmt.format(Date(millis))
 }
+
+
+
+
+
 
 
 
