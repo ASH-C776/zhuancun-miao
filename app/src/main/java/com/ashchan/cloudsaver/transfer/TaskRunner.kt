@@ -41,9 +41,21 @@ class TaskRunner(
     private val ruleStore: RuleStore? = null,
 ) {
 
-    private companion object {
+    companion object {
+        /**
+         * 统一装配入口：执行链需要的依赖只在这里创建一次。
+         * 前台/后台/界面三个调用方都走这里，避免各写一套 new 造成依赖不一致。
+         */
+        fun create(context: android.content.Context, repo: TaskRepository): TaskRunner =
+            TaskRunner(
+                repo = repo,
+                credentialStore = CredentialStore.get(context),
+                tmdbStore = TmdbStore(context),
+                ruleStore = RuleStore(context),
+            )
+
         /** 集数统计递归层数上限（剧名 / 季 / 文件 三层足够，留一层余量） */
-        const val MAX_COUNT_DEPTH = 3
+        private const val MAX_COUNT_DEPTH = 3
 
         /**
          * 全局互斥：同一台设备上无论从哪个入口（单条 / 一键全部 / 打开 App 自动 / 将来的后台定时）触发，

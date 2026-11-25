@@ -11,7 +11,9 @@ import com.ashchan.cloudsaver.core.model.DriveType
  * 使用 EncryptedSharedPreferences（AES-256-GCM + 主密钥存 Android Keystore），
  * Token / Cookie 不明文落盘。
  */
-class CredentialStore(context: Context) {
+class CredentialStore private constructor(context: Context) {
+
+    private val context = context.applicationContext
 
     private val prefs: SharedPreferences by lazy {
         val masterKey = MasterKey.Builder(context)
@@ -49,4 +51,18 @@ class CredentialStore(context: Context) {
         prefs.getString("${keyOf(driveType)}::$field", null)
 
     private fun keyOf(driveType: DriveType): String = "credential_${driveType.name.lowercase()}"
+
+    companion object {
+        @Volatile
+        private var instance: CredentialStore? = null
+
+        /**
+         * 进程内单例。老代码每个入口都 new 一个，每次都会重建 MasterKey
+         * 与 EncryptedSharedPreferences（真机上明显拖慢登录页首帧），这里收成一份。
+         */
+        fun get(context: Context): CredentialStore =
+            instance ?: synchronized(this) {
+                instance ?: CredentialStore(context.applicationContext).also { instance = it }
+            }
+    }
 }

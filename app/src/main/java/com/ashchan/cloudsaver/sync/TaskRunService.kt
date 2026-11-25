@@ -153,7 +153,7 @@ class TaskRunService : Service() {
         try {
             val result = RenamePass(
                 repo = repo,
-                credentialStore = CredentialStore(applicationContext),
+                credentialStore = CredentialStore.get(applicationContext),
                 ruleStore = RuleStore(applicationContext),
             ).run(task) { phase ->
                 TaskRunBus.setPhase(task.id, phase)
@@ -213,12 +213,7 @@ class TaskRunService : Service() {
 
     private fun repo(): TaskRepository = TaskRepository(AppDatabase.get(applicationContext))
 
-    private fun runner(repo: TaskRepository): TaskRunner = TaskRunner(
-        repo = repo,
-        credentialStore = CredentialStore(applicationContext),
-        tmdbStore = TmdbStore(applicationContext),
-        ruleStore = RuleStore(applicationContext),
-    )
+    private fun runner(repo: TaskRepository): TaskRunner = TaskRunner.create(applicationContext, repo)
 
     // ---------------- 锁 --------------
 

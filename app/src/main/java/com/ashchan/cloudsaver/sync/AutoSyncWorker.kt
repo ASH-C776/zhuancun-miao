@@ -93,12 +93,7 @@ class AutoSyncEngine(private val context: Context) {
         val tasks = repo.enabledTasks()
         if (tasks.isEmpty()) return AutoSyncSummary(0, 0, 0, 0, null)
 
-        val runner = com.ashchan.cloudsaver.transfer.TaskRunner(
-            repo = repo,
-            credentialStore = com.ashchan.cloudsaver.storage.CredentialStore(context),
-            tmdbStore = com.ashchan.cloudsaver.storage.TmdbStore(context),
-            ruleStore = com.ashchan.cloudsaver.storage.RuleStore(context),
-        )
+        val runner = com.ashchan.cloudsaver.transfer.TaskRunner.create(context, repo)
 
         var newFiles = 0
         var renamed = 0

@@ -42,7 +42,7 @@ class MainActivity : ComponentActivity() {
 
     private val viewModel: AppViewModel by viewModels {
         ScreenViewModelFactory(
-            credentialStore = CredentialStore(applicationContext),
+            credentialStore = CredentialStore.get(applicationContext),
             ruleStore = RuleStore(applicationContext),
         )
     }
@@ -52,13 +52,13 @@ class MainActivity : ComponentActivity() {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 val repo = TaskRepository(AppDatabase.get(applicationContext))
-                val credentials = CredentialStore(applicationContext)
+                val credentials = CredentialStore.get(applicationContext)
                 val rules = RuleStore(applicationContext)
                 val tmdb = TmdbStore(applicationContext)
                 return TasksViewModel(
                     appContext = applicationContext,
                     repo = repo,
-                    runner = TaskRunner(repo, credentials, tmdb, rules),
+                    runner = TaskRunner.create(applicationContext, repo),
                     credentials = credentials,
                     ruleStore = rules,
                     tmdbStore = tmdb,
