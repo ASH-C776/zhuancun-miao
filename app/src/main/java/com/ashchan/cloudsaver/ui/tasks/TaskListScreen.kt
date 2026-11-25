@@ -40,6 +40,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.OutlinedButton
@@ -107,6 +109,7 @@ fun TaskListScreen(
     val error by viewModel.error.collectAsStateWithLifecycle()
     val running by viewModel.running.collectAsStateWithLifecycle()
     val finished by viewModel.finished.collectAsStateWithLifecycle()
+    val finishNote by viewModel.finishNote.collectAsStateWithLifecycle()
     val progress by viewModel.progress.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var pendingDelete by remember { mutableStateOf<TaskEntity?>(null) }
@@ -206,8 +209,11 @@ fun TaskListScreen(
                             isRunning = card.task.id in running,
                             runText = running[card.task.id] ?: "准备中",
                             justFinished = finished[card.task.id],
+                            justFinishedText = finishNote[card.task.id],
                             onRun = { viewModel.runTask(card.task) },
                             onEdit = { onOpenEdit(card.task) },
+                            onTogglePin = { viewModel.setPinned(card.task, !card.task.pinned) },
+                            onRename = { viewModel.renameTask(card.task) },
                             onRequestDelete = { pendingDelete = card.task },
                         )
                     }
@@ -244,18 +250,23 @@ private fun TaskRow(
     isRunning: Boolean,
     runText: String = "准备中",
     justFinished: Boolean? = null,
+    justFinishedText: String? = null,
     onRun: () -> Unit,
     onEdit: () -> Unit,
+    onTogglePin: () -> Unit,
+    onRename: () -> Unit,
     onRequestDelete: () -> Unit,
 ) {
     val task = card.task
     val snap = card.snapshot
+    var menuOpen by remember { mutableStateOf(false) }
 
+    Box {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            // 点主体进编辑；长按弹删除确认（删除不可撤销，故意藏长按里）
-            .combinedClickable(onClick = onEdit, onLongClick = onRequestDelete),
+            // 点主体进编辑；长按弹菜单（置顶 / 统一重命名 / 删除）
+            .combinedClickable(onClick = onEdit, onLongClick = { menuOpen = true }),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -356,8 +367,9 @@ private fun TaskRow(
                 if (!isRunning) {
                     if (justFinished != null) {
                         // 刚跑完：同一位置闪一句结果，绿=成功、红=失败，1.5 秒后收回成图标
+                        // 统一重命名给了结果短句（「已改名 87 项」）就优先显示它
                         RunPhaseText(
-                            text = if (justFinished) "完成" else "失败",
+                            text = justFinishedText ?: if (justFinished) "完成" else "失败",
                             color = if (justFinished) TaskColors.ok() else MaterialTheme.colorScheme.error,
                             animated = false,
                         )
@@ -407,6 +419,37 @@ private fun TaskRow(
                 }
             }
         }
+    }
+
+    // 长按菜单：纯文字三项，置顶在上、删除在下（删除仍走二次确认）
+    DropdownMenu(
+        expanded = menuOpen,
+        onDismissRequest = { menuOpen = false },
+        modifier = Modifier.width(184.dp),
+    ) {
+        DropdownMenuItem(
+            text = { Text(if (task.pinned) "取消置顶" else "置顶") },
+            onClick = {
+                menuOpen = false
+                onTogglePin()
+            },
+        )
+        DropdownMenuItem(
+            text = { Text("统一重命名") },
+            onClick = {
+                menuOpen = false
+                onRename()
+            },
+        )
+        HorizontalDivider()
+        DropdownMenuItem(
+            text = { Text("删除任务", color = MaterialTheme.colorScheme.error) },
+            onClick = {
+                menuOpen = false
+                onRequestDelete()
+            },
+        )
+    }
     }
 }
 
@@ -615,6 +658,7 @@ private fun syncText(millis: Long): String {
     val fmt = SimpleDateFormat("MM/dd HH:mm", Locale.getDefault())
     return fmt.format(Date(millis))
 }
+
 
 
 

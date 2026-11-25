@@ -54,7 +54,10 @@ class TaskRepository(private val db: AppDatabase) {
                 .filter { it.lastStatus == TaskSourceEntity.STATUS_FAIL }
                 .groupingBy { it.taskId }
                 .eachCount()
-            tasks.map { task ->
+            tasks
+                // 置顶优先，其余保持 id 升序（置顶只影响显示顺序，不动执行顺序）
+                .sortedWith(compareByDescending<TaskEntity> { it.pinned }.thenBy { it.id })
+                .map { task ->
                 TaskCard(
                     task = task,
                     snapshot = byTask[task.id] ?: SnapshotEntity(taskId = task.id),
@@ -126,6 +129,8 @@ class TaskRepository(private val db: AppDatabase) {
     }
 
     suspend fun setEnabled(id: Long, enabled: Boolean) = taskDao.setEnabled(id, enabled)
+
+    suspend fun setPinned(id: Long, pinned: Boolean) = taskDao.setPinned(id, pinned)
 
     suspend fun snapshotOf(taskId: Long): SnapshotEntity? = snapshotDao.getByTask(taskId)
 

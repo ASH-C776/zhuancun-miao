@@ -23,6 +23,7 @@ import com.ashchan.cloudsaver.storage.CredentialStore
 import com.ashchan.cloudsaver.storage.RuleStore
 import com.ashchan.cloudsaver.storage.TmdbStore
 import com.ashchan.cloudsaver.transfer.TaskRunner
+import com.ashchan.cloudsaver.transfer.RenamePass
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -37,6 +38,9 @@ object TaskRunBus {
     /** 任务 id → 阶段文案（「准备中 / 转存 3/20 …」） */
     val phases = MutableStateFlow<Map<Long, String>>(emptyMap())
 
+    /** 跑完一个任务时的结果短句（如「已改名 87 项」）；没有则卡片按 ok 显示「完成 / 失败」 */
+    val finishNote = MutableStateFlow<Map<Long, String>>(emptyMap())
+
     /** 跑完一个任务：id + 是否成功（卡片闪「完成 / 失败」用） */
     val finished = MutableSharedFlow<Pair<Long, Boolean>>(extraBufferCapacity = 8)
 
@@ -46,6 +50,14 @@ object TaskRunBus {
 
     fun clearPhase(taskId: Long) {
         phases.update { it - taskId }
+    }
+
+    fun setFinishNote(taskId: Long, note: String) {
+        finishNote.update { it + (taskId to note) }
+    }
+
+    fun clearFinishNote(taskId: Long) {
+        finishNote.update { it - taskId }
     }
 
     fun reportFinished(taskId: Long, ok: Boolean) {
@@ -88,6 +100,7 @@ class TaskRunService : Service() {
         if (job?.isActive == true) return START_NOT_STICKY
 
         val runAll = intent?.action == ACTION_RUN_ALL
+        val rename = intent?.action == ACTION_RUN_RENAME
         val taskId = intent?.getLongExtra(EXTRA_TASK_ID, 0L) ?: 0L
         val trigger = intent?.getStringExtra(EXTRA_TRIGGER) ?: RunRecordEntity.TRIGGER_MANUAL
 
@@ -97,7 +110,11 @@ class TaskRunService : Service() {
         job = scope.launch {
             var okAny = true
             try {
-                okAny = if (runAll) runAllTasks(trigger) else runSingle(taskId, trigger)
+                okAny = when {
+                    rename -> runRenameTask(taskId)
+                    runAll -> runAllTasks(trigger)
+                    else -> runSingle(taskId, trigger)
+                }
             } catch (e: Throwable) {
                 android.util.Log.e("TaskRunService", "任务执行异常：${e.message}", e)
                 okAny = false
@@ -125,6 +142,36 @@ class TaskRunService : Service() {
         val repo = repo()
         val task = repo.tasks().firstOrNull { it.id == taskId } ?: return false
         return runTask(repo, task, trigger, showInNotification = true)
+    }
+
+    /** 统一重命名：只改文件名，不动目录结构；失败不写快照集数 */
+    private suspend fun runRenameTask(taskId: Long): Boolean {
+        val repo = repo()
+        val task = repo.tasks().firstOrNull { it.id == taskId } ?: return false
+        TaskRunBus.setPhase(task.id, "扫描目录")
+        var ok = false
+        try {
+            val result = RenamePass(
+                repo = repo,
+                credentialStore = CredentialStore(applicationContext),
+                ruleStore = RuleStore(applicationContext),
+            ).run(task) { phase ->
+                TaskRunBus.setPhase(task.id, phase)
+                updateNotification("${task.name} · $phase")
+            }
+            ok = result.failures.isEmpty()
+            TaskRunBus.setFinishNote(
+                task.id,
+                if (result.renamed > 0) "已改名 ${result.renamed} 项" else "无需改名",
+            )
+            return ok
+        } catch (e: Throwable) {
+            android.util.Log.e("TaskRunService", "统一重命名失败：${e.message}", e)
+            return false
+        } finally {
+            TaskRunBus.clearPhase(task.id)
+            TaskRunBus.reportFinished(task.id, ok)
+        }
     }
 
     private suspend fun runAllTasks(trigger: String): Boolean {
@@ -279,6 +326,7 @@ class TaskRunService : Service() {
         private const val NOTIFY_ID_DONE = 2102
         private const val ACTION_RUN = "com.ashchan.cloudsaver.action.RUN_TASK"
         private const val ACTION_RUN_ALL = "com.ashchan.cloudsaver.action.RUN_ALL"
+        private const val ACTION_RUN_RENAME = "com.ashchan.cloudsaver.action.RUN_RENAME"
         private const val ACTION_CANCEL = "com.ashchan.cloudsaver.action.CANCEL_TASK"
         private const val EXTRA_TASK_ID = "task_id"
         private const val EXTRA_TRIGGER = "trigger"
@@ -302,6 +350,15 @@ class TaskRunService : Service() {
             startCompat(context, intent)
         }
 
+        /** 统一重命名：只改任务目录里的文件名，不动目录结构 */
+        fun startRename(context: Context, taskId: Long) {
+            val intent = Intent(context, TaskRunService::class.java).apply {
+                action = ACTION_RUN_RENAME
+                putExtra(EXTRA_TASK_ID, taskId)
+            }
+            startCompat(context, intent)
+        }
+
         private fun startCompat(context: Context, intent: Intent) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
@@ -311,3 +368,5 @@ class TaskRunService : Service() {
         }
     }
 }
+
+

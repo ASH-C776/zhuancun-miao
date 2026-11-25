@@ -33,6 +33,9 @@ interface TaskDao {
 
     @Query("UPDATE tasks SET enabled = :enabled, updatedAt = :now WHERE id = :id")
     suspend fun setEnabled(id: Long, enabled: Boolean, now: Long = System.currentTimeMillis())
+
+    @Query("UPDATE tasks SET pinned = :pinned, updatedAt = :now WHERE id = :id")
+    suspend fun setPinned(id: Long, pinned: Boolean, now: Long = System.currentTimeMillis())
 }
 
 @Dao

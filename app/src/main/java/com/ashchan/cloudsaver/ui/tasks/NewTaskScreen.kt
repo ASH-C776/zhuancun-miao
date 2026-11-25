@@ -35,7 +35,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.PlayArrow
@@ -58,10 +57,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TimePicker
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -99,7 +96,6 @@ import com.ashchan.cloudsaver.data.TaskDraftParser
 import com.ashchan.cloudsaver.data.Weekdays
 import com.ashchan.cloudsaver.data.db.TaskEntity
 import kotlinx.coroutines.launch
-import java.util.Locale
 
 /**
  * 新增 / 编辑任务（同一个全屏页，编辑时预填已有任务）。
@@ -163,7 +159,7 @@ fun NewTaskScreen(
     var ruleKey by remember { mutableStateOf(stash?.ruleKey ?: editingTask?.ruleKey ?: "") }
     var tmdbId by remember { mutableStateOf(stash?.tmdbId ?: editingTask?.tmdbId?.toString() ?: "") }
     var tmdbTitle by remember { mutableStateOf(stash?.tmdbTitle ?: "") }
-    var airTime by remember { mutableStateOf(stash?.airTime ?: editingTask?.airTime ?: "") }
+    // 播出时刻字段已删除（不参与任何执行逻辑）；TaskEntity 里的列保留但不再读写
     var weekdays by remember {
         mutableStateOf(
             stash?.weekdays?.let { Weekdays.parse(it) }
@@ -179,7 +175,7 @@ fun NewTaskScreen(
     }
 
     // 新建任务页的表单随改随存一份快照（离开页面时组合被销毁，切 tab 回来靠它回填）
-    LaunchedEffect(editing, name, slots.map { it.text }, drive, saveFid, savePathLabel, seasonNo, folderWithTmdbId, ruleKey, tmdbId, tmdbTitle, airTime, weekdays, weekdaysManual, updateModeAuto) {
+    LaunchedEffect(editing, name, slots.map { it.text }, drive, saveFid, savePathLabel, seasonNo, folderWithTmdbId, ruleKey, tmdbId, tmdbTitle, weekdays, weekdaysManual, updateModeAuto) {
         if (editing) return@LaunchedEffect
         viewModel.stashDraftForm(
             TasksViewModel.DraftForm(
@@ -193,7 +189,6 @@ fun NewTaskScreen(
                 ruleKey = ruleKey,
                 tmdbId = tmdbId,
                 tmdbTitle = tmdbTitle,
-                airTime = airTime,
                 weekdays = Weekdays.format(weekdays),
                 weekdaysManual = weekdaysManual,
                 updateModeAuto = updateModeAuto,
@@ -203,7 +198,6 @@ fun NewTaskScreen(
 
     var showPathPicker by remember { mutableStateOf(openPathPickerOnStart) }
     var showTmdbSearch by remember { mutableStateOf(false) }
-    var showTimePicker by remember { mutableStateOf(false) }
     var showTmdbHint by remember { mutableStateOf(false) }
     var showCustomSeason by remember { mutableStateOf(false) }
     var seasonInput by remember { mutableStateOf("") }
@@ -278,7 +272,6 @@ fun NewTaskScreen(
                         links = urls,
                         weekdays = Weekdays.format(weekdays),
                         tmdbIdText = tmdbId,
-                        airTime = airTime,
                         saveFid = saveFid,
                         savePathLabel = savePathLabel,
                         ruleKey = ruleKey,
@@ -292,7 +285,6 @@ fun NewTaskScreen(
                         links = urls,
                         weekdays = Weekdays.format(weekdays),
                         tmdbIdText = tmdbId,
-                        airTime = airTime,
                         saveFid = saveFid,
                         savePathLabel = savePathLabel,
                         ruleKey = ruleKey,
@@ -307,7 +299,6 @@ fun NewTaskScreen(
                         links = urls,
                         weekdays = Weekdays.format(weekdays),
                         tmdbIdText = tmdbId,
-                        airTime = airTime,
                         saveFid = saveFid,
                         savePathLabel = savePathLabel,
                         ruleKey = ruleKey,
@@ -692,21 +683,6 @@ fun NewTaskScreen(
                 }
             }
 
-            // 播出时刻
-            SectionLabel("播出时刻")
-            SettingRow(
-                icon = {
-                    Icon(
-                        Icons.Default.DateRange,
-                        null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp),
-                    )
-                },
-                title = airTime.ifBlank { "未设置" },
-                onClick = { showTimePicker = true },
-            )
-
             error?.let {
                 Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
                     Text(
@@ -843,30 +819,6 @@ fun NewTaskScreen(
             },
             dismissButton = {
                 TextButton(onClick = { viewModel.dismissDraftSeasons() }) { Text("取消") }
-            },
-        )
-    }
-
-    if (showTimePicker) {
-        val initial = airTime.split(":")
-        val state = rememberTimePickerState(
-            initialHour = initial.getOrNull(0)?.toIntOrNull() ?: 20,
-            initialMinute = initial.getOrNull(1)?.toIntOrNull() ?: 0,
-            is24Hour = true,
-        )
-        AlertDialog(
-            shape = RoundedCornerShape(24.dp),
-            onDismissRequest = { showTimePicker = false },
-            title = { Text("播出时刻", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold) },
-            text = { TimePicker(state = state) },
-            confirmButton = {
-                TextButton(onClick = {
-                    airTime = String.format(Locale.US, "%02d:%02d", state.hour, state.minute)
-                    showTimePicker = false
-                }) { Text("确定") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showTimePicker = false }) { Text("取消") }
             },
         )
     }
@@ -1516,3 +1468,7 @@ private fun DraftRunText(text: String, color: Color, animated: Boolean) {
             .padding(bottom = 6.dp),
     )
 }
+
+
+
+

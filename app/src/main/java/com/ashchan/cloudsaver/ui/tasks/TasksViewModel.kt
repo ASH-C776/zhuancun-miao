@@ -72,6 +72,10 @@ class TasksViewModel(
     private val _finished = MutableStateFlow<Map<Long, Boolean>>(emptyMap())
     val finished: StateFlow<Map<Long, Boolean>> = _finished.asStateFlow()
 
+    /** 刚跑完时卡片上那句结果（如「已改名 87 项」）；没有就退回「完成 / 失败」 */
+    private val _finishNote = MutableStateFlow<Map<Long, String>>(emptyMap())
+    val finishNote: StateFlow<Map<Long, String>> = _finishNote.asStateFlow()
+
     /** 「全部/自动」执行时的整体进度文案 */
     private val _progress = MutableStateFlow<String?>(null)
     val progress: StateFlow<String?> = _progress.asStateFlow()
@@ -90,9 +94,15 @@ class TasksViewModel(
         viewModelScope.launch {
             com.ashchan.cloudsaver.sync.TaskRunBus.finished.collect { (id, ok) ->
                 _finished.update { it + (id to ok) }
+                val note = com.ashchan.cloudsaver.sync.TaskRunBus.finishNote.value[id]
+                if (note != null) {
+                    _finishNote.update { it + (id to note) }
+                    com.ashchan.cloudsaver.sync.TaskRunBus.clearFinishNote(id)
+                }
                 viewModelScope.launch {
                     delay(1500)
                     _finished.update { it - id }
+                    _finishNote.update { it - id }
                 }
             }
         }
@@ -126,7 +136,6 @@ class TasksViewModel(
         val links: List<String>,
         val weekdays: String,
         val tmdbIdText: String,
-        val airTime: String,
         val saveFid: String,
         val savePathLabel: String,
         val ruleKey: String,
@@ -153,7 +162,6 @@ class TasksViewModel(
         val ruleKey: String = "",
         val tmdbId: String = "",
         val tmdbTitle: String = "",
-        val airTime: String = "",
         val weekdays: String = "",
         val weekdaysManual: Boolean = false,
         val updateModeAuto: Boolean = true,
@@ -200,7 +208,6 @@ class TasksViewModel(
         links: List<String>,
         weekdays: String,
         tmdbIdText: String,
-        airTime: String = "",
         saveFid: String = "0",
         savePathLabel: String = "网盘根目录",
         ruleKey: String = "",
@@ -228,7 +235,6 @@ class TasksViewModel(
                 savePathLabel = savePathLabel,
                 weekdays = Weekdays.format(Weekdays.parse(weekdays)),
                 tmdbId = tmdbIdText.trim().toLongOrNull(),
-                airTime = airTime.trim(),
                 ruleKey = ruleKey,
                 seasonNo = seasonNo,
                 folderWithTmdbId = folderWithTmdbId,
@@ -331,7 +337,6 @@ class TasksViewModel(
         links: List<String>,
         weekdays: String,
         tmdbIdText: String,
-        airTime: String,
         saveFid: String,
         savePathLabel: String,
         ruleKey: String,
@@ -360,7 +365,6 @@ class TasksViewModel(
                 savePathLabel = savePathLabel,
                 weekdays = Weekdays.format(Weekdays.parse(weekdays)),
                 tmdbId = tmdbIdText.trim().toLongOrNull(),
-                airTime = airTime.trim(),
                 ruleKey = ruleKey,
                 seasonNo = seasonNo,
                 folderWithTmdbId = folderWithTmdbId,
@@ -390,7 +394,6 @@ class TasksViewModel(
         links: List<String>,
         weekdays: String,
         tmdbIdText: String,
-        airTime: String,
         saveFid: String,
         savePathLabel: String,
         ruleKey: String,
@@ -401,7 +404,7 @@ class TasksViewModel(
         runDraftInternal(
             DraftRequest(
                 name = name, links = links, weekdays = weekdays, tmdbIdText = tmdbIdText,
-                airTime = airTime, saveFid = saveFid, savePathLabel = savePathLabel,
+    saveFid = saveFid, savePathLabel = savePathLabel,
                 ruleKey = ruleKey, seasonNo = seasonNo,
                 folderWithTmdbId = folderWithTmdbId, driveOverride = driveOverride,
             ),
@@ -447,7 +450,6 @@ class TasksViewModel(
                 savePathLabel = req.savePathLabel,
                 weekdays = Weekdays.format(Weekdays.parse(req.weekdays)),
                 tmdbId = req.tmdbIdText.trim().toLongOrNull(),
-                airTime = req.airTime.trim(),
                 ruleKey = req.ruleKey,
                 seasonNo = req.seasonNo,
                 folderWithTmdbId = req.folderWithTmdbId,
@@ -572,6 +574,21 @@ class TasksViewModel(
         viewModelScope.launch { repo.setEnabled(task.id, !task.enabled) }
     }
 
+    /** 置顶 / 取消置顶：只改显示顺序 */
+    fun setPinned(task: TaskEntity, pinned: Boolean) {
+        viewModelScope.launch {
+            repo.setPinned(task.id, pinned)
+            _toast.value = if (pinned) "已置顶「${task.name}」" else "已取消置顶"
+        }
+    }
+
+    /** 统一重命名：只改任务已转存目录里的文件名，不移动、不新建目录 */
+    fun renameTask(task: TaskEntity) {
+        if (task.id in _running.value) return
+        _running.update { it + (task.id to "扫描目录") }
+        com.ashchan.cloudsaver.sync.TaskRunService.startRename(appContext, task.id)
+    }
+
     /** 单条检测转存：交给前台服务跑，切后台/熄屏都不中断 */
     fun runTask(task: TaskEntity) {
         if (task.id in _running.value) return
@@ -617,6 +634,7 @@ class TasksViewModel(
         }
     }
 }
+
 
 
 

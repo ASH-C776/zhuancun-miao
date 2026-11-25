@@ -74,6 +74,8 @@ data class TaskEntity(
      */
     val folderWithTmdbId: Boolean = false,
     val enabled: Boolean = true,
+    /** 置顶：卡片列表里排在未置顶之前（仅影响显示顺序，不影响执行顺序/调度） */
+    val pinned: Boolean = false,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
 ) {

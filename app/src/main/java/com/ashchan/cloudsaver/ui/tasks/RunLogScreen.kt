@@ -387,6 +387,7 @@ private fun RunRow(record: RunRecordEntity, formatter: SimpleDateFormat) {
 private fun triggerLabel(trigger: String): String = when (trigger) {
     RunRecordEntity.TRIGGER_ALL -> "全部检测"
     RunRecordEntity.TRIGGER_BACKGROUND -> "自动同步"
+    RunRecordEntity.TRIGGER_RENAME -> "统一重命名"
     else -> "手动"
 }
 

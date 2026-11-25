@@ -28,5 +28,7 @@ data class RunRecordEntity(
         const val TRIGGER_MANUAL: String = "manual"
         const val TRIGGER_ALL: String = "all"
         const val TRIGGER_BACKGROUND: String = "background"
+        const val TRIGGER_RENAME: String = "rename"
     }
 }
+
