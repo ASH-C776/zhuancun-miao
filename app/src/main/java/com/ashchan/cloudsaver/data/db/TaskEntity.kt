@@ -53,6 +53,12 @@ data class TaskEntity(
     /** TMDB id（剧为 tv，电影为 movie） */
     val tmdbId: Long? = null,
     val tmdbMediaType: String = "tv",
+    /**
+     * TMDB 海报的 `poster_path`（如 `/abc.jpg`）。
+     * 图片本体按 tmdbId 缓存在 `filesDir/posters/<tmdbId>.jpg`，这里只存路径，
+     * 换机/清缓存后能按它重新下载；没绑 TMDB 或没海报时为空串。
+     */
+    val posterPath: String = "",
     /** 更新日来源：tmdb = 用 TMDB 播出日推断；manual = 用户手点 */
     val updateMode: String = UPDATE_MODE_MANUAL,
     /** 手动设置的更新星期：逗号分隔的 1..7（1=周一，IsoWeekday） */

@@ -46,6 +46,9 @@ class TasksViewModel(
     private val tmdbStore: TmdbStore? = null,
 ) : ViewModel() {
 
+    /** TMDB 海报缓存：只在「绑定」时下载一次，卡片与编辑页都读本地文件 */
+    private val posterStore = com.ashchan.cloudsaver.storage.PosterStore(appContext)
+
     val cards: StateFlow<List<TaskCard>> = repo.observeCards()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -106,6 +109,13 @@ class TasksViewModel(
                 }
             }
         }
+        // 启动时清一次海报孤儿（只删本地缓存，不联网、不动网盘）
+        viewModelScope.launch {
+            runCatching {
+                val keep = repo.tasks().mapNotNull { it.tmdbId }.toSet()
+                posterStore.gc(keep)
+            }
+        }
     }
 
     /**
@@ -136,6 +146,7 @@ class TasksViewModel(
         val links: List<String>,
         val weekdays: String,
         val tmdbIdText: String,
+        val posterPath: String = "",
         val saveFid: String,
         val savePathLabel: String,
         val ruleKey: String,
@@ -208,6 +219,7 @@ class TasksViewModel(
         links: List<String>,
         weekdays: String,
         tmdbIdText: String,
+        posterPath: String = "",
         saveFid: String = "0",
         savePathLabel: String = "网盘根目录",
         ruleKey: String = "",
@@ -235,6 +247,7 @@ class TasksViewModel(
                 savePathLabel = savePathLabel,
                 weekdays = Weekdays.format(Weekdays.parse(weekdays)),
                 tmdbId = tmdbIdText.trim().toLongOrNull(),
+                posterPath = posterPath.trim(),
                 ruleKey = ruleKey,
                 seasonNo = seasonNo,
                 folderWithTmdbId = folderWithTmdbId,
@@ -337,6 +350,7 @@ class TasksViewModel(
         links: List<String>,
         weekdays: String,
         tmdbIdText: String,
+        posterPath: String = "",
         saveFid: String,
         savePathLabel: String,
         ruleKey: String,
@@ -365,6 +379,8 @@ class TasksViewModel(
                 savePathLabel = savePathLabel,
                 weekdays = Weekdays.format(Weekdays.parse(weekdays)),
                 tmdbId = tmdbIdText.trim().toLongOrNull(),
+                // 换绑到别的剧就换成新海报；没重选（空串）则保留原来的
+                posterPath = if (posterPath.isBlank()) base.posterPath else posterPath.trim(),
                 ruleKey = ruleKey,
                 seasonNo = seasonNo,
                 folderWithTmdbId = folderWithTmdbId,
@@ -394,6 +410,7 @@ class TasksViewModel(
         links: List<String>,
         weekdays: String,
         tmdbIdText: String,
+        posterPath: String = "",
         saveFid: String,
         savePathLabel: String,
         ruleKey: String,
@@ -404,6 +421,7 @@ class TasksViewModel(
         runDraftInternal(
             DraftRequest(
                 name = name, links = links, weekdays = weekdays, tmdbIdText = tmdbIdText,
+                posterPath = posterPath,
     saveFid = saveFid, savePathLabel = savePathLabel,
                 ruleKey = ruleKey, seasonNo = seasonNo,
                 folderWithTmdbId = folderWithTmdbId, driveOverride = driveOverride,
@@ -450,7 +468,7 @@ class TasksViewModel(
                 savePathLabel = req.savePathLabel,
                 weekdays = Weekdays.format(Weekdays.parse(req.weekdays)),
                 tmdbId = req.tmdbIdText.trim().toLongOrNull(),
-                ruleKey = req.ruleKey,
+                posterPath = req.posterPath,
                 seasonNo = req.seasonNo,
                 folderWithTmdbId = req.folderWithTmdbId,
             )
@@ -565,9 +583,27 @@ class TasksViewModel(
 
     fun deleteTask(id: Long) {
         viewModelScope.launch {
+            val deleted = repo.tasks().firstOrNull { it.id == id }
             repo.delete(id)
+            // 引用计数：还有别的任务用同一个 tmdbId（同剧多任务/多季）就保留海报
+            val tmdbId = deleted?.tmdbId
+            if (tmdbId != null && repo.tasks().none { it.tmdbId == tmdbId }) {
+                posterStore.delete(tmdbId)
+            }
             _toast.value = "已删除"
         }
+    }
+
+    /** 绑定 TMDB 后立刻把海报拉到本地；失败不提示，卡片退回占位块，下次再试 */
+    fun ensurePoster(tmdbIdText: String, posterPath: String) {
+        viewModelScope.launch { downloadPoster(tmdbIdText, posterPath) }
+    }
+
+    /** 可等待版本（编辑页用来刷新预览）；成功/失败都会返回 */
+    suspend fun downloadPoster(tmdbIdText: String, posterPath: String): Boolean {
+        val id = tmdbIdText.trim().toLongOrNull() ?: return false
+        if (posterPath.isBlank()) return false
+        return runCatching { posterStore.ensure(id, posterPath) }.getOrDefault(false)
     }
 
     fun toggleEnabled(task: TaskEntity) {
@@ -634,6 +670,8 @@ class TasksViewModel(
         }
     }
 }
+
+
 
 
 

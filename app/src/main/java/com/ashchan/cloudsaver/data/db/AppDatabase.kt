@@ -13,7 +13,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  */
 @Database(
     entities = [TaskEntity::class, SnapshotEntity::class, RunRecordEntity::class, TaskSourceEntity::class],
-    version = 12,
+    version = 13,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -206,6 +206,19 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v13：tasks 加 `posterPath`（TMDB 海报路径）。
+         *
+         * 只存相对路径，图片按 tmdbId 缓存在 filesDir/posters；老任务默认空串 = 无海报。
+         */
+        val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE tasks ADD COLUMN posterPath TEXT NOT NULL DEFAULT ''"
+                )
+            }
+        }
+
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -224,8 +237,10 @@ abstract class AppDatabase : RoomDatabase() {
                     MIGRATION_9_10,
                     MIGRATION_10_11,
                     MIGRATION_11_12,
+                    MIGRATION_12_13,
                 ).build().also { instance = it }
             }
     }
 }
+
 

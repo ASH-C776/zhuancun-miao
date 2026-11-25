@@ -159,6 +159,10 @@ fun NewTaskScreen(
     var ruleKey by remember { mutableStateOf(stash?.ruleKey ?: editingTask?.ruleKey ?: "") }
     var tmdbId by remember { mutableStateOf(stash?.tmdbId ?: editingTask?.tmdbId?.toString() ?: "") }
     var tmdbTitle by remember { mutableStateOf(stash?.tmdbTitle ?: "") }
+    // TMDB 海报相对路径；选中搜索结果时写入，保存进任务
+    var posterPath by remember { mutableStateOf(editingTask?.posterPath ?: "") }
+    // 下载完成后 +1，用来刷新表单头部的海报预览
+    var posterVersion by remember { mutableStateOf(0) }
     // 播出时刻字段已删除（不参与任何执行逻辑）；TaskEntity 里的列保留但不再读写
     var weekdays by remember {
         mutableStateOf(
@@ -272,6 +276,7 @@ fun NewTaskScreen(
                         links = urls,
                         weekdays = Weekdays.format(weekdays),
                         tmdbIdText = tmdbId,
+                        posterPath = posterPath,
                         saveFid = saveFid,
                         savePathLabel = savePathLabel,
                         ruleKey = ruleKey,
@@ -285,6 +290,7 @@ fun NewTaskScreen(
                         links = urls,
                         weekdays = Weekdays.format(weekdays),
                         tmdbIdText = tmdbId,
+                        posterPath = posterPath,
                         saveFid = saveFid,
                         savePathLabel = savePathLabel,
                         ruleKey = ruleKey,
@@ -299,6 +305,7 @@ fun NewTaskScreen(
                         links = urls,
                         weekdays = Weekdays.format(weekdays),
                         tmdbIdText = tmdbId,
+                        posterPath = posterPath,
                         saveFid = saveFid,
                         savePathLabel = savePathLabel,
                         ruleKey = ruleKey,
@@ -433,16 +440,26 @@ fun NewTaskScreen(
             }
             if (tmdbId.isNotBlank()) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    PosterArt(
+                        name = name,
+                        tmdbId = tmdbId.toLongOrNull(),
+                        posterPath = posterPath,
+                        width = 40.dp,
+                        height = 60.dp,
+                        reloadKey = posterVersion,
+                    )
+                    Spacer(Modifier.width(10.dp))
                     Text(
                         text = "已绑定：${tmdbTitle.ifBlank { "tmdb-$tmdbId" }}",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary,
-                        maxLines = 1,
+                        maxLines = 2,
+                        modifier = Modifier.weight(1f),
                     )
-                    Spacer(Modifier.weight(1f))
                     TextButton(onClick = {
                         tmdbId = ""
                         tmdbTitle = ""
+                        posterPath = ""
                         folderWithTmdbId = false
                     }) { Text("取消绑定") }
                 }
@@ -734,6 +751,7 @@ fun NewTaskScreen(
             onPick = { item ->
                 tmdbId = item.id.toString()
                 tmdbTitle = item.title()
+                posterPath = item.posterPath
                 // 绑定 TMDB 后任务名直接用「官方名 (年份)」：目录名、文件名都跟着带年份，
                 // 同名翻拍（征途 2019 / 征途 2026）不会在同一个保存位置里混成一堆
                 name = item.title()
@@ -743,6 +761,11 @@ fun NewTaskScreen(
                 scope.launch {
                     val days = viewModel.tmdbWeekdays(item.id)
                     if (days.isNotEmpty() && !weekdaysManual) weekdays = days.toSet()
+                }
+                // 海报立刻拉到本地（约几十 KB）；失败就退回占位块，不打扰用户
+                scope.launch {
+                    viewModel.downloadPoster(tmdbId, posterPath)
+                    posterVersion++
                 }
             },
         )

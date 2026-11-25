@@ -132,6 +132,7 @@ class TmdbClient(
                     name = obj.get("name")?.asString.orEmpty(),
                     originalName = obj.get("original_name")?.asString.orEmpty(),
                     firstAirDate = obj.get("first_air_date")?.asString.orEmpty(),
+                    posterPath = obj.get("poster_path")?.takeIf { it.isJsonPrimitive }?.asString.orEmpty(),
                     seasons = obj.get("number_of_seasons")?.takeIf { it.isJsonPrimitive }?.asInt ?: 0,
                     overview = obj.get("overview")?.asString.orEmpty(),
                 )
@@ -201,6 +202,8 @@ data class TmdbSearchItem(
     val firstAirDate: String,
     val seasons: Int,
     val overview: String,
+    /** TMDB 海报相对路径（`/xxx.jpg`），没有海报时为空串 */
+    val posterPath: String = "",
 ) {
     /** 首播年份，取不到就是空串 */
     val year: String get() = firstAirDate.take(4).takeIf { it.length == 4 } ?: ""
@@ -318,3 +321,4 @@ fun weekdayOf(isoDate: String): Int? = runCatching {
     // Calendar: 1=周日 … 7=周六 → 转成 1=周一 … 7=周日
     (cal.get(java.util.Calendar.DAY_OF_WEEK) + 5) % 7 + 1
 }.getOrNull()
+

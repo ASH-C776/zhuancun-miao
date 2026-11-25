@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -27,6 +28,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -75,6 +77,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -262,161 +265,141 @@ private fun TaskRow(
     var menuOpen by remember { mutableStateOf(false) }
 
     Box {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            // 点主体进编辑；长按弹菜单（置顶 / 统一重命名 / 删除）
-            .combinedClickable(onClick = onEdit, onLongClick = { menuOpen = true }),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        ),
-    ) {
-        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-            // 第一行：剧名 + 状态
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = task.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.weight(1f),
-                )
-                StatusBadge(snap)
-            }
-
-            Spacer(Modifier.height(8.dp))
-
-            // 第二行：盘里集数 → 最新集（共N） ；右侧放上次同步时间（时间独占右端，永远不被压缩）
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Row(
-                    modifier = Modifier.weight(1f),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // 追剧视角：盘里最大集号 → TMDB 最新已播集（共总集数）
-                    // 只看「追到第几集」，中间断档不在这里表达；缺集数见运行日志
-                    Text(
-                        text = episodeText(snap.localLastEpisode),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                // 点主体进编辑；长按弹菜单（置顶 / 统一重命名 / 删除）
+                .combinedClickable(onClick = onEdit, onLongClick = { menuOpen = true }),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            ),
+        ) {
+            Column {
+                Row(Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp)) {
+                    // 左：海报位（有图放图，没图同尺寸占位）；胶囊只在「有海报 + 已知总数」时出现
+                    PosterArt(
+                        name = task.name,
+                        tmdbId = task.tmdbId,
+                        posterPath = task.posterPath,
+                        totalBadge = if (snap.tmdbTotal > 0) "共${snap.tmdbTotal}集" else null,
                     )
-                    if (snap.tmdbLatest > 0 || snap.tmdbTotal > 0) {
-                        Text(
-                            text = "  →  ",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.outline,
-                            maxLines = 1,
-                        )
-                        Text(
-                            text = episodeText(snap.tmdbLatest),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                        )
-                        // 全剧总集数：只有绑了 TMDB 才知道
-                        if (snap.tmdbTotal > 0) {
+                    Spacer(Modifier.width(12.dp))
+                    Column(
+                        Modifier
+                            .weight(1f)
+                            .heightIn(min = 84.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "（共${snap.tmdbTotal}）",
+                                text = task.name,
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            StatusBadge(snap)
+                        }
+
+                        Spacer(Modifier.height(4.dp))
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            val metaBase = metaLeft(task, card.sourceCount)
+                            val errorColor = MaterialTheme.colorScheme.error
+                            Text(
+                                text = buildAnnotatedString {
+                                    append(metaBase)
+                                    if (!task.enabled) append(" · 已暂停")
+                                    if (card.sourceCount > 1 && card.failedSources > 0) {
+                                        withStyle(SpanStyle(color = errorColor)) {
+                                            append(" · ${card.failedSources} 失效")
+                                        }
+                                    }
+                                },
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = syncText(snap.lastSyncAt),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
                             )
                         }
-                    } else {
-                        // 没绑 TMDB：没有对比基准，只报盘里最大集号
-                        Text(
-                            text = "  共${snap.localEpisodes}集",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                }
-                Text(
-                    text = syncText(snap.lastSyncAt),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                )
-            }
 
-            Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(6.dp))
 
-            EpisodeBar(snap)
-
-            Spacer(Modifier.height(8.dp))
-
-            // 上次执行失败：卡片上直接给红字，不用点进运行日志才知道
-            if (!snap.lastOk && snap.lastSyncAt > 0) {
-                Text(
-                    text = "上次失败 · " + snap.lastMessage.ifBlank { "未知原因" },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                    maxLines = 2,
-                )
-                Spacer(Modifier.height(8.dp))
-            }
-
-            // 第三行：左边刷新（手动检测），右边「更新日 · 网盘 · 时间」右对齐
-            Row(
-                Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                if (!isRunning) {
-                    if (justFinished != null) {
-                        // 刚跑完：同一位置闪一句结果，绿=成功、红=失败，1.5 秒后收回成图标
-                        // 统一重命名给了结果短句（「已改名 87 项」）就优先显示它
-                        RunPhaseText(
-                            text = justFinishedText ?: if (justFinished) "完成" else "失败",
-                            color = if (justFinished) TaskColors.ok() else MaterialTheme.colorScheme.error,
-                            animated = false,
-                        )
-                    } else {
-                        IconButton(
-                            onClick = onRun,
-                            modifier = Modifier.size(48.dp),
+                        // 集数与刷新按钮同一行、同一高度，整组靠右（右到左：刷新 → 集数）
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Icon(
-                                Icons.Filled.Refresh,
-                                contentDescription = "检测转存",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(20.dp),
+                            val epText = if (snap.tmdbLatest > 0 || snap.tmdbTotal > 0) {
+                                "${episodeText(snap.localLastEpisode)}  →  ${episodeText(snap.tmdbLatest)}"
+                            } else {
+                                // 没绑 TMDB：没有总数也没有对比基准，只报盘里最大集号
+                                "第${snap.localLastEpisode}集"
+                            }
+                            Text(
+                                text = epText,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.End,
+                                modifier = Modifier.weight(1f, fill = false),
                             )
+                            Spacer(Modifier.width(8.dp))
+                            if (!isRunning) {
+                                if (justFinished != null) {
+                                    RunPhaseText(
+                                        text = justFinishedText ?: if (justFinished) "完成" else "失败",
+                                        color = if (justFinished) TaskColors.ok() else MaterialTheme.colorScheme.error,
+                                        animated = false,
+                                    )
+                                } else {
+                                    IconButton(
+                                        onClick = onRun,
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .clip(CircleShape)
+                                            .background(MaterialTheme.colorScheme.surfaceVariant),
+                                    ) {
+                                        Icon(
+                                            Icons.Filled.Refresh,
+                                            contentDescription = "检测转存",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(18.dp),
+                                        )
+                                    }
+                                }
+                            } else {
+                                RunPhaseText(text = runText, color = TaskColors.local())
+                            }
                         }
                     }
-                } else {
-                    // 跑的时候不显示图标，也不加胶囊底：就在原位置写一句阶段文字。
-                    // 正常进度一律蓝色（不再是主题那个橙棕），只有出错才会变红。
-                    RunPhaseText(text = runText, color = TaskColors.local())
                 }
-                Spacer(Modifier.width(8.dp))
-                Row(
-                    Modifier.weight(1f),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    // 左段可能变长（多源加「· 2 源」、暂停加「· 已暂停」），过长只压缩自己（时间已挪到上一行右端）
-                    // 多源里有源连续两次没连上时，尾部追加一段红字「· N 失效」，平时不出现
-                    val metaBase = metaLeft(task, card.sourceCount)
-                    val errorColor = MaterialTheme.colorScheme.error
+
+                if (!snap.lastOk && snap.lastSyncAt > 0) {
                     Text(
-                        text = buildAnnotatedString {
-                            append(metaBase)
-                            if (!task.enabled) append(" · 已暂停")
-                            if (card.sourceCount > 1 && card.failedSources > 0) {
-                                withStyle(SpanStyle(color = errorColor)) {
-                                    append(" · ${card.failedSources} 失效")
-                                }
-                            }
-                        },
+                        text = "上次失败 · " + snap.lastMessage.ifBlank { "未知原因" },
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        color = MaterialTheme.colorScheme.error,
+                        maxLines = 2,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                     )
                 }
+
+                Spacer(Modifier.height(8.dp))
+
+                // 进度条贯穿整张卡片宽度，贴卡片底边
+                EpisodeBar(snap)
             }
         }
     }
@@ -449,7 +432,6 @@ private fun TaskRow(
                 onRequestDelete()
             },
         )
-    }
     }
 }
 
@@ -658,6 +640,8 @@ private fun syncText(millis: Long): String {
     val fmt = SimpleDateFormat("MM/dd HH:mm", Locale.getDefault())
     return fmt.format(Date(millis))
 }
+
+
 
 
 
