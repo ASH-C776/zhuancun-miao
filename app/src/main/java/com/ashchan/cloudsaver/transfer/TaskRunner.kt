@@ -278,6 +278,8 @@ class TaskRunner(
         var restoredFiles = 0
         var renamedItems = 0
         var skippedFiles = 0
+        /** 本轮落盘文件名（多源时合并）：通知要靠它算出「新增了哪几集」 */
+        val restoredNames = mutableListOf<String>()
         val failures = mutableListOf<String>()
         /** 季判定等「不是错」的结论，最后写进运行日志说明 */
         val notes = mutableListOf<String>()
@@ -453,6 +455,7 @@ class TaskRunner(
                     restoredFiles += r.restoredFiles
                     renamedItems += r.renamedItems
                     skippedFiles += r.skippedFiles
+                    restoredNames += r.restoredNames
                     // 同一批文件可能两个源都有：第二个源靠目标目录 diff 判定已存在 → 计入跳过
                     r.failures.forEach { failures += if (links.size > 1) "$label $it" else it }
                     // 季判定这类「不是错但要让人看到」的结论，多源时带上源前缀
@@ -497,6 +500,7 @@ class TaskRunner(
             // 多源：只要有一个源成功，这一轮就算成功（失败的源原因仍留在 failures 里提示）
             explicitOk = anyOk,
             notes = notes.toList(),
+            restoredNames = restoredNames.toList(),
         )
 
         // 光鸭的 access_token 会在刷新后轮换，必须回写，否则下次登录失效

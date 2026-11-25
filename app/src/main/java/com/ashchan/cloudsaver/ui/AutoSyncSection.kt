@@ -38,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import com.ashchan.cloudsaver.sync.AutoSyncSummary
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.ashchan.cloudsaver.sync.AutoSyncConfig
@@ -147,7 +148,7 @@ fun AutoSyncSection() {
     Spacer(Modifier.height(4.dp))
     SwitchRow(
         title = "跑完发通知",
-        subtitle = "只在有新集或有失败时提醒",
+        subtitle = "只在有新集时提醒，一部剧一条",
         checked = notifyEnabled,
         onCheckedChange = { v ->
             notifyEnabled = v
@@ -158,6 +159,38 @@ fun AutoSyncSection() {
             rev++
         },
     )
+
+    Spacer(Modifier.height(12.dp))
+    // 仅 debug 包：点一下按真实格式发一条，验证「一部剧一条 + 悬浮」是否生效
+    if (com.ashchan.cloudsaver.BuildConfig.DEBUG) {
+        SwitchRow(
+            title = "试发一条通知",
+            subtitle = "debug 专用：按真实格式发「斗破苍穹更新 S05E207 · 共 1 集」",
+            checked = false,
+            onCheckedChange = {
+                AutoSyncNotifier.notifyDone(
+                    context,
+                    AutoSyncSummary(
+                        total = 1,
+                        newFiles = 1,
+                        renamed = 1,
+                        failed = 0,
+                        firstError = null,
+                        updates = listOf(
+                            com.ashchan.cloudsaver.data.ShowUpdate(
+                                taskId = 1,
+                                title = "斗破苍穹",
+                                season = 5,
+                                firstEpisode = 207,
+                                lastEpisode = null,
+                                count = 1,
+                            ),
+                        ),
+                    ),
+                )
+            },
+        )
+    }
 
     Spacer(Modifier.height(12.dp))
     StatusCard(prefs = prefs, slots = slots, chargeEnabled = chargeEnabled, rev = rev)

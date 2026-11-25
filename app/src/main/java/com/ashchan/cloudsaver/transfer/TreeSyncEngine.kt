@@ -53,6 +53,11 @@ class TreeSyncEngine(
         val explicitOk: Boolean? = null,
         /** 不是错误、但要让人看到的结论（季判定 / 冲突已按文件名处理等） */
         val notes: List<String> = emptyList(),
+        /**
+         * 本轮真正落盘的文件名（按改名后的最终名字记）。
+         * 只给通知用：从里面解析出「这次新增了哪几集」，不再靠集数差猜测。
+         */
+        val restoredNames: List<String> = emptyList(),
     ) {
         val ok: Boolean get() = explicitOk ?: failures.isEmpty()
     }
@@ -212,6 +217,8 @@ class TreeSyncEngine(
         /** 不是错、但需要让人看到的结论（如「季判定：Season 1 × 12、3 个冲突已按文件名」） */
         private val notes = mutableListOf<String>()
         private val depthSkipped = mutableListOf<String>()
+        /** 本轮落盘文件名（改名后口径），供通知解析「新增了哪几集」 */
+        private val restoredNames = mutableListOf<String>()
 
         /**
          * 目标目录内容缓存：同一次同步里同一目录只列一次。
@@ -227,6 +234,7 @@ class TreeSyncEngine(
             skippedFiles = skippedFiles,
             failures = (failures + depthSkipped).toList(),
             notes = notes.toList(),
+            restoredNames = restoredNames.toList(),
         )
 
         /** 只转树根的直接视频文件，不建文件夹、不下钻（对应平铺型分享） */
@@ -576,6 +584,9 @@ class TreeSyncEngine(
             saved.forEach { restored ->
                 byShareFid[restored.shareFileId]?.let { index[it.name] = restored.file }
             }
+            saved.forEach { restored ->
+                byShareFid[restored.shareFileId]?.let { restoredNames += expectedName(it) }
+            }
             reportRestore(restoredFiles)
 
             val items = saved.mapNotNull { restored ->
@@ -663,6 +674,7 @@ class TreeSyncEngine(
                 return false
             }
             restoredFiles++
+            restoredNames += expected
             index[node.name] = newFile
             reportRestore(restoredFiles)
 

@@ -12,58 +12,73 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import com.ashchan.cloudsaver.MainActivity
-import com.ashchan.cloudsaver.R
 
 /**
- * 自动刷新的通知：独立渠道 `auto_sync`，与自更新的通知互不影响
- * （用户嫌吵可以单独关掉这个渠道，更新提醒还在）。
+ * 自动刷新的通知：**一部剧一条**，独立渠道 `auto_sync_v2`。
+ *
+ * 渠道为什么换了 id：Android 8+ 的规定是渠道建好之后，重要性只能由用户在系统设置里改，
+ * 代码里再 `createNotificationChannel` 传新重要性也不会生效。旧渠道 `auto_sync` 是
+ * `IMPORTANCE_DEFAULT`（不悬浮），想升级到「高」（悬浮 + 横幅）只能换一个新的渠道 id。
+ * 代价：以前手动关过「自动刷新」通知的人会重新收到，需要再关一次。
  */
 object AutoSyncNotifier {
 
-    const val CHANNEL_ID: String = "auto_sync"
-    private const val NOTIFY_ID: Int = 1001
+    const val CHANNEL_ID: String = "auto_sync_v2"
 
-    /** 只在「有新集 / 有失败」时调用；纯空转不进这里 */
+    /** 旧渠道：只保留常量做迁移说明，不再往里发 */
+    const val LEGACY_CHANNEL_ID: String = "auto_sync"
+
+    private const val NOTIFY_BASE: Int = 2000
+    private const val FALLBACK_ID: Int = NOTIFY_BASE - 1
+
+    /**
+     * 每部有新集的剧发一条通知。
+     * 没有逐剧明细（理论上不该发生）时退回一条汇总，保证「有新增就一定看得到」。
+     */
     fun notifyDone(context: Context, summary: AutoSyncSummary) {
+        if (!canNotify(context)) return
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         ensureChannel(nm)
+        val manager = NotificationManagerCompat.from(context)
 
-        if (!canNotify(context)) return
-
-        val title = if (summary.failed == 0) {
-            "转存喵 · 自动刷新完成"
-        } else {
-            "转存喵 · 自动刷新有失败"
-        }
-        val body = buildString {
-            when {
-                summary.newFiles > 0 -> append("新增 ${summary.newFiles} 集")
-                else -> append("没有新增")
+        if (summary.updates.isEmpty()) {
+            val body = "新增 ${summary.newFiles} 集"
+            runCatching {
+                manager.notify(FALLBACK_ID, base(context, "转存喵 · 新增 $body")
+                    .setContentText(body)
+                    .build())
             }
-            append(" · ${summary.total} 个任务")
-            summary.firstError?.let { append("\n$it") }
+            return
         }
 
-        val contentIntent = PendingIntent.getActivity(
-            context,
-            0,
-            Intent(context, MainActivity::class.java)
-                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
+        summary.updates.forEach { update ->
+            val notification = base(context, update.notificationTitle)
+                .setContentText(update.notificationBody)
+                .setWhen(System.currentTimeMillis())
+                .build()
+            runCatching { manager.notify(notifyIdOf(update.taskId), notification) }
+        }
+    }
 
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+    /** 同一条剧重复发时覆盖上一条，不越堆越多 */
+    private fun notifyIdOf(taskId: Long): Int = NOTIFY_BASE + (taskId % 10000L).toInt()
+
+    private fun base(context: Context, title: String): NotificationCompat.Builder =
+        NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setContentTitle(title)
-            .setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
-            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            // 点通知回到 App 的任务列表；用 SINGLE_TOP 避免又开一个新页面
+            .setContentIntent(
+                PendingIntent.getActivity(
+                    context,
+                    0,
+                    Intent(context, MainActivity::class.java)
+                        .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+                )
+            )
             .setAutoCancel(true)
-            .setContentIntent(contentIntent)
-            .build()
-
-        runCatching { NotificationManagerCompat.from(context).notify(NOTIFY_ID, notification) }
-    }
 
     /** Android 13+ 需要运行时授权；未授权时静默不发，避免抛 SecurityException */
     fun canNotify(context: Context): Boolean {
@@ -82,10 +97,10 @@ object AutoSyncNotifier {
         if (nm.getNotificationChannel(CHANNEL_ID) != null) return
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "自动刷新",
-            NotificationManager.IMPORTANCE_DEFAULT,
+            "追剧更新",
+            NotificationManager.IMPORTANCE_HIGH,
         ).apply {
-            description = "后台自动刷新完成时提醒（仅在有新集或有失败时）"
+            description = "有剧集更新时提醒，一部剧一条；想静音可以单独关掉这个渠道"
             setShowBadge(false)
         }
         nm.createNotificationChannel(channel)

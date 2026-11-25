@@ -126,6 +126,29 @@ class MainActivity : ComponentActivity() {
             if (intent?.getBooleanExtra("debugRunAll", false) == true) {
                 tasksViewModel.runAll()
             }
+            // --ez debugNotifySample true 发一条样例通知，验证「一部剧一条 + 悬浮」
+            if (intent?.getBooleanExtra("debugNotifySample", false) == true) {
+                com.ashchan.cloudsaver.sync.AutoSyncNotifier.notifyDone(
+                    this,
+                    com.ashchan.cloudsaver.sync.AutoSyncSummary(
+                        total = 1,
+                        newFiles = 1,
+                        renamed = 1,
+                        failed = 0,
+                        firstError = null,
+                        updates = listOf(
+                            com.ashchan.cloudsaver.data.ShowUpdate(
+                                taskId = 1,
+                                title = "斗破苍穹",
+                                season = 5,
+                                firstEpisode = 207,
+                                lastEpisode = null,
+                                count = 1,
+                            ),
+                        ),
+                    ),
+                )
+            }
             // --ez openRunLog true 直接进「运行日志」页
             if (intent?.getBooleanExtra("openRunLog", false) == true) {
                 viewModel.go(com.ashchan.cloudsaver.ui.Screen.RUNLOG)
