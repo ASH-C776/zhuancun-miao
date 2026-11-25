@@ -72,6 +72,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -116,6 +117,13 @@ fun TaskListScreen(
     val progress by viewModel.progress.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     var pendingDelete by remember { mutableStateOf<TaskEntity?>(null) }
+    // 首页标题带当前安装版本，方便反馈问题时直接对上版本
+    val context = LocalContext.current
+    val appVersion = remember(context) {
+        runCatching {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName
+        }.getOrNull().orEmpty()
+    }
 
     // 打开 App 自动同步一轮（每个 ViewModel 生命周期一次）
 
@@ -140,7 +148,19 @@ fun TaskListScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("转存喵", fontWeight = FontWeight.SemiBold) },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("转存喵", fontWeight = FontWeight.SemiBold)
+                        if (appVersion.isNotBlank()) {
+                            Text(
+                                "v$appVersion",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 8.dp),
+                            )
+                        }
+                    }
+                },
                 // 顶栏不再放高频操作：刷新/日志/设置统一挪到右下拇指区（见下方 floatingActionButton）
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.surface,
