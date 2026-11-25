@@ -58,6 +58,8 @@ class RenamePass(
         val skipped: Int,
         val failures: List<String>,
         val notes: List<String>,
+        /** 整体是否成功（没有失败项，且不是因为前置条件缺失直接退出） */
+        val ok: Boolean,
     )
 
     private data class Entry(
@@ -335,7 +337,7 @@ class RenamePass(
             tmdbTotal = 0,
             saveSnapshot = false,
         )
-        return Result(scanned, renamed, alreadyOk, conflicts, failed, skipped, failures, allNotes)
+        return Result(scanned, renamed, alreadyOk, conflicts, failed, skipped, failures, allNotes, report.ok)
     }
 
     private fun taskNameOf(task: TaskEntity): String {
@@ -344,6 +346,7 @@ class RenamePass(
         return if (task.folderWithTmdbId && id != null) "$base tmdb-$id" else base
     }
 }
+
 
 
 

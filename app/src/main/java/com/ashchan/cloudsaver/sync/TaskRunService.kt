@@ -159,7 +159,7 @@ class TaskRunService : Service() {
                 TaskRunBus.setPhase(task.id, phase)
                 updateNotification("${task.name} · $phase")
             }
-            ok = result.failures.isEmpty()
+            ok = result.ok
             TaskRunBus.setFinishNote(
                 task.id,
                 if (result.renamed > 0) "已改名 ${result.renamed} 项" else "无需改名",
@@ -368,5 +368,6 @@ class TaskRunService : Service() {
         }
     }
 }
+
 
 
