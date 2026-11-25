@@ -162,9 +162,6 @@ fun AppRoot(
     openNewTaskOnLaunch: Boolean = false,
 ) {
     val screen by viewModel.screen.collectAsState()
-    // 启动时后台检测一次 GitHub Releases 是否有新版本（有则红点提示）
-    val appVersion = currentVersion()
-    LaunchedEffect(Unit) { viewModel.checkUpdate(appVersion) }
     // 自更新：延迟 5 秒检测，24 小时最多一次；只在主页面弹，别在看图/设置时打断
     val context = LocalContext.current
     val updateManager = remember(context) { com.ashchan.cloudsaver.update.UpdateManager(context) }
@@ -233,8 +230,8 @@ fun AppRoot(
             onBack = { viewModel.go(Screen.TASKS) },
             onSelectTab = { goTab(it) },
         )
-        Screen.SETTINGS -> SettingsScreen(viewModel, themeMode, onThemeModeChange, onSelectTab = { goTab(it) })
-        Screen.ABOUT -> AboutScreen(viewModel)
+        Screen.SETTINGS -> SettingsScreen(viewModel, themeMode, onThemeModeChange, updateManager, onSelectTab = { goTab(it) })
+        Screen.ABOUT -> AboutScreen(viewModel, updateManager)
         Screen.DONATE -> DonateScreen(viewModel)
     }
     // 自更新弹窗：只在任务主页面上出现（用户正在看图/设置时不打断）
@@ -330,6 +327,7 @@ fun SettingsScreen(
     viewModel: AppViewModel,
     themeMode: Int = THEME_AUTO,
     onThemeModeChange: (Int) -> Unit = {},
+    updateManager: com.ashchan.cloudsaver.update.UpdateManager,
     onSelectTab: (MainTab) -> Unit = {},
 ) {
     val driveType by viewModel.settingsDriveType.collectAsState()
@@ -337,7 +335,7 @@ fun SettingsScreen(
     val account = accounts[driveType]
     val loading by viewModel.loginLoading.collectAsState()
     val error by viewModel.loginError.collectAsState()
-    val update by viewModel.update.collectAsState()
+    val updateAvailable by updateManager.available.collectAsState()
     val smsState by viewModel.smsLoginState.collectAsState()
 
     // 系统返回键回主页（而不是退出 App）
@@ -552,7 +550,7 @@ fun SettingsScreen(
             // 底部：关于 / 打赏作者
             Spacer(Modifier.height(24.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            SettingsEntry("关于", "版本信息与使用说明", showDot = update.hasUpdate) { viewModel.go(Screen.ABOUT) }
+            SettingsEntry("关于", "版本信息与使用说明", showDot = updateAvailable != null) { viewModel.go(Screen.ABOUT) }
             SettingsEntry("打赏作者", "如果觉得好用，请作者喝杯奶茶") { viewModel.go(Screen.DONATE) }
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Spacer(Modifier.height(16.dp))
@@ -1234,9 +1232,9 @@ private fun QuarkCookieDialog(
 
 /** 关于页：软件信息 + 简介 + 使用说明 */
 @Composable
-fun AboutScreen(viewModel: AppViewModel) {
+fun AboutScreen(viewModel: AppViewModel, updateManager: com.ashchan.cloudsaver.update.UpdateManager) {
     val context = LocalContext.current
-    val update by viewModel.update.collectAsState()
+    val updateAvailable by updateManager.available.collectAsState()
     BackHandler { viewModel.go(Screen.TASKS) }
 
     Scaffold(topBar = { AppTopBar("关于", onBack = { viewModel.go(Screen.TASKS) }) }) { padding ->
@@ -1284,7 +1282,7 @@ fun AboutScreen(viewModel: AppViewModel) {
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface,
                         )
-                        if (update.hasUpdate) {
+                        if (updateAvailable != null) {
                             Spacer(Modifier.width(8.dp))
                             Box(
                                 Modifier
@@ -1293,10 +1291,10 @@ fun AboutScreen(viewModel: AppViewModel) {
                             )
                         }
                     }
-                    if (update.hasUpdate && update.latestVersion != null) {
+                    if (updateAvailable != null) {
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            "新版本 v${update.latestVersion} 已发布，点击前往下载",
+                            "新版本 v${updateAvailable?.versionName} 已发布，点击前往下载",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface,
                         )

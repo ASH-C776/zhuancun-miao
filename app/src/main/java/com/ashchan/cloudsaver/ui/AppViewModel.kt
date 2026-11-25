@@ -26,21 +26,10 @@ enum class Screen { TASKS, NEW_TASK, RUNLOG, SETTINGS, ABOUT, DONATE }
 /** 项目仓库（更新检测与跳转均基于此） */
 const val REPO_URL = "https://github.com/ASH-C776/zhuancun-miao"
 
-private const val REPO_API_LATEST = "https://api.github.com/repos/ASH-C776/zhuancun-miao/releases/latest"
-private val REGEX_TAG_NAME = Regex("\"tag_name\"\\s*:\\s*\"([^\"]+)\"")
-
-/** 更新检测结果：是否有比当前版本新的 Release */
-data class UpdateState(
-    val hasUpdate: Boolean = false,
-    val latestVersion: String? = null,
-)
-
-
 /**
- * 全局业务状态机：
- * 主页（链接+任务名+网盘选择+路径+规则） → 右上角设置（登录） → 目录选择器 → 转存弹窗（进度/结果）。
- * 每个网盘独立登录、独立 adapter，可同时登录；主页切换当前网盘。
- * 一次转存 = 解析链接 → 转存分享全部内容 → 本地计算新名 → 批量改名 → 结果。
+ * 全局壳层状态：当前页面、各网盘登录态、主题设置。
+ * 追剧任务本身的状态在 [com.ashchan.cloudsaver.ui.tasks.TasksViewModel]；
+ * 更新检测与下载安装统一在 [com.ashchan.cloudsaver.update.UpdateManager]。
  */
 class AppViewModel(
     private val credentialStore: CredentialStore,
@@ -73,55 +62,6 @@ class AppViewModel(
     private val _loginLoading = MutableStateFlow(false)
     val loginLoading: StateFlow<Boolean> = _loginLoading.asStateFlow()
 
-    // ---------- 版本更新检测 ----------
-    private val _update = MutableStateFlow(UpdateState())
-    val update: StateFlow<UpdateState> = _update.asStateFlow()
-
-    /**
-     * 查询 GitHub Releases 最新版本并与当前版本比较。
-     * 无网络 / 仓库还没有 Release 时静默忽略，不打扰用户。
-     */
-    fun checkUpdate(currentVersion: String) {
-        viewModelScope.launch {
-            var conn: HttpURLConnection? = null
-            try {
-                conn = URL(REPO_API_LATEST).openConnection() as HttpURLConnection
-                conn.connectTimeout = 8000
-                conn.readTimeout = 8000
-                conn.setRequestProperty("Accept", "application/vnd.github+json")
-                conn.setRequestProperty("User-Agent", "zhuancun-miao-app")
-                if (conn.responseCode != 200) return@launch
-                val latest = conn.inputStream.bufferedReader().use { reader ->
-                    REGEX_TAG_NAME.find(reader.readText())?.groupValues?.get(1)
-                }?.trimStart('v', 'V') ?: return@launch
-                if (isNewerVersion(latest, currentVersion)) {
-                    _update.value = UpdateState(hasUpdate = true, latestVersion = latest)
-                }
-            } catch (_: Exception) {
-                // 静默：离线或接口异常时不提示
-            } finally {
-                conn?.disconnect()
-            }
-        }
-    }
-
-    /** 语义化版本比较：remote 是否比 current 新（逐段数字比较） */
-    private fun isNewerVersion(remote: String, current: String): Boolean {
-        // 剥离 -debug 等后缀，只取开头的「数字.数字...」部分（如 "0.4.1-debug" → "0.4.1"），
-        // 否则 "1-debug" 会被解析成 0，导致调试版恒误报「有更新」
-        val r = sanitizeVersion(remote).split('.').map { it.toIntOrNull() ?: 0 }
-        val c = sanitizeVersion(current).split('.').map { it.toIntOrNull() ?: 0 }
-        for (i in 0 until maxOf(r.size, c.size)) {
-            val rv = r.getOrElse(i) { 0 }
-            val cv = c.getOrElse(i) { 0 }
-            if (rv != cv) return rv > cv
-        }
-        return false
-    }
-
-    /** 只保留版本号开头的「数字.数字...」部分，去掉 -debug 等后缀与前置 v/V */
-    private fun sanitizeVersion(v: String): String =
-        v.trimStart('v', 'V').takeWhile { it.isDigit() || it == '.' }
 
     private val _rules = MutableStateFlow<List<RenameRule>>(emptyList())
     val rules: StateFlow<List<RenameRule>> = _rules.asStateFlow()

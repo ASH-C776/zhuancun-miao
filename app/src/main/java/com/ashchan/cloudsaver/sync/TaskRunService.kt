@@ -88,21 +88,34 @@ class TaskRunService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
 
+    /** 排队中的启动请求：正在跑时来的新请求不丢弃，跑完接着执行 */
+    private val pending = ArrayDeque<Intent>()
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_CANCEL) {
+            pending.clear()
             job?.cancel()
             stopSelf()
             return START_NOT_STICKY
         }
-        // 单飞：已有任务在跑时忽略新的启动请求，避免同一网盘并发
-        if (job?.isActive == true) return START_NOT_STICKY
+        if (intent == null) return START_NOT_STICKY
+        // 单飞：同一时刻只跑一条链（避免同一网盘并发触发风控）。
+        // 但请求不能丢：后来的排队，当前这条跑完自动接着执行。
+        if (job?.isActive == true) {
+            pending.addLast(intent)
+            return START_NOT_STICKY
+        }
+        dispatch(intent)
+        return START_NOT_STICKY
+    }
 
-        val runAll = intent?.action == ACTION_RUN_ALL
-        val rename = intent?.action == ACTION_RUN_RENAME
-        val taskId = intent?.getLongExtra(EXTRA_TASK_ID, 0L) ?: 0L
-        val trigger = intent?.getStringExtra(EXTRA_TRIGGER) ?: RunRecordEntity.TRIGGER_MANUAL
+    private fun dispatch(intent: Intent) {
+        val runAll = intent.action == ACTION_RUN_ALL
+        val rename = intent.action == ACTION_RUN_RENAME
+        val taskId = intent.getLongExtra(EXTRA_TASK_ID, 0L)
+        val trigger = intent.getStringExtra(EXTRA_TRIGGER) ?: RunRecordEntity.TRIGGER_MANUAL
 
         startForeground(NOTIFY_ID_RUNNING, ongoing("准备中"))
         acquireLocks()
@@ -123,10 +136,10 @@ class TaskRunService : Service() {
                 TaskRunBus.clearAll()
                 notifyDone(okAny)
                 stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
+                val next = pending.removeFirstOrNull()
+                if (next == null) stopSelf() else dispatch(next)
             }
         }
-        return START_NOT_STICKY
     }
 
     override fun onDestroy() {
@@ -177,7 +190,8 @@ class TaskRunService : Service() {
     private suspend fun runAllTasks(trigger: String): Boolean {
         val repo = repo()
         val tasks = repo.enabledTasks()
-        if (tasks.isEmpty()) return false
+        // 没有启用的任务不是失败：只是没活干，别让用户看到「同步失败」的通知
+        if (tasks.isEmpty()) return true
         var allOk = true
         tasks.forEachIndexed { index, task ->
             updateNotification("同步 ${index + 1}/${tasks.size}：${task.name}")

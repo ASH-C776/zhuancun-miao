@@ -251,14 +251,24 @@ class TaskRunner(
         val folderName = taskNameOf(task)
         val nameFid = retryOnce("创建任务目录") {
             adapter.ensureFolder(baseFid, folderName)
-        }.getOrElse { baseFid }
+        }.getOrElse { e ->
+            // 建目录失败不能退回根目录继续转：那样会把这个剧的文件全撒进保存位置的根，
+            // 既污染别的任务，也会让下一轮集数统计串味。直接记失败、让用户看到原因。
+            return Result.failure(
+                IllegalStateException("创建任务目录「$folderName」失败：${e.message ?: "未知错误"}")
+            )
+        }
 
         // 选了季度（含 0 = 特别版）就再多一层 `Season N`；平铺（-2）不建；多季交给引擎按文件季号各自建
         val multiSeason = task.seasonNo == TaskEntity.SEASON_MULTI
         val destFid = if (task.seasonNo >= TaskEntity.SEASON_SPECIALS) {
             retryOnce("创建季目录") {
                 adapter.ensureFolder(nameFid, seasonFolderName(task.seasonNo))
-            }.getOrElse { nameFid }
+            }.getOrElse { e ->
+                return Result.failure(
+                    IllegalStateException("创建季目录失败：${e.message ?: "未知错误"}")
+                )
+            }
         } else {
             nameFid
         }
