@@ -589,7 +589,7 @@ class TreeSyncEngine(
 
         private fun isVideoName(name: String): Boolean =
             name.substringAfterLast('.', "").lowercase() in setOf(
-                "mp4", "mkv", "mov", "m4v", "avi", "mpeg", "mpg", "ts", "zip", "cas", "iso",
+                "mp4", "mkv", "mov", "m4v", "avi", "mpeg", "mpg", "ts", "zip", "cas", "iso", "",
             )
 
         /** 单个文件转存（批量失败时的兜底）；成功返回 true */
@@ -764,4 +764,5 @@ class TreeSyncEngine(
         }
     }
 }
+
 
