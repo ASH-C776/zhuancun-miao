@@ -53,6 +53,13 @@ data class TaskEntity(
     /** 自定义分季：本季总集数（0 = 不自定义，走 TMDB 的季集数） */
     val seasonEpCount: Int = 0,
     /**
+     * 开始保存的起点：从第几季第几集开始转存。
+     * 单季任务只看 [saveStartEpisode]；多季任务用 [saveStartSeason] 跳过前面的季。
+     * 默认 1/1 = 从头开始，不影响老任务。
+     */
+    val saveStartSeason: Int = 1,
+    val saveStartEpisode: Int = 1,
+    /**
      * 已废弃：0.14.0 曾用于「集数口径」弹窗，该功能已移除。
      * 列保留只因已升级到 v15 的设备数据库里存在这两列，代码不再读取，也不参与任何计算。
      */

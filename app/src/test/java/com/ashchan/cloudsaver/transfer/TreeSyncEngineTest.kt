@@ -482,6 +482,40 @@ class TreeSyncEngineTest {
 
     // ---------- 小工具 ----------
 
+    @Test
+    fun `单季从第 3 集起 只转存 E03 及以后`() = runBlocking {
+        val shareFiles = (1..5).map { adapterFile("f_$it", "Show.E%02d.mkv".format(it)) }
+        val adapter = FakeDriveAdapter(mapOf(null to shareFiles))
+        val tree = buildTree(adapter)
+        val report = TreeSyncEngine(adapter).syncFlat(
+            share = shareInfo(), tree = tree, destRootFid = "0", startEpisode = 3,
+        ).getOrThrow()
+
+        assertEquals(3, report.restoredFiles)
+        val names = adapter.mine["0"]!!.map { it.name }.toSet()
+        assertEquals(setOf("Show.E03.mkv", "Show.E04.mkv", "Show.E05.mkv"), names)
+    }
+
+    @Test
+    fun `多季从第 2 季第 2 集起 前一季跳过 起点季按集过滤`() = runBlocking {
+        val shareFiles = listOf(
+            adapterFile("a1", "Show.S01E01.mkv"),
+            adapterFile("a2", "Show.S01E02.mkv"),
+            adapterFile("b1", "Show.S02E01.mkv"),
+            adapterFile("b2", "Show.S02E02.mkv"),
+            adapterFile("c1", "Show.S03E01.mkv"),
+        )
+        val adapter = FakeDriveAdapter(mapOf(null to shareFiles))
+        val tree = buildTree(adapter)
+        val report = TreeSyncEngine(adapter).syncFlat(
+            share = shareInfo(), tree = tree, destRootFid = "0",
+            multiSeason = true, startSeason = 2, startEpisode = 2,
+        ).getOrThrow()
+
+        assertEquals(2, report.restoredFiles)
+        assertEquals(setOf("Season 2", "Season 3"), adapter.mine["0"]!!.filter { it.isDir }.map { it.name }.toSet())
+    }
+
     private fun adapterDir(fid: String, name: String) = DriveFile(fid = fid, name = name, isDir = true)
     private fun adapterFile(fid: String, name: String) = DriveFile(fid = fid, name = name, isDir = false)
 }

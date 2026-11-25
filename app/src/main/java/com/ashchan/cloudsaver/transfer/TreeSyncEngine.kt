@@ -85,7 +85,7 @@ class TreeSyncEngine(
         maxDepth: Int = DEFAULT_MAX_DEPTH,
         onProgress: (stage: Int, percent: Int, message: String) -> Unit = { _, _, _ -> },
     ): Result<Report> = runCatching {
-        val session = Session(adapter, share, renamePlan, maxDepth.coerceAtMost(MAX_DEPTH), onProgress)
+        val session = Session(adapter, share, renamePlan, maxDepth.coerceAtMost(MAX_DEPTH), onProgress, 1, 1)
         when (scope) {
             Scope.SUBTREE -> session.run(tree, destRootFid, taskName)
             Scope.DIRECT_ONLY -> session.runDirect(tree, destRootFid)
@@ -112,12 +112,18 @@ class TreeSyncEngine(
         renamePlan: Map<String, String> = emptyMap(),
         seasonNo: Int = TaskEntity.SEASON_FLAT,
         multiSeason: Boolean = false,
+        /** 开始保存的起点：多季看季+集，单季只看集；1/1 = 从头 */
+        startSeason: Int = 1,
+        startEpisode: Int = 1,
         /** 多季模式下「文件名季号」与「目录季号」冲突时以哪边为准（默认文件名，用户口径） */
         seasonPrefer: SeasonPrefer = SeasonPrefer.FILE,
         maxDepth: Int = DEFAULT_MAX_DEPTH,
         onProgress: (stage: Int, percent: Int, message: String) -> Unit = { _, _, _ -> },
     ): Result<Report> = runCatching {
-        val session = Session(adapter, share, renamePlan, maxDepth.coerceAtMost(MAX_DEPTH), onProgress)
+        val session = Session(
+            adapter, share, renamePlan, maxDepth.coerceAtMost(MAX_DEPTH), onProgress,
+            startSeason.coerceAtLeast(1), startEpisode.coerceAtLeast(1),
+        )
         if (multiSeason) session.runFlatMulti(tree, destRootFid, seasonPrefer) else session.runFlat(tree, destRootFid, seasonNo)
         session.report()
     }
@@ -188,6 +194,8 @@ class TreeSyncEngine(
         private val renamePlan: Map<String, String>,
         private val maxDepth: Int,
         private val onProgress: (Int, Int, String) -> Unit,
+        private val startSeason: Int,
+        private val startEpisode: Int,
     ) {
         private var restoredDirs = 0
         private var restoredFiles = 0
@@ -224,8 +232,10 @@ class TreeSyncEngine(
         suspend fun runDirect(tree: ShareNode, destRootFid: String) {
             val videos = tree.children.filter { it.isVideo }
             if (videos.isEmpty()) throw IllegalStateException("该目录下没有可转存的视频文件")
-            onProgress(0, 0, "正在处理 ${videos.size} 个视频文件")
-            syncFiles(videos, destRootFid)
+            val kept = videos.filter { !belowSingleStart(it) }
+            if (kept.isEmpty()) throw IllegalStateException(singleStartMessage())
+            onProgress(0, 0, "正在处理 ${kept.size} 个视频文件")
+            syncFiles(kept, destRootFid)
         }
 
         /**
@@ -247,17 +257,21 @@ class TreeSyncEngine(
             val plan = SeasonResolver.resolve(tree, maxDepth)
             depthSkipped.addAll(plan.depthSkipped)
             if (plan.items.isEmpty()) throw IllegalStateException(noVideoMessage(tree, TaskEntity.SEASON_FLAT))
-            videoTotal = plan.items.size
+            val keptPlan = plan.copy(
+                items = plan.items.filter { passesMultiStart(it.node, it.season(prefer)) },
+            )
+            if (keptPlan.items.isEmpty()) throw IllegalStateException(multiStartMessage())
+            videoTotal = keptPlan.items.size
             onProgress(0, 0, "比对文件")
 
-            val note = plan.summary(prefer)
-            notes += if (plan.conflictCount > 0) {
+            val note = keptPlan.summary(prefer)
+            notes += if (keptPlan.conflictCount > 0) {
                 "$note（默认按文件名；要改按目录名请编辑任务后「运行一次」确认）"
             } else {
                 note
             }
 
-            val groups = plan.groups(prefer).toSortedMap(
+            val groups = keptPlan.groups(prefer).toSortedMap(
                 compareBy<Int?> { it == null }.thenBy { it ?: 0 }
             )
             val realSeasons = groups.keys.count { it != null }
@@ -281,6 +295,8 @@ class TreeSyncEngine(
             val videos = mutableListOf<ShareNode>()
             collectVideos(tree, videos, seasonNo, depth = 0)
             if (videos.isEmpty()) throw IllegalStateException(noVideoMessage(tree, seasonNo))
+            videos.removeAll { belowSingleStart(it) }
+            if (videos.isEmpty()) throw IllegalStateException(singleStartMessage())
             videoTotal = videos.size
             onProgress(0, 0, "比对文件")
             syncFiles(videos, destRootFid)
@@ -589,6 +605,36 @@ class TreeSyncEngine(
         private fun episodeOf(name: String): Int? =
             FileNameContext(name).episodeRaw?.toIntOrNull()
 
+        /** 单季：文件名集号早于起点就跳过；解析不出集号的文件保留，避免误伤 */
+        private fun belowSingleStart(node: ShareNode): Boolean {
+            if (startEpisode <= 1) return false
+            val ep = episodeOf(node.name) ?: return false
+            return ep < startEpisode
+        }
+
+        /**
+         * 多季：前面的季整季跳过；起点那一季按集号过滤，后面的季全部保留。
+         * 季号判不出来时，只有从第 1 季起才按集号过滤；要从后面季起就保守跳过。
+         */
+        private fun passesMultiStart(node: ShareNode, season: Int?): Boolean {
+            // 特别版（Season 0）不参与正片集序，起点设置不筛它
+            if (season != null && season <= 0) return true
+            val ep = episodeOf(node.name)
+            if (season == null) {
+                if (startSeason > 1) return false
+                return ep == null || ep >= startEpisode
+            }
+            if (season < startSeason) return false
+            if (season == startSeason && ep != null && ep < startEpisode) return false
+            return true
+        }
+
+        private fun singleStartMessage(): String =
+            "开始保存设为第 $startEpisode 集，但分享里没有这一集之后的视频"
+
+        private fun multiStartMessage(): String =
+            "开始保存设为第 $startSeason 季第 $startEpisode 集，但分享里没有这之后的视频"
+
         private fun isVideoName(name: String): Boolean =
             name.substringAfterLast('.', "").lowercase() in setOf(
                 "mp4", "mkv", "mov", "m4v", "avi", "mpeg", "mpg", "ts", "zip", "cas", "iso", "",
@@ -766,5 +812,7 @@ class TreeSyncEngine(
         }
     }
 }
+
+
 
 

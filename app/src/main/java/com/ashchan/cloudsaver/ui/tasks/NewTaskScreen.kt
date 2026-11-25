@@ -158,6 +158,13 @@ fun NewTaskScreen(
     // 自定义分季：TMDB 把多篇并成一季时用（本季从全剧第几集开始 / 本季共几集）
     var seasonStartEp by remember { mutableStateOf(stash?.seasonStartEp ?: editingTask?.seasonStartEp ?: 0) }
     var seasonEpCount by remember { mutableStateOf(stash?.seasonEpCount ?: editingTask?.seasonEpCount ?: 0) }
+    // 开始保存：单季只看集，多季看季 + 集；1/1 = 从头
+    var saveStartSeason by remember {
+        mutableStateOf((stash?.saveStartSeason ?: editingTask?.saveStartSeason ?: 1).takeIf { it > 1 } ?: 0)
+    }
+    var saveStartEpisode by remember {
+        mutableStateOf((stash?.saveStartEpisode ?: editingTask?.saveStartEpisode ?: 1).takeIf { it > 1 } ?: 0)
+    }
     var folderWithTmdbId by remember { mutableStateOf(stash?.folderWithTmdbId ?: editingTask?.folderWithTmdbId ?: false) }
     var ruleKey by remember { mutableStateOf(stash?.ruleKey ?: editingTask?.ruleKey ?: "") }
     var tmdbId by remember { mutableStateOf(stash?.tmdbId ?: editingTask?.tmdbId?.toString() ?: "") }
@@ -190,7 +197,7 @@ fun NewTaskScreen(
     }
 
     // 新建任务页的表单随改随存一份快照（离开页面时组合被销毁，切 tab 回来靠它回填）
-    LaunchedEffect(editing, name, slots.map { it.text }, drive, saveFid, savePathLabel, seasonNo, seasonStartEp, seasonEpCount, folderWithTmdbId, ruleKey, tmdbId, tmdbTitle, weekdays, weekdaysManual, updateModeAuto) {
+    LaunchedEffect(editing, name, slots.map { it.text }, drive, saveFid, savePathLabel, seasonNo, seasonStartEp, seasonEpCount, saveStartSeason, saveStartEpisode, folderWithTmdbId, ruleKey, tmdbId, tmdbTitle, weekdays, weekdaysManual, updateModeAuto) {
         if (editing) return@LaunchedEffect
         viewModel.stashDraftForm(
             TasksViewModel.DraftForm(
@@ -202,6 +209,8 @@ fun NewTaskScreen(
                 seasonNo = seasonNo,
                 seasonStartEp = seasonStartEp,
                 seasonEpCount = seasonEpCount,
+                saveStartSeason = saveStartSeason,
+                saveStartEpisode = saveStartEpisode,
                 folderWithTmdbId = folderWithTmdbId,
                 ruleKey = ruleKey,
                 tmdbId = tmdbId,
@@ -296,6 +305,8 @@ fun NewTaskScreen(
                         seasonNo = seasonNo,
                         seasonStartEp = seasonStartEp,
                         seasonEpCount = seasonEpCount,
+                        saveStartSeason = saveStartSeason,
+                        saveStartEpisode = saveStartEpisode,
                         folderWithTmdbId = effectiveFolder,
                         driveOverride = drive,
                     )
@@ -312,6 +323,8 @@ fun NewTaskScreen(
                         seasonNo = seasonNo,
                         seasonStartEp = seasonStartEp,
                         seasonEpCount = seasonEpCount,
+                        saveStartSeason = saveStartSeason,
+                        saveStartEpisode = saveStartEpisode,
                         folderWithTmdbId = effectiveFolder,
                         driveOverride = drive,
                         updateModeAuto = updateModeAuto,
@@ -329,6 +342,8 @@ fun NewTaskScreen(
                         seasonNo = seasonNo,
                         seasonStartEp = seasonStartEp,
                         seasonEpCount = seasonEpCount,
+                        saveStartSeason = saveStartSeason,
+                        saveStartEpisode = saveStartEpisode,
                         folderWithTmdbId = effectiveFolder,
                         driveOverride = drive,
                         updateModeAuto = updateModeAuto,
@@ -688,6 +703,37 @@ fun NewTaskScreen(
                 }
             )
 
+            // 开始保存：单季只选集数，多季多一个季数；空白 = 从头
+            SectionLabel("开始保存")
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (seasonNo == TaskEntity.SEASON_MULTI) {
+                    Text("从第", style = MaterialTheme.typography.bodyMedium)
+                    CompactNumberField(
+                        value = saveStartSeason,
+                        onValueChange = { saveStartSeason = it },
+                    )
+                    Text("季", style = MaterialTheme.typography.bodyMedium)
+                } else {
+                    Text("从第", style = MaterialTheme.typography.bodyMedium)
+                }
+                CompactNumberField(
+                    value = saveStartEpisode,
+                    onValueChange = { saveStartEpisode = it },
+                )
+                Text("集起", style = MaterialTheme.typography.bodyMedium)
+            }
+            FieldHint(
+                if (seasonNo == TaskEntity.SEASON_MULTI) {
+                    "留空从第 1 季第 1 集开始"
+                } else {
+                    "留空从第 1 集开始"
+                }
+            )
+
             // 更新日：七个排一排；绑了 TMDB 可以一键重算
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 SectionLabel("更新日")
@@ -934,6 +980,60 @@ private const val MAX_SOURCES = 5
  * 一行是「框 + 按钮」而不是「大框挂小扣子」。48dp 同时是规范里的最小可点尺寸。
  */
 private val ROW_HEIGHT = 48.dp
+
+/**
+ * 紧凑数字框：56dp 宽、48dp 高，数字居中，空白显示占位 1。
+ * 只收数字，最多 3 位；0 当作「没填」，提交时统一按 1 处理。
+ */
+@Composable
+private fun CompactNumberField(
+    value: Int,
+    onValueChange: (Int) -> Unit,
+) {
+    var focused by remember { mutableStateOf(false) }
+    BasicTextField(
+        value = if (value > 0) value.toString() else "",
+        onValueChange = {
+            val digits = it.filter(Char::isDigit).take(3)
+            onValueChange(digits.toIntOrNull() ?: 0)
+        },
+        singleLine = true,
+        textStyle = MaterialTheme.typography.bodyLarge.copy(
+            color = MaterialTheme.colorScheme.onSurface,
+            textAlign = TextAlign.Center,
+        ),
+        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+        modifier = Modifier
+            .width(56.dp)
+            .height(ROW_HEIGHT)
+            .onFocusChanged { focused = it.isFocused },
+        decorationBox = { inner ->
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .border(
+                        width = if (focused) 2.dp else 1.dp,
+                        color = if (focused) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.outline.copy(alpha = 0.6f)
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (value <= 0) {
+                    Text(
+                        "1",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                inner()
+            }
+        },
+    )
+}
 
 /** 链接行：带稳定 id，删中间行不会串内容；selection 用来让长链接默认露前段 */
 private data class LinkSlot(
@@ -1568,6 +1668,9 @@ private fun DraftRunText(text: String, color: Color, animated: Boolean) {
             .padding(bottom = 6.dp),
     )
 }
+
+
+
 
 
 

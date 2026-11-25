@@ -407,6 +407,8 @@ class TaskRunner(
                         renamePlan = renameOutcome?.plan ?: emptyMap(),
                         seasonNo = if (multiSeason) TaskEntity.SEASON_FLAT else task.seasonNo,
                         multiSeason = multiSeason,
+                        startSeason = task.saveStartSeason,
+                        startEpisode = task.saveStartEpisode,
                         // 引擎按「比对文件 / 转存 3/20 / 改名 5/12」逐条上报，直接翻到卡片上
                         onProgress = { _, _, message ->
                             onPhase(withSource(label, links.size, message))
