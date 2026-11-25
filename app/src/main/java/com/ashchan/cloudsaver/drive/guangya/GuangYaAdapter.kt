@@ -274,16 +274,19 @@ class GuangYaAdapter(private var accessToken: String = "", private var refreshTo
     override suspend fun fetchShareChildren(share: ShareInfo, parentId: String?): Result<List<DriveFile>> =
         runCatching {
             if (share.accessToken.isBlank()) throw IllegalStateException("缺少分享访问令牌")
-            val items = mutableListOf<DriveFile>()
-            val seen = mutableSetOf<String>()
-            var page = 1
+            // 光鸭分享列表接口实测**不认 page**（page=1/2/3 返回同一批），只能靠 pageSize 一次拿全。
+            // 以前固定 pageSize=50 + page 自增，目录里第 51 个文件起永远读不到（整段集数丢失）。
+            var pageSize = SHARE_PAGE_SIZE
+            var items = mutableListOf<DriveFile>()
+            var total = -1
+            var attempt = 0
             while (true) {
                 val payload = api.shareFilesList(
                     JsonObject().apply {
                         addProperty("accessToken", share.accessToken)
                         addProperty("parentId", parentId.orEmpty())
-                        addProperty("page", page)
-                        addProperty("pageSize", 50)
+                        addProperty("page", 1)
+                        addProperty("pageSize", pageSize)
                         addProperty("orderBy", 0)
                         addProperty("sortType", 0)
                     }
@@ -292,14 +295,13 @@ class GuangYaAdapter(private var accessToken: String = "", private var refreshTo
                     throw IllegalStateException("获取分享文件列表失败：${GuangYaResp.message(payload)}")
                 }
                 val batch = GuangYaResp.items(payload)
-                if (batch.size() == 0) break
-                var added = 0
+                items = mutableListOf()
+                val seen = mutableSetOf<String>()
                 for (el in batch) {
                     if (!el.isJsonObject) continue
                     val item = el.asJsonObject
                     val fid = GuangYaResp.fid(item)
                     if (!seen.add(fid)) continue
-                    added++
                     items += DriveFile(
                         fid = fid,
                         name = GuangYaResp.name(item),
@@ -309,13 +311,22 @@ class GuangYaAdapter(private var accessToken: String = "", private var refreshTo
                         source = FileSource.SHARE,
                     )
                 }
-                // 分页保护：本页无新增（接口不认 page，重复返回同一批）立即停
-                if (added == 0) break
-                val total = GuangYaResp.total(payload)
-                if (total >= 0 && items.size >= total) break
-                if (batch.size() < 50) break
-                page++
-                if (page > MAX_PAGES) break
+                total = GuangYaResp.total(payload)
+                // 目录比一页大：把 pageSize 提到 total 再请求一次（page 无效，只能这样）
+                val short = total > items.size
+                if (short && total <= MAX_SHARE_PAGE_SIZE && attempt < 2 && pageSize < total) {
+                    pageSize = total
+                    attempt++
+                    continue
+                }
+                if (short) {
+                    android.util.Log.w(
+                        "GuangYaDebug",
+                        "分享目录被截断：total=$total 只拿到 ${items.size}，parentId=${parentId.orEmpty()}" +
+                            "（pageSize 上限 $MAX_SHARE_PAGE_SIZE）",
+                    )
+                }
+                break
             }
             items
         }
@@ -566,6 +577,10 @@ class GuangYaAdapter(private var accessToken: String = "", private var refreshTo
         private const val MAX_DIFF_RETRIES = 30
         /** 分页硬上限：170 个 50 条页足够覆盖任何正常目录，防接口分页失效时打爆请求 */
         private const val MAX_PAGES = 40
+        /** 分享列表每页条数：接口不认 page，只能把一页开大（实测 200 能拿回 87/87、100/100） */
+        private const val SHARE_PAGE_SIZE = 200
+        /** 分享列表单次最多要这么多条；超过就分不出来，只能打日志告警 */
+        private const val MAX_SHARE_PAGE_SIZE = 1000
 
         private fun splitCredential(credential: String): Pair<String, String> {
             val parts = credential.split("||", limit = 2)
