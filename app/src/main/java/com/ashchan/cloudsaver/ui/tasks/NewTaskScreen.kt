@@ -13,6 +13,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -586,8 +587,14 @@ fun NewTaskScreen(
                 }
             }
 
+            // 设置区按「组」排：组间 24dp，组内标题→控件 8dp、控件→说明 4dp
+            Column(
+                Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(24.dp),
+            ) {
             // 保存位置：网盘 + 目录合成一行，点进去从网盘根开始逐层下钻
-            SectionLabel("保存位置")
+            FormGroup {
+            SectionLabel("保存位置", Modifier.padding(bottom = 4.dp))
             SettingRow(
                 icon = {
                     Icon(
@@ -610,9 +617,11 @@ fun NewTaskScreen(
                 },
                 onClick = { showPathPicker = true },
             )
+            }
 
             // 季度三选一：平铺 / 输入季数（含 0 = 特别版）/ 多季；按钮下用一行小黑字说明落盘结构
-            SectionLabel("季度")
+            FormGroup {
+            SectionLabel("季度", Modifier.padding(bottom = 4.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SmallChoice(
                     "平铺",
@@ -651,9 +660,11 @@ fun NewTaskScreen(
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }
+            }
 
             // 命名规则：默认 / 通用命名 / tmdb id，三项并排一行
-            SectionLabel("命名规则")
+            FormGroup {
+            SectionLabel("命名规则", Modifier.padding(bottom = 4.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 SmallChoice(
                     text = "默认",
@@ -683,9 +694,11 @@ fun NewTaskScreen(
                     else -> "原名原目录"
                 }
             )
+            }
 
             // 开始保存：单季只选集数，多季多一个季数；空白 = 从头
-            SectionLabel("开始保存")
+            FormGroup {
+            SectionLabel("开始保存", Modifier.padding(bottom = 4.dp))
             Row(
                 Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
@@ -714,8 +727,10 @@ fun NewTaskScreen(
                     "留空从第 1 集开始"
                 }
             )
+            }
 
             // 更新日：七个排一排；绑了 TMDB 可以一键重算
+            FormGroup {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 SectionLabel("更新日")
                 Spacer(Modifier.weight(1f))
@@ -773,6 +788,8 @@ fun NewTaskScreen(
                         )
                     }
                 }
+            }
+            }
             }
 
             error?.let {
@@ -1002,12 +1019,30 @@ private data class LinkSlot(
 
 // ---------------- 子块 ----------------
 
+/**
+ * 表单的一组：组内标题→控件 8dp（标题自带 4dp 底距 + 4dp 间距）、控件→说明 4dp。
+ * 组与组之间由外层 Column 的 24dp 拉开，视觉上自然成块。
+ */
 @Composable
-private fun SectionLabel(text: String) {
+private fun FormGroup(content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        content = content,
+    )
+}
+
+@Composable
+private fun SectionLabel(
+    text: String,
+    modifier: Modifier = Modifier,
+) {
     Text(
         text = text,
         style = MaterialTheme.typography.labelLarge,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurface,
+        modifier = modifier,
     )
 }
 
@@ -1229,7 +1264,6 @@ private fun FieldHint(text: String) {
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         maxLines = 2,
         overflow = TextOverflow.Ellipsis,
-        modifier = Modifier.padding(top = 6.dp),
     )
 }
 
@@ -1626,6 +1660,8 @@ private fun DraftRunText(text: String, color: Color, animated: Boolean) {
             .padding(bottom = 6.dp),
     )
 }
+
+
 
 
 

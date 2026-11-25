@@ -54,9 +54,13 @@
 | --- | --- |
 | <img src="screenshots/01-home.png" width="320"> | <img src="screenshots/02-newtask.png" width="320"> |
 
-| 日志 | 设置 |
+| 运行日志 | 设置 |
 | --- | --- |
 | <img src="screenshots/03-log.png" width="320"> | <img src="screenshots/04-settings.png" width="320"> |
+
+| TMDB 匹配（可选） |
+| --- |
+| <img src="screenshots/05-tmdb.png" width="320"> |
 
 ## 🛠 构建
 
