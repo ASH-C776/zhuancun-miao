@@ -75,7 +75,7 @@ class MainActivity : ComponentActivity() {
         com.ashchan.cloudsaver.core.AppLog.install(this)
         // 调试/联调用：--ez wakeScreen true 让本页把屏幕点亮（HyperOS 拒绝 adb input 注入，
         // 真机回归截屏前只能靠 App 自己 setTurnScreenOn，否则截出来是一片黑）
-        if (intent?.getBooleanExtra("wakeScreen", false) == true) {
+        if (BuildConfig.DEBUG && intent?.getBooleanExtra("wakeScreen", false) == true) {
             setTurnScreenOn(true)
             setShowWhenLocked(true)
             window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
@@ -110,49 +110,51 @@ class MainActivity : ComponentActivity() {
         if (!sharedText.isNullOrBlank()) {
             viewModel.pendingExternalLink = sharedText
         }
-        // 调试/联调用：adb ... --ez openNewTask true 直接拉起「新建任务」弹窗
-        val openNewTask = intent?.getBooleanExtra("openNewTask", false) ?: false
-        // 调试/联调用：adb ... --es debugTaskName 剧名 --es debugShareUrl 链接
-        // 绕开 HyperOS 拒绝 input 事件、无法在弹窗里打字的限制，直接建任务并同步
-        val debugName = intent?.getStringExtra("debugTaskName")
-        val debugUrl = intent?.getStringExtra("debugShareUrl")
-        // 多源调试：--es debugShareUrl2 再加一个附加源
-        val debugUrl2 = intent?.getStringExtra("debugShareUrl2")
-        if (!debugName.isNullOrBlank() && !debugUrl.isNullOrBlank()) {
-            tasksViewModel.createTask(
-                debugName,
-                listOfNotNull(debugUrl, debugUrl2),
-                "",
-                "",
-            )
-        }
-        // 调试/联调用：adb ... --ez debugRunAll true 直接跑一轮「全部检测」
-        if (intent?.getBooleanExtra("debugRunAll", false) == true) {
-            tasksViewModel.runAll()
-        }
-        // 调试/联调用：adb ... --ez openRunLog true 直接进「运行日志」页
-        if (intent?.getBooleanExtra("openRunLog", false) == true) {
-            viewModel.go(com.ashchan.cloudsaver.ui.Screen.RUNLOG)
-        }
-        // 调试/联调用：adb ... --ez openSettings true 直接进「设置」页
-        if (intent?.getBooleanExtra("openSettings", false) == true) {
-            viewModel.go(com.ashchan.cloudsaver.ui.Screen.SETTINGS)
-        }
-        // 调试/联调用：adb ... --es editTaskName 剧名 直接进该任务的编辑页
-        intent?.getStringExtra("editTaskName")?.takeIf { it.isNotBlank() }?.let { n ->
-            tasksViewModel.editByName(n) {
-                viewModel.go(com.ashchan.cloudsaver.ui.Screen.NEW_TASK)
-            }
-        }
-        // 调试/联调用：adb ... --es debugTmdbPing KEY [--es debugTmdbBase 地址] 只做一次 TMDB 探活
-        intent?.getStringExtra("debugTmdbPing")?.takeIf { it.isNotBlank() }?.let { key ->
-            val base = intent?.getStringExtra("debugTmdbBase") ?: "https://api.themoviedb.org"
-            lifecycleScope.launch {
-                val r = com.ashchan.cloudsaver.core.tmdb.TmdbClient(key, base).ping()
-                android.util.Log.i(
-                    "TmdbDebug",
-                    "base=$base ok=${r.isSuccess} value=${r.getOrNull() ?: r.exceptionOrNull()?.message}"
+        // 调试/联调用入口：只在 debug 包生效；release 包里这些 extra 全部失效
+        val openNewTask = BuildConfig.DEBUG && (intent?.getBooleanExtra("openNewTask", false) ?: false)
+        if (BuildConfig.DEBUG) {
+            // --ez debugTaskName 剧名 --es debugShareUrl 链接
+            // 绕开 HyperOS 拒绝 input 事件、无法在弹窗里打字的限制，直接建任务并同步
+            val debugName = intent?.getStringExtra("debugTaskName")
+            val debugUrl = intent?.getStringExtra("debugShareUrl")
+            // 多源调试：--es debugShareUrl2 再加一个附加源
+            val debugUrl2 = intent?.getStringExtra("debugShareUrl2")
+            if (!debugName.isNullOrBlank() && !debugUrl.isNullOrBlank()) {
+                tasksViewModel.createTask(
+                    debugName,
+                    listOfNotNull(debugUrl, debugUrl2),
+                    "",
+                    "",
                 )
+            }
+            // --ez debugRunAll true 直接跑一轮「全部检测」
+            if (intent?.getBooleanExtra("debugRunAll", false) == true) {
+                tasksViewModel.runAll()
+            }
+            // --ez openRunLog true 直接进「运行日志」页
+            if (intent?.getBooleanExtra("openRunLog", false) == true) {
+                viewModel.go(com.ashchan.cloudsaver.ui.Screen.RUNLOG)
+            }
+            // --ez openSettings true 直接进「设置」页
+            if (intent?.getBooleanExtra("openSettings", false) == true) {
+                viewModel.go(com.ashchan.cloudsaver.ui.Screen.SETTINGS)
+            }
+            // --es editTaskName 剧名 直接进该任务的编辑页
+            intent?.getStringExtra("editTaskName")?.takeIf { it.isNotBlank() }?.let { n ->
+                tasksViewModel.editByName(n) {
+                    viewModel.go(com.ashchan.cloudsaver.ui.Screen.NEW_TASK)
+                }
+            }
+            // --es debugTmdbPing KEY [--es debugTmdbBase 地址] 只做一次 TMDB 探活
+            intent?.getStringExtra("debugTmdbPing")?.takeIf { it.isNotBlank() }?.let { key ->
+                val base = intent?.getStringExtra("debugTmdbBase") ?: "https://api.themoviedb.org"
+                lifecycleScope.launch {
+                    val r = com.ashchan.cloudsaver.core.tmdb.TmdbClient(key, base).ping()
+                    android.util.Log.i(
+                        "TmdbDebug",
+                        "base=$base ok=${r.isSuccess} value=${r.getOrNull() ?: r.exceptionOrNull()?.message}"
+                    )
+                }
             }
         }
         setContent {

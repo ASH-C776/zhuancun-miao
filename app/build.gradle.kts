@@ -68,6 +68,8 @@ android {
 
     buildFeatures {
         compose = true
+        // 供 BuildConfig.DEBUG 使用：调试入口/调试日志只在 debug 包生效
+        buildConfig = true
     }
 
     lint {
@@ -97,7 +99,7 @@ dependencies {
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
     implementation("com.squareup.retrofit2:converter-gson:2.11.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
+    // 已移除 logging-interceptor：全项目未使用，凭证日志改由 GuangYaAdapter 内按 BuildConfig.DEBUG 门控
 
     // 后台调度：WorkManager（自动刷新用）
     implementation("androidx.work:work-runtime-ktx:2.9.1")

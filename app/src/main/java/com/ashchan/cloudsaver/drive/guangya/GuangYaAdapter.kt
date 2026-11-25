@@ -49,18 +49,11 @@ class GuangYaAdapter(private var accessToken: String = "", private var refreshTo
                     }
                     .build()
                 val response = chain.proceed(req)
-                // 临时调试日志：打印主 API 的请求/响应原文（定位 fileList 解析问题，后续移除）
-                runCatching {
-                    val buffer = okio.Buffer()
-                    req.body?.writeTo(buffer)
-                    android.util.Log.i(
-                        "GuangYaDebug",
-                        "REQ ${req.url} BODY=${buffer.readUtf8()}"
-                    )
-                    android.util.Log.i(
-                        "GuangYaDebug",
-                        "RESP ${req.url} CODE=${response.code} BODY=${response.peekBody(50000).string()}"
-                    )
+                // 调试日志只在 debug 包生效，且只打网址与状态码：
+                // 请求体会带账号信息、响应体带 access_token，一律不落日志
+                if (com.ashchan.cloudsaver.BuildConfig.DEBUG) {
+                    android.util.Log.d("GuangYaDebug", "REQ ${req.method} ${req.url}")
+                    android.util.Log.d("GuangYaDebug", "RESP ${req.url} CODE=${response.code}")
                 }
                 response
             }
