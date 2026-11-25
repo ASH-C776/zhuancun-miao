@@ -46,27 +46,6 @@ class TasksViewModel(
     private val tmdbStore: TmdbStore? = null,
 ) : ViewModel() {
 
-    init {
-        // 任务本体跑在前台服务里（熄屏/切后台不断），这里只订阅它的阶段与完成事件。
-        // 试跑（新建页）仍走本 VM 的 viewModelScope，不影响下面这路只读订阅。
-        viewModelScope.launch {
-            com.ashchan.cloudsaver.sync.TaskRunBus.phases.collect { phaseMap ->
-                _running.value = phaseMap
-                // 服务里所有任务跑完（阶段表清空）→ 收掉「一键全部」的整体进度文案
-                if (phaseMap.isEmpty()) _progress.value = null
-            }
-        }
-        viewModelScope.launch {
-            com.ashchan.cloudsaver.sync.TaskRunBus.finished.collect { (id, ok) ->
-                _finished.update { it + (id to ok) }
-                viewModelScope.launch {
-                    delay(1500)
-                    _finished.update { it - id }
-                }
-            }
-        }
-    }
-
     val cards: StateFlow<List<TaskCard>> = repo.observeCards()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -96,6 +75,28 @@ class TasksViewModel(
     /** 「全部/自动」执行时的整体进度文案 */
     private val _progress = MutableStateFlow<String?>(null)
     val progress: StateFlow<String?> = _progress.asStateFlow()
+
+    init {
+        // 必须写在这些 StateFlow 声明之后：Kotlin 按声明顺序初始化属性，
+        // init 提前跑会让 _running / _finished / _progress 还是 null（上一版就是这里秒闪）。
+        // 任务本体跑在前台服务里（熄屏/切后台不断），这里只订阅阶段与完成事件。
+        viewModelScope.launch {
+            com.ashchan.cloudsaver.sync.TaskRunBus.phases.collect { phaseMap ->
+                _running.value = phaseMap
+                // 服务里所有任务跑完（阶段表清空）→ 收掉「一键全部」的整体进度文案
+                if (phaseMap.isEmpty()) _progress.value = null
+            }
+        }
+        viewModelScope.launch {
+            com.ashchan.cloudsaver.sync.TaskRunBus.finished.collect { (id, ok) ->
+                _finished.update { it + (id to ok) }
+                viewModelScope.launch {
+                    delay(1500)
+                    _finished.update { it - id }
+                }
+            }
+        }
+    }
 
     /**
      * 「运行一次」（试跑，不保存任务）的三段反馈：

@@ -1526,6 +1526,12 @@ Kotlin 的 `find` 取的是「全文最靠前的匹配」，不是「最靠前�
 - `ui/tasks/TasksViewModel.kt`：`runTask` / `runAll` 改为 `TaskRunService.startTask / startAll`；`running` 改由 `TaskRunBus.phases` 订阅，`finished` 由事件流驱动；一键全部结束自动收掉整体进度文案。构造新增 `appContext`（`MainActivity` 已同步）。
 - `AndroidManifest.xml`：注册 `<service … stopWithTask="false">`，新增 `ACCESS_WIFI_STATE` 权限。
 
+**修复（同日秒闪）**
+- 现象：0.8.9 首次装机后「打开 App 秒闪」。debug 堆栈指向 `TasksViewModel.<init>` 里的 `init` 块 `emit`。
+- 根因：Kotlin 按声明顺序初始化属性，`init {}` 写在 `_running/_finished/_progress` 声明之前 → 订阅回调触发时这三个 `MutableStateFlow` 还是 null，`_running.value = …` 直接 NPE。
+- 修法：把 `init` 块整体挪到三个 StateFlow 声明之后，并加注释说明顺序约束；逻辑一行未改。
+
 **验证**
+- debug / release 双版本均启动不闪退（`pidof` 存活、`mCurrentFocus` 为转存喵）。
 - `assembleRelease` 通过，装机 versionCode=809。
 - 真机待测：点运行 → 立即熄屏 5 分钟 → 亮屏看日志是否连续；再测切后台、划掉最近任务、通知栏取消。
