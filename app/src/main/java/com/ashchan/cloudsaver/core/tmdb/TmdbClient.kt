@@ -99,13 +99,14 @@ class TmdbClient(
      */
     suspend fun totalEpisodes(tvId: Long, season: Int?, info: TmdbTvInfo? = null, language: String = "zh-CN"): Int {
         if (season != null && season >= 0) {
-            // 先信 /tv/{id} 里的 seasons[]，没有再拉这一季的集表去数
+            // 指定了季就只认这一季：先信 /tv/{id} 里的 seasons[]，没有再拉这一季的集表去数；
+            // 该季不存在就返回 0，绝不退化成「全剧总数」——否则会把「第4季」显示成 200 集。
             val tv = info ?: fetchTv(tvId, language).getOrNull()
             val fromSummary = tv?.seasonCount(season) ?: 0
             if (fromSummary > 0) return fromSummary
             val list = fetchSeason(tvId, season, language).getOrNull().orEmpty()
             val distinct = list.mapNotNull { it.episode.takeIf { n -> n > 0 } }.toSortedSet().size
-            if (distinct > 0) return distinct
+            return distinct
         }
         val tv = info ?: fetchTv(tvId, language).getOrNull()
         return tv?.totalEpisodes ?: 0

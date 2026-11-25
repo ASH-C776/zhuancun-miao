@@ -69,6 +69,11 @@ object EpisodeStats {
         var ambiguous = 0
         var movies = 0
         val unparsed = mutableListOf<String>()
+        // 指定季的口径：目标目录本身已经是 `Season N`，文件名里的季号可能是错的
+        // （源资源常年按 S01 命名、或规则默认补 S01），不能拿它把整目录否掉。
+        // 只排除「明显躺在别的季目录里」的文件。
+        val fixedEpisodes = mutableSetOf<Int>()
+        var fixedFiles = 0
 
         entries.forEach { entry ->
             if (!VideoTypes.isVideo(entry.name) || VideoTypes.isNoise(entry.name)) return@forEach
@@ -88,6 +93,11 @@ object EpisodeStats {
             val season = seasonOf(entry)
             bySeason.getOrPut(season) { mutableSetOf() } += ep
             bucketFiles[season] = (bucketFiles[season] ?: 0) + 1
+            val dirSeason = EpisodeKey.dirSeason(entry.dirs)
+            if (dirSeason == null || dirSeason == fixedSeason) {
+                fixedEpisodes += ep
+                fixedFiles++
+            }
         }
 
         val chosenBuckets: List<Int?> = when (mode) {
@@ -98,9 +108,21 @@ object EpisodeStats {
             // 平铺的口径就是第一季（剧名.S01E01.后缀）
             Mode.FLAT -> listOf(1, null)
         }
-        val chosen = chosenBuckets.flatMap { bySeason[it].orEmpty() }.toSortedSet()
-        val countedFiles = chosenBuckets.sumOf { bucketFiles[it] ?: 0 }
-        val otherSeason = bucketFiles.filterKeys { it !in chosenBuckets }.values.sum()
+        val chosen = if (mode == Mode.FIXED) {
+            fixedEpisodes.toSortedSet()
+        } else {
+            chosenBuckets.flatMap { bySeason[it].orEmpty() }.toSortedSet()
+        }
+        val countedFiles = if (mode == Mode.FIXED) {
+            fixedFiles
+        } else {
+            chosenBuckets.sumOf { bucketFiles[it] ?: 0 }
+        }
+        val otherSeason = if (mode == Mode.FIXED) {
+            (bucketFiles.values.sum() - fixedFiles).coerceAtLeast(0)
+        } else {
+            bucketFiles.filterKeys { it !in chosenBuckets }.values.sum()
+        }
         val mergedAll = mutableMapOf<Int, MutableSet<Int>>()
         bySeason.forEach { (k, set) ->
             // 特别版（Season 0）不算进多季总数，跟 TMDB 只累加正季的口径保持一致

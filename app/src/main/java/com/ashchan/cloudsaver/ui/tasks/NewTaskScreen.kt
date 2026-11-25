@@ -165,8 +165,11 @@ fun NewTaskScreen(
     var posterVersion by remember { mutableStateOf(0) }
     // 「S1 52集 · S2 54集」，让用户在选季度前就知道每季各多少集
     var tmdbSeasonText by remember { mutableStateOf("") }
+    var tmdbSeasonNumbers by remember { mutableStateOf<List<Int>>(emptyList()) }
     LaunchedEffect(tmdbId) {
         tmdbSeasonText = if (tmdbId.isBlank()) "" else viewModel.tmdbSeasonSummary(tmdbId.toLongOrNull() ?: 0)
+        tmdbSeasonNumbers = if (tmdbId.isBlank()) emptyList()
+        else viewModel.tmdbSeasonNumbers(tmdbId.toLongOrNull() ?: 0)
     }
     // 播出时刻字段已删除（不参与任何执行逻辑）；TaskEntity 里的列保留但不再读写
     var weekdays by remember {
@@ -623,6 +626,16 @@ fun NewTaskScreen(
                     else -> "剧名/视频文件"
                 }
             )
+            // 选了 TMDB 上不存在的季：这里直接拦住，别等跑完才发现 E—、盘里 0 集
+            if (tmdbSeasonNumbers.isNotEmpty() && seasonNo > 0 && seasonNo !in tmdbSeasonNumbers) {
+                Text(
+                    text = "TMDB 上这部剧只有 S${tmdbSeasonNumbers.min()}–S${tmdbSeasonNumbers.max()}，" +
+                        "没有 S$seasonNo，请改选季度或选「多季」",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+            }
 
             // 命名规则：默认 / 通用命名 / tmdb id，三项并排一行
             SectionLabel("命名规则")

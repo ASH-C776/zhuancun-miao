@@ -485,9 +485,12 @@ class TaskRunner(
 
         // 完整度缺口（总数 - 已收）只进运行日志：卡片与进度条走「追剧」口径，
         // 这里补一句「盘里 114 集 / 共 211 集，缺 97 集」，两者互不顶替。
-        val finalReport = if (tmdb.bound && tmdb.totalEpisodes > 0) {
+        val finalReport = if (tmdb.bound || tmdb.scopeIssue != null) {
             val extra = buildList {
-                add(SnapshotCalc.gapText(haveEpisodes(counted), tmdb.latestEpisode, tmdb.totalEpisodes))
+                if (tmdb.bound && tmdb.totalEpisodes > 0) {
+                    add(SnapshotCalc.gapText(haveEpisodes(counted), tmdb.latestEpisode, tmdb.totalEpisodes))
+                }
+                tmdb.scopeIssue?.let { add(it) }
                 // 多季：逐季列一行，整季目录缺失也逃不掉
                 if (statMode == EpisodeStats.Mode.MULTI && tmdb.seasonTargets.isNotEmpty()) {
                     tmdb.seasonTargets.entries.sortedBy { it.key }.forEach { (season, target) ->
@@ -496,7 +499,7 @@ class TaskRunner(
                     }
                 }
             }
-            report.copy(notes = report.notes + extra)
+            if (extra.isEmpty()) report else report.copy(notes = report.notes + extra)
         } else {
             report
         }
@@ -606,6 +609,8 @@ class TaskRunner(
         val countSeason: Int? = null,
         /** 多季口径：每季的目标集数（S1 起，不含特别版），用于逐季对账 */
         val seasonTargets: Map<Int, Int> = emptyMap(),
+        /** 口径本身有问题（例如任务选了 TMDB 上不存在的季），写进运行日志提醒用户 */
+        val scopeIssue: String? = null,
     ) {
         /** 是否绑上了 TMDB（没绑就没有「缺几集」这把尺子，多源也就无法判断补齐） */
         val bound: Boolean get() = latestEpisode > 0 || totalEpisodes > 0
@@ -636,7 +641,12 @@ class TaskRunner(
         val files = tree.flattenFiles().filter { it.isVideo }.map { it.file }
         if (files.isEmpty()) return RenameOutcome(emptyMap(), emptySet())
 
-        val previews = RenameEngine().preview(files, listOf(rule), task.name.trim())
+        val previews = RenameEngine().preview(
+            files,
+            listOf(rule),
+            task.name.trim(),
+            seasonOverride = task.seasonNo.takeIf { it > 0 },
+        )
         // 同一轮里「两个文件算出同一个新名」是解析出错的信号：宁可保留原名，
         // 也不要把一整季都往同一个名字上撞（服务器会逐个拒绝，日志刷一屏「改名失败」）。
         val used = mutableSetOf<String>()
@@ -695,6 +705,10 @@ class TaskRunner(
         } else {
             client.latestAiredEpisode(tvId, scopeSeason ?: 1, info)
         }
+        val scopeIssue = if (!multi && total == 0 && task.seasonNo >= 0) {
+            val label = if (task.seasonNo == 0) "特别版" else "第${task.seasonNo}季"
+            "TMDB 上没有${label}（这部剧共 ${info.numberOfSeasons} 季），请检查任务的季度设置"
+        } else null
         return TmdbLatest(
             latestEpisode = latest,
             weekdays = weekdays,
@@ -706,6 +720,7 @@ class TaskRunner(
             } else {
                 emptyMap()
             },
+            scopeIssue = scopeIssue,
         ).also {
             android.util.Log.i(
                 "TmdbResolve",

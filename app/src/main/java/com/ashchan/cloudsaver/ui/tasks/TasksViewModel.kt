@@ -584,6 +584,15 @@ class TasksViewModel(
         if (parts.isEmpty()) "" else parts.joinToString(" · ")
     }.getOrDefault("")
 
+    /** 这部剧在 TMDB 上有哪些正季（用来校验用户填的季号是否存在） */
+    suspend fun tmdbSeasonNumbers(tvId: Long): List<Int> = runCatching {
+        val store = tmdbStore ?: return@runCatching emptyList()
+        val credential = store.loadCredential()?.takeIf { it.isNotBlank() } ?: return@runCatching emptyList()
+        TmdbClient(credential, store.loadBaseUrl()).fetchTv(tvId).getOrNull()
+            ?.seasons?.filter { it.seasonNumber >= 1 }?.map { it.seasonNumber }
+            ?: emptyList()
+    }.getOrDefault(emptyList())
+
     /** TMDB 搜索（新建页选剧用）。未配置凭证时直接给出可读原因 */    suspend fun searchTv(query: String): Result<List<TmdbSearchItem>> {
         val store = tmdbStore ?: return Result.failure(IllegalStateException("TMDB 不可用"))
         val credential = store.loadCredential()?.takeIf { it.isNotBlank() }

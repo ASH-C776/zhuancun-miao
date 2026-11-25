@@ -40,6 +40,26 @@ class EpisodeStatsTest {
     }
 
     @Test
+    fun `指定季 目标目录里的文件即使名字写着S01 也算这一季`() {
+        // 真实问题：任务选第 4 季，源文件名一直是 S01，旧逻辑按文件名季号过滤 → 21 集全被排除，盘里记 0
+        val entries = (169..189).map { e(name = "Show.S01E%03d.mkv".format(it)) }
+        val r = EpisodeStats.count(entries, EpisodeStats.Mode.FIXED, fixedSeason = 4)
+        assertEquals(21, r.episodes)
+        assertEquals(189, r.lastEpisode)
+    }
+
+    @Test
+    fun `指定季 别的季目录里的文件仍然排除`() {
+        val entries = listOf(
+            e(name = "Show.S01E01.mkv"),
+            e("Season 2", name = "Show.S02E01.mkv"),
+        )
+        val r = EpisodeStats.count(entries, EpisodeStats.Mode.FIXED, fixedSeason = 4)
+        assertEquals(1, r.episodes)
+        assertEquals(1, r.otherSeason)
+    }
+
+    @Test
     fun `平铺按第一季 特别篇和别的季不计`() {
         val entries = (1..3).map { e(name = "Show.%02d.mp4".format(it)) } +
             listOf(e("Season 0", name = "特别篇.01.mkv"), e("Season 2", name = "Show.S02E01.mkv"))

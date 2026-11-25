@@ -21,7 +21,7 @@ import java.util.regex.PatternSyntaxException
 class RenameEngine {
 
     /** 执行规则，返回每条文件的预览结果。 */
-    fun preview(files: List<DriveFile>, rules: List<RenameRule>, taskName: String): List<RenamePreview> {
+    fun preview(files: List<DriveFile>, rules: List<RenameRule>, taskName: String, seasonOverride: Int? = null): List<RenamePreview> {
         val enabled = rules.filter { it.enabled }
         // 动态补零宽度：按本批文件最大集数的位数（至少 2 位）。如 22 集 → 01；199 集 → 001。
         val maxEp = files.mapNotNull { FileNameContext(it.name).episodeRaw?.toIntOrNull() }.maxOrNull()
@@ -57,7 +57,7 @@ class RenameEngine {
                 )
             }
 
-            val applied = applyRule(matched, file.name, taskName, epWidth)
+            val applied = applyRule(matched, file.name, taskName, epWidth, seasonOverride)
             // 占位符有未解析 → newName 置 null（保持原名，不生成残缺名字）
             val newName = if (applied.unresolvedPlaceholders.isNotEmpty()) null else applied.newName
             RenamePreview(
@@ -72,7 +72,7 @@ class RenameEngine {
     }
 
     /** 应用单条规则，返回新名与未解析占位符 */
-    fun applyRule(rule: RenameRule, fileName: String, taskName: String, epWidth: Int = 2): AppliedRule {
+    fun applyRule(rule: RenameRule, fileName: String, taskName: String, epWidth: Int = 2, seasonOverride: Int? = null): AppliedRule {
         val matcher = compile(rule.pattern).matcher(fileName)
         if (!matcher.find()) {
             return AppliedRule(fileName, emptyList())
@@ -92,7 +92,9 @@ class RenameEngine {
             if (ext.isNullOrEmpty()) unresolved.add("{EXT}") else result = result.replace("{EXT}", ext)
         }
         if (result.contains("{SXX}")) {
-            val sxx = ctx.season
+            // 指定季的任务：一律用任务里选的那一季（第4季 → S04），
+            // 不能因为源文件名没季号就默认补 S01，那会和 Season 4 目录自相矛盾
+            val sxx = if (seasonOverride != null) "S%02d".format(seasonOverride) else ctx.season
             // 与 CASX 一致：识别不到季号时默认 S01
             result = result.replace("{SXX}", sxx ?: "S01")
         }
