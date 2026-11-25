@@ -477,18 +477,20 @@ class TreeSyncEngine(
                         }
                     }
                     else -> {
-                        // 目标名没有，但盘里可能已经有「同一集、只是名字不规范」的文件：
-                        // 唯一一份 → 直接把它就地改成规范名；多份 → 不重复转存，避免越补越多。
+                        // 目标名没有，但盘里可能已经有「同一集、只是名字不规范」的文件。
+                        // 分工必须守住：检测转存只做「核对 + 补缺」，**不改名**；
+                        // 改名统一交给长按菜单里的「统一重命名」。
+                        // 这里只判定「这一集已经有了」，跳过转存，避免越补越多。
                         val ep = episodeOf(node.name)
                         val same = if (ep == null) emptyList() else localByEpisode.filter { it.first == ep }.map { it.second }
                         when {
                             same.size == 1 -> {
-                                val found = same.first()
-                                inPlace += RenameItem(found.fid, found.name, expected, found)
+                                skippedFiles++
+                                notes += "第 $ep 集盘里已有「${same.first().name}」，未重复转存（要规范名请用长按菜单「统一重命名」）"
                             }
                             same.size > 1 -> {
                                 skippedFiles++
-                                failures += "第 $ep 集盘里已有 ${same.size} 个文件，未重复转存（可先跑「统一重命名」清理）"
+                                notes += "第 $ep 集盘里已有 ${same.size} 个文件，未重复转存（可用「统一重命名」查看冲突）"
                             }
                             else -> missing += node
                         }
