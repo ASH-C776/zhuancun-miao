@@ -2,8 +2,8 @@ package com.ashchan.cloudsaver.sync
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNull
 import org.junit.Test
 import java.time.ZoneId
 
@@ -118,33 +118,4 @@ class AutoSyncConfigTest {
         assertNull(AutoSyncConfig.nextTriggerAt(emptyList(), at(2026, 11, 24, 12, 0), zone))
     }
 
-    // ---------- 充电冷却 ----------
-
-    @Test
-    fun `从未跑过不冷却`() {
-        assertFalse(AutoSyncConfig.shouldSkipCharge(0L, at(2026, 11, 24, 12, 0)))
-    }
-
-    @Test
-    fun `两小时五十九分仍在冷却内`() {
-        val last = at(2026, 11, 24, 9, 0)
-        val now = last + 2L * 60 * 60 * 1000 + 59L * 60 * 1000
-        assertTrue(AutoSyncConfig.shouldSkipCharge(last, now))
-        assertEquals(60_000L, AutoSyncConfig.chargeCooldownLeft(last, now))
-    }
-
-    @Test
-    fun `正好三小时解除冷却`() {
-        val last = at(2026, 11, 24, 9, 0)
-        val now = last + AutoSyncConfig.CHARGE_MIN_INTERVAL_MS
-        assertFalse(AutoSyncConfig.shouldSkipCharge(last, now))
-        assertEquals(0L, AutoSyncConfig.chargeCooldownLeft(last, now))
-    }
-
-    @Test
-    fun `冷却剩余不会为负`() {
-        val last = at(2026, 11, 24, 9, 0)
-        val now = last + 10L * 60 * 60 * 1000
-        assertEquals(0L, AutoSyncConfig.chargeCooldownLeft(last, now))
-    }
 }

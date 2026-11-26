@@ -18,13 +18,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -34,6 +33,8 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -63,9 +64,7 @@ fun AutoSyncSection() {
 
     var enabled by remember { mutableStateOf(prefs.enabled) }
     var slots by remember { mutableStateOf(prefs.slots) }
-    var chargeEnabled by remember { mutableStateOf(prefs.chargeEnabled) }
     var notifyEnabled by remember { mutableStateOf(prefs.notifyEnabled) }
-    var showAddDialog by remember { mutableStateOf(false) }
     // 状态卡里「距上次多久 / 下次几点」是随时间变的，用一个计数触发重算
     var rev by remember { mutableIntStateOf(0) }
 
@@ -75,9 +74,34 @@ fun AutoSyncSection() {
 
     fun refresh() {
         slots = prefs.slots
-        chargeEnabled = prefs.chargeEnabled
         notifyEnabled = prefs.notifyEnabled
         rev++
+    }
+
+    /** 系统时间表盘：选时选分即可，用户不用记 HH:mm 格式、不用打冒号 */
+    fun openTimePicker() {
+        val now = java.util.Calendar.getInstance()
+        android.app.TimePickerDialog(
+            context,
+            { _, hour, minute ->
+                val value = String.format("%02d:%02d", hour, minute)
+                val current = prefs.slots
+                if (value in current) {
+                    android.widget.Toast.makeText(
+                        context,
+                        "$value 已经添加过了",
+                        android.widget.Toast.LENGTH_SHORT,
+                    ).show()
+                } else {
+                    prefs.slots = AutoSyncConfig.normalize((current + value).joinToString(","))
+                    AutoSyncScheduler.rescheduleAll(context)
+                    refresh()
+                }
+            },
+            now.get(java.util.Calendar.HOUR_OF_DAY),
+            now.get(java.util.Calendar.MINUTE),
+            true,
+        ).show()
     }
 
     Text("自动化", style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 24.dp))
@@ -129,23 +153,11 @@ fun AutoSyncSection() {
             }
         }
         if (slots.size < AutoSyncConfig.MAX_SLOTS) {
-            AssistChip(onClick = { showAddDialog = true }, label = { Text("+ 添加") })
+            AssistChip(onClick = { openTimePicker() }, label = { Text("+ 添加") })
         }
     }
 
     Spacer(Modifier.height(12.dp))
-    SwitchRow(
-        title = "充电时刷新",
-        subtitle = "插电后立即刷新一次；若 3 小时内刚同步过则跳过",
-        checked = chargeEnabled,
-        onCheckedChange = { v ->
-            chargeEnabled = v
-            prefs.chargeEnabled = v
-            rev++
-        },
-    )
-
-    Spacer(Modifier.height(4.dp))
     SwitchRow(
         title = "跑完发通知",
         subtitle = "只在有新集时提醒，一部剧一条",
@@ -179,41 +191,46 @@ fun AutoSyncSection() {
     }
 
     Spacer(Modifier.height(12.dp))
+    // 最近的判定记录：不连电脑也能看出“这条为什么没弹”
+    val recentAlerts = remember(rev) { com.ashchan.cloudsaver.notify.AlertLog.recent(context) }
+    if (recentAlerts.isNotEmpty()) {
+        Text("最近的提醒记录", style = MaterialTheme.typography.titleSmall)
+        recentAlerts.take(6).forEach { line ->
+            Text(
+                line,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+        }
+    }
+
+    Spacer(Modifier.height(12.dp))
     // 仅 debug 包：一次发 4 条样例，覆盖「单集 / 连更范围 / 多部剧 / 无集号兜底」
     if (com.ashchan.cloudsaver.BuildConfig.DEBUG) {
+        val scope = rememberCoroutineScope()
         SwitchRow(
             title = "通知实验室",
             subtitle = "debug 专用：一次发 4 条样例，验证一剧一条、集号范围与角标",
             checked = false,
             onCheckedChange = {
-                AlertPublisher.publish(
-                    context,
-                    listOf(
-                        ShowAlert(1, "斗破苍穹", 5, 207, null, 1),
-                        ShowAlert(2, "剑来", 1, 52, 53, 2),
-                        ShowAlert(3, "仙逆", 1, 168, null, 1),
-                        ShowAlert(4, "玫瑰战争", null, null, null, 2),
-                    ),
-                )
+                scope.launch {
+                    AlertPublisher.publish(
+                        context,
+                        listOf(
+                            ShowAlert(1, "斗破苍穹", 5, 207, null, 1),
+                            ShowAlert(2, "剑来", 1, 52, 53, 2),
+                            ShowAlert(3, "仙逆", 1, 168, null, 1),
+                            ShowAlert(4, "玫瑰战争", null, null, null, 2),
+                        ),
+                    )
+                }
             },
         )
     }
 
     Spacer(Modifier.height(12.dp))
-    StatusCard(prefs = prefs, slots = slots, chargeEnabled = chargeEnabled, rev = rev)
-
-    if (showAddDialog) {
-        AddSlotDialog(
-            onDismiss = { showAddDialog = false },
-            onConfirm = { value ->
-                val merged = AutoSyncConfig.normalize((slots + value).joinToString(","))
-                prefs.slots = merged
-                AutoSyncScheduler.rescheduleAll(context)
-                showAddDialog = false
-                refresh()
-            },
-        )
-    }
+    StatusCard(prefs = prefs, slots = slots, rev = rev)
 }
 
 /** 时段 chip：点文字不做事，× 才删除，避免手滑改时间 */
@@ -265,14 +282,13 @@ private fun SwitchRow(    title: String,
 }
 
 /**
- * 状态卡：上次 / 最近 24h 次数 / 下次，外加一条随冷却变化的口径说明。
+ * 状态卡：上次 / 最近 24h 次数 / 下次。
  * 数字全部来自 prefs，界面不自己维护一份状态，避免和后台对不上。
  */
 @Composable
 private fun StatusCard(
     prefs: AutoSyncPrefs,
     slots: List<String>,
-    chargeEnabled: Boolean,
     rev: Int,
 ) {
     val zone = remember { ZoneId.systemDefault() }
@@ -283,7 +299,6 @@ private fun StatusCard(
     val total = prefs.lastRunTotal
     val count24h = prefs.runCount24h(now)
     val next = AutoSyncConfig.nextTriggerAt(slots, now, zone)
-    val cooldownLeft = AutoSyncConfig.chargeCooldownLeft(lastStart, now)
 
     Card(
         colors = CardDefaults.cardColors(
@@ -301,9 +316,24 @@ private fun StatusCard(
                     lastNew > 0 -> "新增 $lastNew 集"
                     else -> "没有新集 · $total 个任务"
                 }
-                "上次 ${timeText(lastStart, now, zone)} · $okText"
+                val plan = prefs.lastPlanAt
+                val planText = if (plan > 0L && plan <= lastStart) {
+                    val lateSec = (lastStart - plan) / 1000
+                    if (lateSec >= 60) "计划 ${timeText(plan, now, zone)} · 实际晚 ${durationText(lastStart - plan)}"
+                    else "计划 ${timeText(plan, now, zone)} · 准点"
+                } else {
+                    "上次 ${timeText(lastStart, now, zone)}"
+                }
+                "$planText · $okText"
             }
             Text(lastText, style = MaterialTheme.typography.bodySmall)
+            if (prefs.running) {
+                Text(
+                    "正在自动刷新…",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
             Text(
                 "最近 24 小时 $count24h 次",
                 style = MaterialTheme.typography.bodySmall,
@@ -315,26 +345,6 @@ private fun StatusCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            if (!chargeEnabled) {
-                Text(
-                    "充电时刷新已关闭",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            } else if (cooldownLeft > 0L) {
-                Text(
-                    "冷却中：距上次 ${durationText(cooldownLeft)}，插电将跳过",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            } else {
-                Text(
-                    "插电即会刷新",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
             // 超过 3 天没跑：多数是系统省电压住了，给一句可读解释
             if (lastStart > 0L && (now - lastStart) > 3L * 24 * 60 * 60 * 1000) {
                 Text(
@@ -345,42 +355,6 @@ private fun StatusCard(
             }
         }
     }
-}
-
-@Composable
-private fun AddSlotDialog(onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
-    var input by remember { mutableStateOf("") }
-    val valid = AutoSyncConfig.isValidSlot(input)
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("添加刷新时间") },
-        text = {
-            Column {
-                OutlinedTextField(
-                    value = input,
-                    onValueChange = { input = it.trim().take(5) },
-                    singleLine = true,
-                    label = { Text("时间（HH:mm）") },
-                    placeholder = { Text("例如 12:30") },
-                    isError = input.isNotEmpty() && !valid,
-                )
-                if (input.isNotEmpty() && !valid) {
-                    Text(
-                        "请用 24 小时制，两位小时，例如 09:00",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { onConfirm(input.trim()) }, enabled = valid) { Text("添加") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
-        },
-    )
 }
 
 /** 今天 / 明天 / 日期，避免状态卡只给一个光秃秃的 HH:mm */

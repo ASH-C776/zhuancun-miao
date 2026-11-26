@@ -170,10 +170,14 @@ class MainActivity : ComponentActivity() {
                         moveTaskToBack(true)
                     }, (delayMs - 2000).coerceAtLeast(0))
                     android.os.Handler(mainLooper).postDelayed({
-                        com.ashchan.cloudsaver.notify.AlertPublisher.publish(this, sample)
+                        lifecycleScope.launch {
+                            com.ashchan.cloudsaver.notify.AlertPublisher.publish(this@MainActivity, sample)
+                        }
                     }, delayMs)
                 } else {
-                    com.ashchan.cloudsaver.notify.AlertPublisher.publish(this, sample)
+                    lifecycleScope.launch {
+                        com.ashchan.cloudsaver.notify.AlertPublisher.publish(this@MainActivity, sample)
+                    }
                 }
             }
             // --ez openRunLog true 直接进「运行日志」页

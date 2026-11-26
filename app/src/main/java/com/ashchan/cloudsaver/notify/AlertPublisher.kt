@@ -25,7 +25,8 @@ object AppForeground {
  * 流程固定：判定（[AlertPolicy]）→ 去重（[AlertStore]）→ 投递。
  * 日志里会打 `decision/reason`，拿 logcat 就能回答“为什么没弹”。
  *
- * 角标：渠道 `setShowBadge(true)` + 每条 `setNumber(集数)`，桌面支持时图标显示未读数；
+ * 角标：渠道 `setShowBadge(true)` + 每条通知 `setNumber(1)`，
+ * 桌面会把「有几条通知」当成数字显示（而不是某部剧一次更新了多少集）；
  * 进入 App（[clearEpisodeAlerts]）后清掉。
  */
 object AlertPublisher {
@@ -35,7 +36,15 @@ object AlertPublisher {
     private const val PREFS = "notify_publisher"
     private const val KEY_IDS = "posted_ids"
 
-    fun publish(context: Context, alerts: List<ShowAlert>) {
+    /** 两条横幅之间隔多久：太密系统只弹第一条 */
+    private const val STAGGER_MS = 1200L
+
+    /**
+     * 逐条投递。**故意一条一条隔开发**：一次同时 notify 多条时，系统只弹第一条横幅，
+     * 后面的会被压成静默（用户看到的现象就是“有的剧更新了却没弹”）。
+     * 间隔 [STAGGER_MS] 让每条都有机会成为独立的横幅。
+     */
+    suspend fun publish(context: Context, alerts: List<ShowAlert>) {
         if (alerts.isEmpty()) return
         if (!canNotify(context)) {
             android.util.Log.i(TAG, "跳过提醒：通知权限未授予或 App 通知被关")
@@ -46,19 +55,48 @@ object AlertPublisher {
         val store = AlertStore.of(context)
         val manager = NotificationManagerCompat.from(context)
 
-        alerts.forEach { alert ->
+        alerts.forEachIndexed { index, alert ->
             val decision = AlertPolicy.decide(alert, env, alreadyNotified = !store.isNew(alert))
             android.util.Log.i(
                 TAG,
                 "task=${alert.taskId} ${alert.notificationTitle} level=${decision.level} reason=${decision.reason}",
             )
-            if (!decision.publish) return@forEach
-            store.mark(alert)
+            if (!decision.publish) {
+                AlertLog.record(context, alert, decision, "未投递")
+                return@forEachIndexed
+            }
+            // 用户可能把「追剧更新」渠道单独关掉了：这种情况系统会静默吞掉通知，
+            // 不能再把指纹记为「已提醒」，否则开了渠道也永远不弹
+            if (isChannelBlocked(context)) {
+                AlertLog.record(context, alert, decision, "渠道被关闭")
+                android.util.Log.i(TAG, "跳过提醒：追剧更新渠道被关闭")
+                return@forEachIndexed
+            }
             val id = notifyIdOf(alert.taskId)
-            runCatching { manager.notify(id, build(context, alert, decision)) }
-                .onSuccess { savePostedIds(context, postedIds(context) + id.toString()) }
-                .onFailure { android.util.Log.w(TAG, "投递失败", it) }
+            val posted = runCatching { manager.notify(id, build(context, alert, decision)) }
+            posted
+                .onSuccess {
+                    // 只有真的投递成功才记指纹；否则下次同步再也弹不出来
+                    store.mark(alert)
+                    savePostedIds(context, postedIds(context) + id.toString())
+                    AlertLog.record(context, alert, decision, "已发出")
+                }
+                .onFailure {
+                    android.util.Log.w(TAG, "投递失败", it)
+                    AlertLog.record(context, alert, decision, "投递失败：${it.message ?: "未知"}")
+                }
+            // 最后一条不用等
+            if (index < alerts.lastIndex) kotlinx.coroutines.delay(STAGGER_MS)
         }
+    }
+
+    /** 追剧更新渠道是否存在但重要度为 NONE（用户手动关掉） */
+    private fun isChannelBlocked(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
+        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            ?: return false
+        val channel = nm.getNotificationChannel(Channels.EPISODE_ALERTS) ?: return false
+        return channel.importance == NotificationManager.IMPORTANCE_NONE
     }
 
     /** 进 App 时调用：清掉追剧通知与角标（去重指纹保留，避免下次同步又弹一遍） */
@@ -94,8 +132,8 @@ object AlertPublisher {
             .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setContentTitle(alert.notificationTitle)
             .setContentText(alert.notificationText)
-            // 角标数字 = 本轮新增集数
-            .setNumber(alert.count)
+            // 角标按「通知条数」累加，所以每条固定 1；集数已经在标题里写清楚了
+            .setNumber(1)
             .setBadgeIconType(NotificationCompat.BADGE_ICON_SMALL)
             .setPriority(priority)
             .setCategory(NotificationCompat.CATEGORY_EVENT)

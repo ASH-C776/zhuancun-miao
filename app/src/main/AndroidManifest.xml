@@ -72,14 +72,6 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
-        <!-- 自动刷新：插电即触发一次（是否跑由 sync/AutoSyncScheduler 判 3 小时冷却） -->
-        <receiver
-            android:name=".sync.ChargingReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.POWER_CONNECTED" />
-            </intent-filter>
-        </receiver>
 
     </application>
 

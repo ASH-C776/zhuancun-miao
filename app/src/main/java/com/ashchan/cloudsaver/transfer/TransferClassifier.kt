@@ -58,7 +58,7 @@ object TransferClassifier {
                 append("未选命名规则：按原名转存 ").append(kept.size).append(" 个视频")
                 return@buildString
             }
-            append("命中 ").append(distinctEpisodes).append(" 集（转存 ").append(kept.size).append(" 个文件）")
+            append("分享里命中 ").append(distinctEpisodes).append(" 集（").append(kept.size).append(" 个文件待核对）")
             // 每条结论一行，日志里不再挤成一大段
             if (duplicates.isNotEmpty()) append("\n同集多版本 ").append(duplicates.size).append(" 个只留 1 个")
             if (unmatched.isNotEmpty()) append("\n未命中 ").append(unmatched.size).append(" 个未转存")

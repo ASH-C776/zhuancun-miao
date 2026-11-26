@@ -216,6 +216,23 @@ class TaskRunService : Service() {
                 },
             )
             ok = result.isSuccess && (result.getOrNull()?.ok == true)
+            // 手动刷新/一键同步也要提醒：以前只有后台定时同步发通知，手动跑出来的新集静默
+            result.getOrNull()?.let { report ->
+                if (report.restoredFiles > 0) {
+                    com.ashchan.cloudsaver.notify.AlertSource.build(
+                        taskId = task.id,
+                        taskName = task.name,
+                        seasonNo = task.seasonNo,
+                        items = report.restoredEpisodes,
+                        restoredFiles = report.restoredFiles,
+                    )?.let { alert ->
+                        com.ashchan.cloudsaver.notify.AlertPublisher.publish(
+                            this,
+                            listOf(alert),
+                        )
+                    }
+                }
+            }
             return ok
         } finally {
             TaskRunBus.clearPhase(task.id)

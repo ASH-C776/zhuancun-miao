@@ -30,7 +30,7 @@ class RunLogStatusTest {
     fun `有新增文件归为新增并带数量`() {
         val s = RunLogStatusRules.classify(record(restoredFiles = 3, skipped = 9))
         assertEquals(RunLogKind.NEW, s.kind)
-        assertEquals("新增 3 集", s.label)
+        assertEquals("转存 3 集", s.label)
     }
 
     @Test

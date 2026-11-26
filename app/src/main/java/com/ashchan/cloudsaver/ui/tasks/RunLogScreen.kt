@@ -395,8 +395,8 @@ private fun triggerLabel(trigger: String): String = when (trigger) {
 private fun mainText(record: RunRecordEntity): String = when {
     !record.ok -> "本轮未完成"
     record.restoredFiles > 0 && record.renamedItems > 0 ->
-        "新增 ${record.restoredFiles} 集 · 改名 ${record.renamedItems}"
-    record.restoredFiles > 0 -> "新增 ${record.restoredFiles} 集"
+        "转存 ${record.restoredFiles} 集 · 改名 ${record.renamedItems} 项"
+    record.restoredFiles > 0 -> "转存 ${record.restoredFiles} 集"
     record.renamedItems > 0 -> "改名 ${record.renamedItems} 项"
     record.restoredDirs > 0 -> "新建 ${record.restoredDirs} 个目录"
     else -> "没有新内容"

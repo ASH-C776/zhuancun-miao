@@ -27,19 +27,13 @@ class AutoSyncWorker(
             // 总开关在入队后被关掉：直接退出，不留下半轮记录
             if (!prefs.enabled) return Result.success()
 
-            if (reason == AutoSyncScheduler.REASON_CHARGING) {
-                if (!prefs.chargeEnabled) return Result.success()
-                val now = System.currentTimeMillis()
-                // 入队到真正执行可能隔了很久，这里再判一次冷却
-                if (AutoSyncConfig.shouldSkipCharge(prefs.lastRunStartAt, now)) {
-                    prefs.lastSkipAt = now
-                    prefs.lastSkipReason = "charge_cooldown"
-                    return Result.success()
-                }
-            }
-
             val startAt = System.currentTimeMillis()
-            val summary = AutoSyncEngine(applicationContext).runAllOnce()
+            // 让用户在 App 里能看出「正在刷新」以及「计划几点 / 实际几点」
+            prefs.running = true
+            if (!slot.isNullOrBlank()) {
+                prefs.lastPlanAt = AutoSyncConfig.previousTriggerAt(slot, startAt)
+            }
+            val summary = AutoSyncEngine(applicationContext).runAllOnce() ?: return Result.success()
             prefs.recordRun(
                 startAt = startAt,
                 endAt = System.currentTimeMillis(),
@@ -61,6 +55,7 @@ class AutoSyncWorker(
             Log.w(TAG, "自动刷新异常", t)
             return Result.success()
         } finally {
+            prefs.running = false
             // 时段 Work 是一次性链：不管这轮成功与否都要排下一次，否则第二天就断了
             if (reason == AutoSyncScheduler.REASON_SLOT && !slot.isNullOrBlank()) {
                 AutoSyncScheduler.scheduleSlot(applicationContext, slot)
@@ -84,13 +79,31 @@ data class AutoSyncSummary(
     val updates: List<com.ashchan.cloudsaver.notify.ShowAlert> = emptyList(),
 )
 
+/** 进程内的单飞闸门：时段 Work 与运行 Work 名字不同，KEEP 管不住并发 */
+private val autoSyncInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+
 /**
  * 无 UI 执行体：只调用既有引擎的公开入口，不改 TaskRunner 一行。
  * `runAll(..., TRIGGER_BACKGROUND)` 是 v0.7 就存在的路径，日志页会显示成「自动同步」。
  */
 class AutoSyncEngine(private val context: Context) {
 
-    suspend fun runAllOnce(): AutoSyncSummary {
+    suspend fun runAllOnce(): AutoSyncSummary? {
+        // 单飞：WorkManager 里「时段 Work」和「运行 Work」是两个不同的唯一名，
+        // KEEP 挡不住它们同时执行（比如到点时刚好插电）。这里再加一道进程内闸门，
+        // 已经在跑就直接返回 null，避免两轮同时往同一个目录转存/改名。
+        if (!autoSyncInFlight.compareAndSet(false, true)) {
+            android.util.Log.i("AutoSyncEngine", "已有一轮在跑，本轮跳过")
+            return null
+        }
+        try {
+            return runAllOnceLocked()
+        } finally {
+            autoSyncInFlight.set(false)
+        }
+    }
+
+    private suspend fun runAllOnceLocked(): AutoSyncSummary {
         val repo = com.ashchan.cloudsaver.data.TaskRepository(
             com.ashchan.cloudsaver.data.db.AppDatabase.get(context)
         )

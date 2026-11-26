@@ -61,7 +61,7 @@ object RunLogStatusRules {
             return RunLogStatus(RunLogKind.PARTIAL, "部分失败")
         }
         if (record.restoredFiles > 0) {
-            return RunLogStatus(RunLogKind.NEW, "新增 ${record.restoredFiles} 集")
+            return RunLogStatus(RunLogKind.NEW, "转存 ${record.restoredFiles} 集")
         }
         if (record.renamedItems > 0) {
             return RunLogStatus(RunLogKind.TIDY, "改名 ${record.renamedItems} 项")

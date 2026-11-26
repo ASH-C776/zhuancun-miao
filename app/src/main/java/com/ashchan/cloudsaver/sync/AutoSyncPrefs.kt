@@ -27,11 +27,6 @@ class AutoSyncPrefs(context: Context) {
         }
         set(value) = sp.edit().putString(KEY_SLOTS, AutoSyncConfig.toCsv(value)).apply()
 
-    /** 插电即刷新；定时点不受这个开关影响 */
-    var chargeEnabled: Boolean
-        get() = sp.getBoolean(KEY_CHARGE, true)
-        set(value) = sp.edit().putBoolean(KEY_CHARGE, value).apply()
-
     /** 跑完发通知；默认开，但只在「有新集 / 有失败」时才真的发 */
     var notifyEnabled: Boolean
         get() = sp.getBoolean(KEY_NOTIFY, true)
@@ -64,14 +59,15 @@ class AutoSyncPrefs(context: Context) {
         get() = sp.getBoolean(KEY_LAST_OK, true)
         set(value) = sp.edit().putBoolean(KEY_LAST_OK, value).apply()
 
-    /** 插电被冷却挡下的时间，状态卡用它解释「为什么没跑」 */
-    var lastSkipAt: Long
-        get() = sp.getLong(KEY_LAST_SKIP, 0L)
-        set(value) = sp.edit().putLong(KEY_LAST_SKIP, value).apply()
+    /** 正在跑（Worker 开始时置 true、结束时置 false）：进 App 能看出“现在就在刷新” */
+    var running: Boolean
+        get() = sp.getBoolean(KEY_RUNNING, false)
+        set(value) = sp.edit().putBoolean(KEY_RUNNING, value).apply()
 
-    var lastSkipReason: String
-        get() = sp.getString(KEY_LAST_SKIP_REASON, "").orEmpty()
-        set(value) = sp.edit().putString(KEY_LAST_SKIP_REASON, value).apply()
+    /** 本轮「计划触发时刻」；与开始时间对比就能看出系统把它延后了多久 */
+    var lastPlanAt: Long
+        get() = sp.getLong(KEY_LAST_PLAN, 0L)
+        set(value) = sp.edit().putLong(KEY_LAST_PLAN, value).apply()
 
     /** 最近 24 小时的运行次数（滑动窗口：窗口起点超过 24h 就归零） */
     fun runCount24h(nowMillis: Long): Int {
@@ -104,8 +100,8 @@ class AutoSyncPrefs(context: Context) {
             .remove(KEY_LAST_NEW)
             .remove(KEY_LAST_TOTAL)
             .remove(KEY_LAST_OK)
-            .remove(KEY_LAST_SKIP)
-            .remove(KEY_LAST_SKIP_REASON)
+            .remove(KEY_RUNNING)
+            .remove(KEY_LAST_PLAN)
             .remove(KEY_WINDOW_START)
             .remove(KEY_WINDOW_COUNT)
             .apply()
@@ -116,7 +112,6 @@ class AutoSyncPrefs(context: Context) {
 
         const val KEY_ENABLED = "enabled"
         const val KEY_SLOTS = "slots"
-        const val KEY_CHARGE = "charge_enabled"
         const val KEY_NOTIFY = "notify_enabled"
 
         const val KEY_LAST_START = "last_run_start"
@@ -124,8 +119,8 @@ class AutoSyncPrefs(context: Context) {
         const val KEY_LAST_NEW = "last_run_new"
         const val KEY_LAST_TOTAL = "last_run_total"
         const val KEY_LAST_OK = "last_run_ok"
-        const val KEY_LAST_SKIP = "last_skip_at"
-        const val KEY_LAST_SKIP_REASON = "last_skip_reason"
+        const val KEY_RUNNING = "running"
+        const val KEY_LAST_PLAN = "last_plan_at"
 
         const val KEY_WINDOW_START = "window_start"
         const val KEY_WINDOW_COUNT = "window_count"
