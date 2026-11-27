@@ -28,7 +28,10 @@ object EpisodeParser {
         SEASON_EP.find(name)?.let { return it.groupValues[2].toIntOrNull() }
         CN_EP.find(name)?.let { return it.groupValues[1].toIntOrNull() }
         EP.find(name)?.let { return it.groupValues[1].toIntOrNull() }
-        LEADING.find(name)?.let { return it.groupValues[1].toIntOrNull() }
+        // 开头的四位数字可能是年份（`2024-剧名-01.mp4`），年份不当集号
+        LEADING.find(name)?.groupValues?.get(1)?.toIntOrNull()
+            ?.takeIf { it !in 1900..2099 }
+            ?.let { return it }
         return null
     }
 

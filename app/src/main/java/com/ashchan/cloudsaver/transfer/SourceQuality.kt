@@ -59,7 +59,14 @@ object SourceQuality {
 
         val hitRate = if (videos <= 0) 0.0 else main.size.toDouble() / videos
         val namingRate = if (videos <= 0) 0.0 else (strong + medium * 0.6) / videos
-        val coverage = coverage(main.mapNotNull { it.episode })
+        // 覆盖度按季分开算再加权：各季集号都从 1 起，混在一起算会把「两季都齐」误判成「覆盖 50%」
+        val coverage = if (main.isEmpty()) {
+            0.0
+        } else {
+            main.groupBy { it.season ?: -1 }.values.sumOf { group ->
+                coverage(group.mapNotNull { it.episode }) * group.size
+            } / main.size
+        }
 
         val raw = 40.0 * hitRate +
             20.0 * namingRate +

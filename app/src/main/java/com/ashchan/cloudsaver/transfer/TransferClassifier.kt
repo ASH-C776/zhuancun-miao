@@ -98,10 +98,12 @@ object TransferClassifier {
             }
         }
 
-        // 没选命名规则时沿用老行为：所有视频都按原名转存（未命中的也不丢）
+        // 没选命名规则时沿用老行为：所有视频都按原名转存（未命中的也不丢），
+        // 但剧场版仍然要剪掉：以前这里原样返回整棵树，「剧场版一律不转」只写在文案里，
+        // 引擎照样把剧场版转进任务目录，还会把「最近有新集」的排序顶上去。
         val kept = if (filterEnabled) deduped else all.filter { it.kind != ItemKind.MOVIE }
-        val keepFids = if (filterEnabled) kept.map { it.node.fid }.toSet() else null
-        val pruned = if (keepFids != null) prune(tree, keepFids) ?: emptyTree(tree) else tree
+        val keepFids = kept.map { it.node.fid }.toSet()
+        val pruned = prune(tree, keepFids) ?: emptyTree(tree)
 
         return Plan(
             tree = pruned,
@@ -115,12 +117,13 @@ object TransferClassifier {
     }
 
     /** 逐层展开，文件按「目录链季号兜底」判定 */
-    fun classify(tree: ShareNode): List<ClassifiedItem> {
+    fun classify(tree: ShareNode, maxDepth: Int = 5): List<ClassifiedItem> {
         val out = mutableListOf<ClassifiedItem>()
-        fun walk(node: ShareNode, dirs: List<String>) {
+        fun walk(node: ShareNode, dirs: List<String>, depth: Int) {
             node.children.sortedWith(compareBy(NaturalOrder) { it.name }).forEach { child ->
                 if (child.isDir) {
-                    walk(child, dirs + child.name)
+                    // 与引擎保持同一深度上限：更深层的文件引擎也不会转，别把它们算进「命中」
+                    if (depth + 1 <= maxDepth) walk(child, dirs + child.name, depth + 1)
                 } else if (VideoTypes.isVideo(child.name) && !VideoTypes.isNoise(child.name)) {
                     val a = EpisodeKey.analyze(child.name, dirs)
                     val kind = when {
@@ -139,7 +142,7 @@ object TransferClassifier {
                 }
             }
         }
-        walk(tree, emptyList())
+        walk(tree, emptyList(), 0)
         return out
     }
 

@@ -168,12 +168,10 @@ class TaskRepository(private val db: AppDatabase) {
             // 试跑只记日志，卡片保持不动
         } else if (report != null && ok) {
             // 没绑 TMDB（两个集数都是 0）时，「这一轮转进来多少集」靠跟上一份快照比
+            // 新增几集统一用本轮真正落盘的新集数（季+集去重，见 Report.newEpisodes）。
+            // 旧实现只在没绑 TMDB 时拿盘里集数差，绑了 TMDB 的任务永远显示 0，和运行日志对不上。
+            val added = report.newEpisodes
             val old = snapshotDao.getByTask(task.id)
-            val added = if (tmdbLatest <= 0 && tmdbTotal <= 0 && old != null) {
-                (localEpisodes - old.localEpisodes).coerceAtLeast(0)
-            } else {
-                0
-            }
             saveSnapshot(
                 SnapshotCalc.build(
                     taskId = task.id,
@@ -188,7 +186,7 @@ class TaskRepository(private val db: AppDatabase) {
                     lastOk = true,
                     // 只有真的转进来新集才推进排序时间；「改名 / 试跑 / 无新集」都保持原值，
                     // 否则一键同步会把 5 部剧的 lastNewAt 一起刷新成同一时刻，排序等于没排
-                    lastNewAt = if ((report.restoredFiles) > 0) startedAt else old?.lastNewAt ?: 0L,
+                    lastNewAt = if (added > 0) startedAt else old?.lastNewAt ?: 0L,
                 )
             )
         } else {

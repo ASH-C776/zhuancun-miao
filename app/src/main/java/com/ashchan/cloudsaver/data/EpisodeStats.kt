@@ -94,7 +94,11 @@ object EpisodeStats {
             bySeason.getOrPut(season) { mutableSetOf() } += ep
             bucketFiles[season] = (bucketFiles[season] ?: 0) + 1
             val dirSeason = EpisodeKey.dirSeason(entry.dirs)
-            if (dirSeason == null || dirSeason == fixedSeason) {
+            // 指定季的归属只看所在目录：「目标目录本身就是这一季」，文件名里的 S01 是源的原始命名，
+            // 不能拿来当季号（真实案例：选第 4 季、源文件全叫 S01，按文件名过滤会把 21 集全丢掉）。
+            // 只有没有季目录时（平铺）才一律算这一季。
+            val inFixed = if (dirSeason != null) dirSeason == fixedSeason else true
+            if (inFixed) {
                 fixedEpisodes += ep
                 fixedFiles++
             }
@@ -151,7 +155,7 @@ object EpisodeStats {
         )
     }
 
-    /** 文件季号：文件名 `SxxExx` 优先，其次最近一层季目录名 */
+    /** 文件季号：所在季目录优先，其次文件名里的 `SxxExx`（文件放错目录时以落盘位置为准） */
     fun seasonOf(entry: Entry): Int? =
-        EpisodeParser.seasonOf(entry.name) ?: EpisodeKey.dirSeason(entry.dirs)
+        EpisodeKey.dirSeason(entry.dirs) ?: EpisodeParser.seasonOf(entry.name)
 }

@@ -38,6 +38,13 @@ object AutoSyncScheduler {
     /** 撞上「已有一轮在跑」时，隔多久补跑一次 */
     const val RETRY_DELAY_MS: Long = 10 * 60_000L
 
+    /**
+     * 冷启动 / 用户重排时的宽限：正好过点几十秒也把今天这一趟排上（delay 0 立即跑），
+     * 否则「08:25:00.4 打开 App」会算出明天 08:25，当天这一趟直接消失。
+     * Worker 续排**不传**这个值，保持严格晚于 now，避免自己排自己。
+     */
+    const val SCHEDULE_GRACE_MS: Long = 30_000L
+
     fun slotWorkName(slot: String): String = "auto-sync-slot-" + slot.replace(":", "")
 
     /** 每个时段一个独立 tag，用于从 WorkInfo 反查排程状态 */
@@ -74,7 +81,7 @@ object AutoSyncScheduler {
         val prefs = AutoSyncPrefs(context)
         if (!prefs.enabled) return
         val now = System.currentTimeMillis()
-        val next = AutoSyncConfig.nextTriggerAt(slot, now)
+        val next = AutoSyncConfig.nextTriggerAt(slot, now, graceMillis = SCHEDULE_GRACE_MS)
         enqueue(context, slotWorkName(slot), slot, REASON_SLOT, next - now, ExistingWorkPolicy.REPLACE)
     }
 

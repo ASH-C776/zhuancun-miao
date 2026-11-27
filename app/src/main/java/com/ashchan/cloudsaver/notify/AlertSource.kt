@@ -28,10 +28,18 @@ object AlertSource {
             seasonNo == TaskEntity.SEASON_FLAT -> 1
             else -> null
         }
-        val pairs = items.mapNotNull { tag ->
+        val raw = items.mapNotNull { tag ->
             val ep = tag.episode ?: return@mapNotNull null
             (tag.season ?: defaultSeason) to ep
         }.distinct()
+        // 有集解析不出季号、但同批其它集都指向同一季时，用那一季补齐：
+        // 否则 null 会排在最前，标题退化成「E005-E020」，任务明明指定了第 5 季却没有 S05。
+        val knownSeasons = raw.mapNotNull { it.first }.distinct()
+        val pairs = if (raw.any { it.first == null } && knownSeasons.size == 1) {
+            raw.map { knownSeasons.first() to it.second }.distinct()
+        } else {
+            raw
+        }
 
         if (pairs.isEmpty()) {
             if (restoredFiles <= 0) return null

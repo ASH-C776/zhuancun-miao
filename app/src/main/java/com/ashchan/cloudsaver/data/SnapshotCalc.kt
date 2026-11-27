@@ -68,11 +68,15 @@ object SnapshotCalc {
     fun gapText(localEpisodes: Int, tmdbLatest: Int, tmdbTotal: Int, fromEpisode: Int = 1): String {
         val g = gap(localEpisodes, tmdbTotal, fromEpisode)
         if (g.targetCount <= 0) return ""
-        val prefix = if (g.fromEpisode > 1) "从第 ${g.fromEpisode} 集起 " else ""
+        // 「从第 N 集起」时盘里集数并没有按起点过滤，不能再拿它跟目标比：
+        // 旧实现会输出「从第 100 集起 盘里 88 集 · 共 21 集」这种互相矛盾的数字。
+        if (g.fromEpisode > 1) {
+            return "从第 ${g.fromEpisode} 集起，目标 ${g.targetCount} 集 · 盘里 ${g.haveCount} 集（未按起点过滤）"
+        }
         val head = if (tmdbLatest > 0) {
-            "${prefix}盘里 ${g.haveCount} 集 · 已播 $tmdbLatest 集 · 共 ${g.targetCount} 集"
+            "盘里 ${g.haveCount} 集 · 已播 $tmdbLatest 集 · 共 ${g.targetCount} 集"
         } else {
-            "${prefix}盘里 ${g.haveCount} 集 · 共 ${g.targetCount} 集"
+            "盘里 ${g.haveCount} 集 · 共 ${g.targetCount} 集"
         }
         val lines = mutableListOf(head)
         // 最新已播集未知时，「待播」也无从判断，宁可不说

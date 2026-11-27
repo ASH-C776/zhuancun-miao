@@ -24,10 +24,10 @@ class FileNameContextTest {
 
     @Test
     fun `片名带部数时 仍按 SxxExx 取集号`() {
-        assertEquals("02", FileNameContext(realNames[0]).episodeRaw)
-        assertEquals("03", FileNameContext(realNames[1]).episodeRaw)
+        assertEquals("2", FileNameContext(realNames[0]).episodeRaw)
+        assertEquals("3", FileNameContext(realNames[1]).episodeRaw)
         assertEquals("11", FileNameContext(realNames[2]).episodeRaw)
-        assertEquals("07", FileNameContext(realNames[3]).episodeRaw)
+        assertEquals("7", FileNameContext(realNames[3]).episodeRaw)
         assertEquals("S01", FileNameContext(realNames[0]).season)
     }
 
@@ -56,5 +56,40 @@ class FileNameContextTest {
     fun `日期型文件名不会被当成集号`() {
         val ctx = FileNameContext("20251123.mp4")
         assertNull(ctx.episodeRaw)
+    }
+
+    // ---- 审查修复回归：集号口径统一到 4 位、{PART} 不再吃剧名、{DATE} 不再瞎补年份 ----
+
+    @Test
+    fun `超过三位数的集号不再被截断`() {
+        assertEquals("1024", FileNameContext("海贼王.S01E1024.2160p.mkv").episodeRaw)
+        assertEquals("1024", FileNameContext("第1024集.mp4").episodeRaw)
+        assertEquals("1025", FileNameContext("海贼王.S01E1025.2160p.mkv").episodeRaw)
+    }
+
+    @Test
+    fun `合集包按尾部集号解析 与统计侧一致`() {
+        // 以前统计侧认 12、改名侧认 1（EP_SEPARATED 先命中 `.1-`）
+        assertEquals("12", FileNameContext("剧名.1-12.合集.mkv").episodeRaw)
+    }
+
+    @Test
+    fun `剧名里的汉字不会被当成上中下`() {
+        assertNull(FileNameContext("一人之下.S01E03.mkv").part)
+        assertNull(FileNameContext("十月围城.S01E03.mkv").part)
+        // 真正带分P的写法仍要认出来
+        assertEquals("上", FileNameContext("某剧.第3集.上.mp4").part)
+        assertEquals("下", FileNameContext("某剧.S01E03（下）.mkv").part)
+    }
+
+    @Test
+    fun `日期必须有年份 集号邻位数字不当日期`() {
+        assertNull(FileNameContext("S02E01.2.0.mkv").date)
+        assertNull(FileNameContext("斗罗大陆.2160p.mkv").date)
+        assertNull(FileNameContext("剧名.(2024).S01E01.mkv").date)
+        assertEquals("20240105", FileNameContext("剧名.2024.01.05.mkv").date)
+        assertEquals("20240105", FileNameContext("剧名.20240105.mkv").date)
+        // 不存在的日期（13 月）不许猜
+        assertNull(FileNameContext("剧名.2024.13.05.mkv").date)
     }
 }

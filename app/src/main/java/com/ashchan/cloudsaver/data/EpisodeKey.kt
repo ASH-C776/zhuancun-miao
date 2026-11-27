@@ -32,7 +32,10 @@ object EpisodeKey {
     private val SEASON_EP = Regex("""[Ss](\d{1,2})\s*[ ,._\-]*[Ee][Pp]?\s*(\d{1,4})""")
     private val CN_EP = Regex("""第\s*(\d{1,4})\s*[集话話期]""")
     private val EP_PREFIX = Regex("""(?i)(?:^|[^a-z0-9])(?:ep|e)\s*[._\- ]?\s*(\d{1,4})(?!\d)""")
-    private val SEPARATED_TAIL = Regex("""[._\- ](\d{1,4})\s*(?=$|[._\- ][^0-9]*)""")
+    // 结尾的独立数字：后面必须是结尾，或「分隔符 + 非数字」。
+    // 以前写成 `[^0-9]*`（允许空），`剧名.1-12.合集` 会先命中 «.1-»（- 后面还没看是不是数字）→ 判成第 1 集；
+    // 现在要求分隔符后面不能紧跟数字，尾部才会正确跳到 12。
+    private val SEPARATED_TAIL = Regex("""[._\- ](\d{1,4})\s*(?=$|[._\- ](?!\d))""")
     private val LEADING = Regex("""^\s*(\d{1,4})(?![\dpPiI0-9A-Za-z])""")
     private val ANY_NUMBER = Regex("""(?<![0-9A-Za-z])(\d{1,4})(?![0-9A-Za-z])""")
 
@@ -59,6 +62,18 @@ object EpisodeKey {
 
     /** 排除的常见非集号数字：年份、常见分辨率 */
     private val BANNED = setOf(480, 576, 720, 1080, 1440, 2160, 4320, 3840, 360, 2048)
+
+    /**
+     * 集号的**唯一出口**：改名、通知、去重（「盘里是否已有这一集」）都调这里。
+     *
+     * 以前这几处各自用一套正则（[com.ashchan.cloudsaver.rename.FileNameContext] 只认 3 位），
+     * 结果同一个文件在统计侧是第 1024 集、在通知侧变成第 102 集；
+     * `剧名.1-12.合集` 也一样，统计认 12、改名认 1。
+     * 现在统一复用 [analyze]，口径只有一份。
+     *
+     * 返回 null = 判不出唯一集号（有歧义、剧场版、或根本不是剧集文件），调用方按「未命中」处理。
+     */
+    fun numberOf(fileName: String): Int? = analyze(fileName).parsed?.episode
 
     /**
      * 分析一个视频文件。

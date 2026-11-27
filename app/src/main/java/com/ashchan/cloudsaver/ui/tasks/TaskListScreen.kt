@@ -379,7 +379,10 @@ private fun TaskRow(
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            text = syncText(snap.lastSyncAt),
+                            // 显示「最近真有新集」的时间：列表也按这个字段排序，
+                            // 眼睛看到的时间和顺序才一致。以前显示 lastSyncAt，一轮定时同步后
+                            // 九张卡全变成同一个时刻，看起来就是「刷新没区别」。
+                            text = if (snap.lastNewAt > 0) syncText(snap.lastNewAt) else "—",
                             fontSize = 12.sp,
                             lineHeight = 18.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,

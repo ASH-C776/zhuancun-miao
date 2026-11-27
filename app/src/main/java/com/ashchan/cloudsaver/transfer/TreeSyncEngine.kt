@@ -47,6 +47,12 @@ class TreeSyncEngine(
         val skippedFiles: Int,
         val failures: List<String>,
         /**
+         * 只算「警告」的问题（深度超限、个别文件改名失败）：**不参与 [ok] 判定**，
+         * 但要原样进运行日志。以前这些被并进 failures，一次改名限流失败就把整轮判成失败，
+         * 快照集数因此不更新，卡片停在旧数字、通知却照发。
+         */
+        val warnings: List<String> = emptyList(),
+        /**
          * 覆盖默认判定。多源任务里「源2 失败但源1 成功」仍算这一轮成功，
          * 此时 failures 里留着源2 的原因给人看，但整轮不该标红。
          * null = 按 failures 是否为空判定（单源与原行为一致）。
@@ -61,6 +67,18 @@ class TreeSyncEngine(
         val restoredEpisodes: List<com.ashchan.cloudsaver.core.model.EpisodeTag> = emptyList(),
     ) {
         val ok: Boolean get() = explicitOk ?: failures.isEmpty()
+
+        /**
+         * 本轮真正新增的集数（季+集去重）。
+         *
+         * 排序用的「最近真有新集」、卡片上的「新增 N 集」都以它为准：
+         * 以前用 restoredFiles（转存文件数），没选命名规则时转一个剧场版也算「有新集」，
+         * 与「只算真正新增」的口径矛盾。
+         */
+        val newEpisodes: Int get() = restoredEpisodes
+            .mapNotNull { tag -> tag.episode?.let { (tag.season ?: -1) to it } }
+            .distinct()
+            .size
     }
 
     /**
@@ -208,13 +226,15 @@ class TreeSyncEngine(
         private var restoredFiles = 0
         private var renamedItems = 0
         private var skippedFiles = 0
-        /** 本轮待转存视频总数（分母，用于「转存 3/20」） */
-        private var videoTotal = 0
+        /** 本轮真正要转存的文件数（分母）：只算缺的，盘里已有的跳过不算进度 */
+        private var restoreTotal = 0
         /** 本轮需要改名的文件数（分母，用于「改名 5/12」） */
         private var renameTotal = 0
         /** 网络断了就别继续发请求（否则每个文件都刷一条同样的错） */
         private var aborted = false
         private val failures = mutableListOf<String>()
+        /** 只算「警告」的问题：不影响本轮成功判定，但要在日志里写清楚 */
+        private val warnings = mutableListOf<String>()
         /** 不是错、但需要让人看到的结论（如「季判定：Season 1 × 12、3 个冲突已按文件名」） */
         private val notes = mutableListOf<String>()
         private val depthSkipped = mutableListOf<String>()
@@ -233,7 +253,8 @@ class TreeSyncEngine(
             restoredFiles = restoredFiles,
             renamedItems = renamedItems,
             skippedFiles = skippedFiles,
-            failures = (failures + depthSkipped).toList(),
+            failures = failures.toList(),
+            warnings = (warnings + depthSkipped).toList(),
             notes = notes.toList(),
             restoredEpisodes = restoredEpisodes.toList(),
         )
@@ -271,7 +292,6 @@ class TreeSyncEngine(
                 items = plan.items.filter { passesMultiStart(it.node, it.season(prefer)) },
             )
             if (keptPlan.items.isEmpty()) throw IllegalStateException(multiStartMessage())
-            videoTotal = keptPlan.items.size
             onProgress(0, 0, "比对文件")
 
             val note = keptPlan.summary(prefer)
@@ -307,7 +327,6 @@ class TreeSyncEngine(
             if (videos.isEmpty()) throw IllegalStateException(noVideoMessage(tree, seasonNo))
             videos.removeAll { belowSingleStart(it) }
             if (videos.isEmpty()) throw IllegalStateException(singleStartMessage())
-            videoTotal = videos.size
             onProgress(0, 0, "比对文件")
             syncFiles(videos, destRootFid)
         }
@@ -371,7 +390,7 @@ class TreeSyncEngine(
             node.children.sortedWith(NATURAL).forEach { child ->
                 if (child.isDir) {
                     if (depth + 1 > maxDepth) {
-                        failures += "深度超限，跳过「${child.name}」"
+                        warnings += "深度超限，跳过「${child.name}」"
                         return@forEach
                     }
                     val season = SeasonParser.parse(child.name)
@@ -420,7 +439,7 @@ class TreeSyncEngine(
             nameOverride: String?,
         ) {
             if (depth > maxDepth) {
-                failures += "深度超限，跳过「${node.name}」"
+                warnings += "深度超限，跳过「${node.name}」"
                 return
             }
             val wantedName = nameOverride?.takeIf { it.isNotBlank() } ?: node.name
@@ -456,7 +475,7 @@ class TreeSyncEngine(
                     siblings.remove(newDir.name)
                     siblings[wantedName] = newDir.copy(name = wantedName)
                 } else {
-                    failures += "目录改名失败：${node.name} -> $wantedName"
+                    warnings += "目录改名失败：${node.name} -> $wantedName"
                 }
             }
 
@@ -535,12 +554,14 @@ class TreeSyncEngine(
                         index[item.newName] = item.file.copy(name = item.newName)
                     } else {
                         skippedFiles++
-                        failures += "改名失败：${item.oldName} -> ${item.newName}（${outcome.reason}）"
+                        warnings += "改名失败：${item.oldName} -> ${item.newName}（${outcome.reason}）"
                     }
                 }
                 reportRename()
             }
 
+            // 进度分母 = 真正缺的文件数（此前用分享视频总数，会停在「转存 3/20」不动）
+            restoreTotal += missing.size
             if (missing.isEmpty()) return
             missing.chunked(RESTORE_BATCH).forEach { chunk ->
                 if (aborted) return@forEach
@@ -555,7 +576,7 @@ class TreeSyncEngine(
 
         /** 「转存 3/20」：分母是本轮分享里的视频总数 */
         private fun reportRestore(done: Int) {
-            val total = if (videoTotal > 0) videoTotal else done
+            val total = if (restoreTotal > 0) restoreTotal else done
             onProgress(0, 0, "转存 $done/$total")
         }
 
@@ -604,7 +625,7 @@ class TreeSyncEngine(
                         renamedItems++
                         index[item.newName] = item.file.copy(name = item.newName)
                     } else {
-                        failures += "改名失败：${item.oldName} -> ${item.newName}（${outcome.reason}）"
+                        warnings += "改名失败：${item.oldName} -> ${item.newName}（${outcome.reason}）"
                     }
                 }
                 reportRename()
@@ -697,7 +718,7 @@ class TreeSyncEngine(
                 index[expected] = newFile.copy(name = expected)
                 reportRename()
             } else {
-                failures += "改名失败：${node.name} -> $expected（${outcome?.reason.orEmpty()}）"
+                warnings += "改名失败：${node.name} -> $expected（${outcome?.reason.orEmpty()}）"
             }
             return true
         }
@@ -729,7 +750,7 @@ class TreeSyncEngine(
                     renamedItems++
                     destChildren[item.newName] = item.file.copy(name = item.newName)
                 } else {
-                    failures += "改名失败：${item.oldName} -> ${item.newName}（${outcome.reason}）"
+                    warnings += "改名失败：${item.oldName} -> ${item.newName}（${outcome.reason}）"
                 }
             }
             reportRename()
@@ -830,11 +851,12 @@ class TreeSyncEngine(
         /** 断网 / DNS 解析失败 / 连接超时：重试没用就整轮中止，别逐个文件刷错 */
         private fun isNetworkError(message: String): Boolean {
             val m = message.lowercase()
+            // 只认「连不上网」这一类：DNS 解析失败、连接建立失败、超时。
+            // 502/503、connection reset 这类是服务器/网关的临时错，交给单批重试，
+            // 不该把整轮标成「网络中断」：以前一条 503 就让后面所有文件一个都不再尝试。
             return "unable to resolve" in m || "resolve host" in m || "unknownhost" in m ||
-                "无法解析" in message || "网络" in message ||
-                "timeout" in m || "timed out" in m || "超时" in message ||
-                "failed to connect" in m || "connection" in m || "socket" in m ||
-                "unreachable" in m || "502" in m || "503" in m
+                "无法解析" in message || "failed to connect" in m || "unreachable" in m ||
+                "timeout" in m || "timed out" in m || "超时" in message
         }
     }
 }

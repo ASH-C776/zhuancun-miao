@@ -78,7 +78,8 @@ class TmdbClient(
         val list = fetchSeason(tvId, season, language).getOrNull().orEmpty()
         val today = java.time.LocalDate.now().toString()
         val aired = list.filter { ep ->
-            val d = ep.airDate?.takeIf { it.isNotBlank() } ?: return@filter true
+            // 播出日期为空的集 = 还没定档，不能当「已播」，否则最新集号会跳到未播集
+            val d = ep.airDate?.takeIf { it.isNotBlank() } ?: return@filter false
             d <= today
         }
         return aired.maxOfOrNull { it.episode } ?: 0

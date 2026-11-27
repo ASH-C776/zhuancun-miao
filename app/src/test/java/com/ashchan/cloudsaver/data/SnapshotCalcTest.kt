@@ -119,7 +119,7 @@ class SnapshotCalcTest {
         assertEquals(161, g.targetCount)
         assertEquals(47, g.missingCount)
         assertEquals(
-            "从第 51 集起 盘里 114 集 · 已播 201 集 · 共 161 集\n已播的还有 87 集未收到\n还有 10 集待播",
+            "从第 51 集起，目标 161 集 · 盘里 114 集（未按起点过滤）",
             SnapshotCalc.gapText(114, 201, 211, 51),
         )
     }

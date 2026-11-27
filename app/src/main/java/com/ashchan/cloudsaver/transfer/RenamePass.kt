@@ -135,6 +135,11 @@ class RenamePass(
             existing.getOrPut(e.dirFid) { mutableSetOf() } += e.file.name
         }
         val plannedNames = mutableMapOf<String, MutableSet<String>>()
+        // 本轮会被改掉的原名：用于放行「整体移位」式改名（01→02、02→03 这类不该被判冲突）
+        val plannedAway = mutableMapOf<String, MutableSet<String>>()
+        plans.forEach { (entry, _, same) ->
+            if (!same) plannedAway.getOrPut(entry.dirFid) { mutableSetOf() } += entry.file.name
+        }
         val todo = mutableListOf<Pair<Entry, String>>()
         var alreadyOk = 0
         var conflicts = 0
@@ -145,7 +150,8 @@ class RenamePass(
                 return@forEach
             }
             val used = existing[entry.dirFid].orEmpty()
-            if (newName in used) {
+            val movingAway = plannedAway[entry.dirFid].orEmpty()
+            if (newName in used && newName !in movingAway) {
                 conflicts++
                 if (conflictNotes.size < 5) conflictNotes += "${entry.file.name} → $newName（已存在）"
                 return@forEach
@@ -217,8 +223,10 @@ class RenamePass(
         val items = adapter.listFiles(nameFid).getOrNull().orEmpty()
         return when {
             task.seasonNo == TaskEntity.SEASON_MULTI -> {
-                val seasons = items.filter { it.isDir }.map { it.fid to listOf(it.name) }
-                listOf<Pair<String, List<String>>>(nameFid to emptyList()) + seasons
+                // 只从剧名根目录递归一次：collect 本身已经下钻所有子目录，
+                // 以前再把每个 Season 目录单独当一个根，同一批文件会被扫两遍 ——
+                // 「检查 N / 冲突 Z」直接翻倍，第二次必然和自己撞名。
+                listOf(nameFid to emptyList())
             }
             task.seasonNo >= TaskEntity.SEASON_SPECIALS -> {
                 val seasonName = "Season ${task.seasonNo}"

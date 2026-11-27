@@ -458,6 +458,8 @@ class TaskRunner(
                     restoredEpisodes += r.restoredEpisodes
                     // 同一批文件可能两个源都有：第二个源靠目标目录 diff 判定已存在 → 计入跳过
                     r.failures.forEach { failures += if (links.size > 1) "$label $it" else it }
+                    // 警告（深度超限 / 个别改名失败）只写日志，不再把整轮判成失败
+                    r.warnings.forEach { notes += if (links.size > 1) "$label $it" else it }
                     // 季判定这类「不是错但要让人看到」的结论，多源时带上源前缀
                     r.notes.forEach { notes += if (links.size > 1) "$label $it" else it }
                 }

@@ -56,16 +56,22 @@ object AutoSyncConfig {
         slot: String,
         nowMillis: Long,
         zone: ZoneId = ZoneId.systemDefault(),
+        /**
+         * 宽限：冷启动 / 用户重排时，允许「刚好过点几十秒」也算今天这一趟。
+         * Worker 续排传 0（严格晚于 now），否则刚跑完的一轮会把自己再排一次。
+         */
+        graceMillis: Long = 0L,
     ): Long {
         val time = LocalTime.of(toMinutes(slot) / 60, toMinutes(slot) % 60)
         val now = Instant.ofEpochMilli(nowMillis).atZone(zone)
         val today = now.toLocalDate().atTime(time).atZone(zone)
-        val next = if (today.toInstant().toEpochMilli() > nowMillis) {
-            today
+        val todayMs = today.toInstant().toEpochMilli()
+        val withinGrace = graceMillis > 0L && nowMillis - todayMs in 0..graceMillis
+        return if (todayMs > nowMillis || withinGrace) {
+            todayMs
         } else {
-            now.toLocalDate().plusDays(1).atTime(time).atZone(zone)
+            now.toLocalDate().plusDays(1).atTime(time).atZone(zone).toInstant().toEpochMilli()
         }
-        return next.toInstant().toEpochMilli()
     }
 
     /**
