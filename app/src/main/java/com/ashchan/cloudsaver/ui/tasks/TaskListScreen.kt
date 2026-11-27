@@ -613,24 +613,6 @@ private fun RunPhaseText(text: String, color: Color, animated: Boolean = true) {
 }
 
 @Composable
-private fun Dot() {    Text(
-        text = " · ",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.outline,
-    )
-}
-
-@Composable
-private fun statusColor(snap: SnapshotEntity): Color = when (snap.status) {
-    SnapshotEntity.STATUS_FINISHED,
-    SnapshotEntity.STATUS_UP_TO_DATE -> TaskColors.ok()
-    SnapshotEntity.STATUS_LOCAL_ADDED,
-    SnapshotEntity.STATUS_LOCAL_LATEST -> TaskColors.local()
-    SnapshotEntity.STATUS_BEHIND -> TaskColors.behind()
-    else -> MaterialTheme.colorScheme.outline
-}
-
-@Composable
 private fun EmptyTasks(modifier: Modifier = Modifier, onAdd: () -> Unit) {
     Column(
         modifier = modifier.padding(24.dp),

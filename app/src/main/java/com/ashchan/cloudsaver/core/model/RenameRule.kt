@@ -20,11 +20,6 @@ data class RenameRule(
 
 enum class RuleMode { FILTER, RENAME }
 
-/** 规则执行结果 */
-data class RuleMatch(
-    val rule: RenameRule,
-    val newName: String?,
-)
 
 /** 单条文件的预览结果 */
 data class RenamePreview(
