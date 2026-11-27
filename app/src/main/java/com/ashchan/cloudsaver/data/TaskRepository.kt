@@ -41,7 +41,10 @@ class TaskRepository(private val db: AppDatabase) {
     private val runDao = db.runRecordDao()
     private val sourceDao = db.taskSourceDao()
 
-    /** 首页卡片流：任务 / 快照 / 源数三路合并，按任务 id 升序 */
+    /**
+     * 首页卡片流：任务 / 快照 / 源数三路合并。
+     * 顺序见 [TaskOrder]：置顶 > 最近真有新集 > id（只影响显示，不动执行顺序）。
+     */
     fun observeCards(): Flow<List<TaskCard>> =
         combine(
             taskDao.observeAll(),
@@ -54,17 +57,16 @@ class TaskRepository(private val db: AppDatabase) {
                 .filter { it.lastStatus == TaskSourceEntity.STATUS_FAIL }
                 .groupingBy { it.taskId }
                 .eachCount()
-            tasks
-                // 置顶优先，其余保持 id 升序（置顶只影响显示顺序，不动执行顺序）
-                .sortedWith(compareByDescending<TaskEntity> { it.pinned }.thenBy { it.id })
-                .map { task ->
-                TaskCard(
-                    task = task,
-                    snapshot = byTask[task.id] ?: SnapshotEntity(taskId = task.id),
-                    sourceCount = countByTask[task.id] ?: 1,
-                    failedSources = failedByTask[task.id] ?: 0,
-                )
-            }
+            TaskOrder.sort(
+                tasks.map { task ->
+                    TaskCard(
+                        task = task,
+                        snapshot = byTask[task.id] ?: SnapshotEntity(taskId = task.id),
+                        sourceCount = countByTask[task.id] ?: 1,
+                        failedSources = failedByTask[task.id] ?: 0,
+                    )
+                },
+            )
         }
 
     fun observeRecentRuns(limit: Int = 30): Flow<List<RunRecordEntity>> = runDao.observeRecent(limit)
@@ -182,7 +184,12 @@ class TaskRepository(private val db: AppDatabase) {
                     addedEpisodes = added,
                     now = now,
                     message = msg,
-                ).copy(lastOk = true)
+                ).copy(
+                    lastOk = true,
+                    // 只有真的转进来新集才推进排序时间；「改名 / 试跑 / 无新集」都保持原值，
+                    // 否则一键同步会把 5 部剧的 lastNewAt 一起刷新成同一时刻，排序等于没排
+                    lastNewAt = if ((report.restoredFiles) > 0) startedAt else old?.lastNewAt ?: 0L,
+                )
             )
         } else {
             // 失败时保留上次成功快照的集数，只更新说明与时间，避免卡片突然变空；

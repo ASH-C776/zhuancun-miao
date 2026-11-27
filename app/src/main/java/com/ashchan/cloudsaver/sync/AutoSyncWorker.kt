@@ -26,6 +26,11 @@ class AutoSyncWorker(
         try {
             // 总开关在入队后被关掉：直接退出，不留下半轮记录
             if (!prefs.enabled) return Result.success()
+            // 时段已经被用户删掉：这条是历史遗留的排程，不该再跑（也不该被 finally 复活）
+            if (!slot.isNullOrBlank() && slot !in prefs.slots) {
+                Log.i(TAG, "时段 $slot 已删除，跳过这条遗留排程")
+                return Result.success()
+            }
 
             val startAt = System.currentTimeMillis()
             // 让用户在 App 里能看出「正在刷新」以及「计划几点 / 实际几点」
@@ -33,7 +38,16 @@ class AutoSyncWorker(
             if (!slot.isNullOrBlank()) {
                 prefs.lastPlanAt = AutoSyncConfig.previousTriggerAt(slot, startAt)
             }
-            val summary = AutoSyncEngine(applicationContext).runAllOnce() ?: return Result.success()
+            val summary = AutoSyncEngine(applicationContext).runAllOnce()
+            if (summary == null) {
+                // 上一轮还没跑完：这一轮不能静默丢掉（以前就是这么丢的，用户完全看不见）。
+                // 隔 10 分钟补跑一次；顺带在日志里留痕，方便排查。
+                Log.i(TAG, "撞上正在运行的一轮，已排 10 分钟后补跑 slot=$slot")
+                if (!slot.isNullOrBlank()) {
+                    AutoSyncScheduler.scheduleCatchUp(applicationContext, slot, startAt)
+                }
+                return Result.success()
+            }
             prefs.recordRun(
                 startAt = startAt,
                 endAt = System.currentTimeMillis(),
@@ -56,9 +70,11 @@ class AutoSyncWorker(
             return Result.success()
         } finally {
             prefs.running = false
-            // 时段 Work 是一次性链：不管这轮成功与否都要排下一次，否则第二天就断了
-            if (reason == AutoSyncScheduler.REASON_SLOT && !slot.isNullOrBlank()) {
-                AutoSyncScheduler.scheduleSlot(applicationContext, slot)
+            // 时段 Work 是一次性链：不管这轮成功与否都要排下一次，否则第二天就断了。
+            // 用 scheduleNextAfterRun（带日期唯一名 + KEEP）：不会 REPLACE 掉正在跑的自己，
+            // 用户已经删掉的时段也不会被这里复活。
+            if (!slot.isNullOrBlank()) {
+                AutoSyncScheduler.scheduleNextAfterRun(applicationContext, slot)
             }
         }
     }

@@ -13,7 +13,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  */
 @Database(
     entities = [TaskEntity::class, SnapshotEntity::class, RunRecordEntity::class, TaskSourceEntity::class],
-    version = 16,
+    version = 17,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -251,6 +251,24 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v17：首页卡片「最近有更新」排序用的 lastNewAt。
+         *
+         * 顺手把历史回填一次：run_records 里每一轮都记了 restoredFiles，
+         * 取每个任务「最近一次真的转进新集」的开始时间即可，不用从 0 开始慢慢攒。
+         */
+        val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE snapshots ADD COLUMN lastNewAt INTEGER NOT NULL DEFAULT 0")
+                db.execSQL(
+                    "UPDATE snapshots SET lastNewAt = COALESCE((" +
+                        "SELECT MAX(startedAt) FROM run_records " +
+                        "WHERE run_records.taskId = snapshots.taskId AND run_records.restoredFiles > 0" +
+                        "), 0)"
+                )
+            }
+        }
+
         /** 全部迁移，按版本顺序排列（单测会校验 1→16 不能断档） */
         val MIGRATIONS: List<Migration> = listOf(
             MIGRATION_1_2,
@@ -268,10 +286,11 @@ abstract class AppDatabase : RoomDatabase() {
             MIGRATION_13_14,
             MIGRATION_14_15,
             MIGRATION_15_16,
+            MIGRATION_16_17,
         )
 
         /** 当前 schema 版本，供单测比对（版本号在 [Database] 注解上，改这里只是镜像） */
-        const val SCHEMA_VERSION: Int = 16
+        const val SCHEMA_VERSION: Int = 17
 
         fun get(context: Context): AppDatabase =
             instance ?: synchronized(this) {

@@ -83,6 +83,12 @@ class MainActivity : ComponentActivity() {
         // 通知渠道统一在这里建（含旧渠道清理），进 App 顺手清掉追剧通知与角标
         com.ashchan.cloudsaver.notify.Channels.ensureAll(this)
         com.ashchan.cloudsaver.notify.AlertPublisher.clearEpisodeAlerts(this)
+        // 定时刷新的自愈：进 App 就检查一次「每个时段是不是还有活着的 Work」，
+        // 缺失的补排。时段 Work 是一次性链，被系统清掉后不会自己回来；
+        // 以前只在设置页改时间才重排，导致链断了界面上还显示「下次 09:00」。
+        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching { com.ashchan.cloudsaver.sync.AutoSyncScheduler.ensureScheduled(applicationContext) }
+        }
         // 全局未捕获异常落盘（崩溃后可在文件里查堆栈，纯单机没有服务端日志）
         com.ashchan.cloudsaver.core.AppLog.install(this)
         // 调试/联调用：--ez wakeScreen true 让本页把屏幕点亮（HyperOS 拒绝 adb input 注入，

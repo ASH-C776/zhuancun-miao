@@ -38,6 +38,14 @@ data class SnapshotEntity(
      * 「这行字是提醒」还是「这行字是报错」，所以单独存一个布尔给卡片上红点用。
      */
     val lastOk: Boolean = true,
+    /**
+     * 最近一次「真的转进来新集」的时间（毫秒，0 = 从没更新过）。
+     *
+     * 只认真正的新增集数：本轮 [run_records.restoredFiles] > 0 时才写，
+     * 「只是改了名」不算更新（与通知口径一致）。首页卡片排序读它，
+     * 不能用 [lastSyncAt]——一键同步会把所有快照刷新成同一时刻，排序就变成了执行顺序。
+     */
+    val lastNewAt: Long = 0,
 ) {
     companion object {
         const val STATUS_UP_TO_DATE: String = "UP_TO_DATE"

@@ -28,6 +28,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -35,6 +36,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import androidx.work.WorkInfo
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -67,6 +71,23 @@ fun AutoSyncSection() {
     var notifyEnabled by remember { mutableStateOf(prefs.notifyEnabled) }
     // 状态卡里「距上次多久 / 下次几点」是随时间变的，用一个计数触发重算
     var rev by remember { mutableIntStateOf(0) }
+    // 真实排程状态（null = 还没读出来）：不是算出来的「下次几点」，而是 WorkManager 里到底有没有
+    var workStates by remember { mutableStateOf<Map<String, WorkInfo.State>?>(null) }
+    val scope = rememberCoroutineScope()
+
+    fun reloadWorkStates() {
+        scope.launch {
+            workStates = withContext(Dispatchers.IO) {
+                runCatching { AutoSyncScheduler.liveSlotStates(context) }.getOrDefault(emptyMap())
+            }
+        }
+    }
+
+    LaunchedEffect(rev, enabled) {
+        workStates = withContext(Dispatchers.IO) {
+            runCatching { AutoSyncScheduler.liveSlotStates(context) }.getOrDefault(emptyMap())
+        }
+    }
 
     val notifPermission = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -156,6 +177,24 @@ fun AutoSyncSection() {
             AssistChip(onClick = { openTimePicker() }, label = { Text("+ 添加") })
         }
     }
+
+    Spacer(Modifier.height(8.dp))
+    ScheduleStateBlock(
+        slots = slots,
+        states = workStates,
+        onRebuild = {
+            if (prefs.running) {
+                android.widget.Toast.makeText(
+                    context,
+                    "正在刷新，等这轮跑完再重建",
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
+            } else {
+                AutoSyncScheduler.rescheduleAll(context)
+                refresh()
+            }
+        },
+    )
 
     Spacer(Modifier.height(12.dp))
     SwitchRow(
@@ -355,6 +394,64 @@ private fun StatusCard(
             }
         }
     }
+}
+
+/**
+ * 真实排程状态：直接问 WorkManager「这几个时间点现在还排着吗」。
+ *
+ * 以前这里只写 `AutoSyncConfig.nextTriggerAt(...)`——纯算术，永远显示「下次 09:00」，
+ * 即使后台一条 Work 都不剩。定时最坑的不是没跑，而是「没跑但界面看不出来」。
+ */
+@Composable
+private fun ScheduleStateBlock(
+    slots: List<String>,
+    states: Map<String, WorkInfo.State>?,
+    onRebuild: () -> Unit,
+) {
+    if (slots.isEmpty()) return
+    val missing = states?.let { map ->
+        slots.filter {
+            val st = map[it]
+            st == null || st == WorkInfo.State.CANCELLED || st == WorkInfo.State.FAILED
+        }
+    } ?: emptyList()
+
+    Text(
+        "排程状态",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Text(
+        if (states == null) {
+            "读取中…"
+        } else {
+            slots.joinToString(" · ") { slot -> "$slot ${stateLabel(states[slot])}" }
+        },
+        style = MaterialTheme.typography.bodySmall,
+        color = if (missing.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant
+        else MaterialTheme.colorScheme.error,
+    )
+    if (missing.isNotEmpty()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "${missing.size} 个时间点没有排上，后面的时间到了也不会跑",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onRebuild) { Text("重建排程") }
+        }
+    }
+}
+
+private fun stateLabel(state: WorkInfo.State?): String = when (state) {
+    WorkInfo.State.ENQUEUED -> "已排程"
+    WorkInfo.State.RUNNING -> "正在跑"
+    WorkInfo.State.BLOCKED -> "被前置任务挡住"
+    WorkInfo.State.FAILED -> "上次失败"
+    WorkInfo.State.CANCELLED -> "已取消"
+    WorkInfo.State.SUCCEEDED -> "已跑完"
+    null -> "未排程"
 }
 
 /** 今天 / 明天 / 日期，避免状态卡只给一个光秃秃的 HH:mm */

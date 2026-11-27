@@ -228,6 +228,8 @@ fun TaskListScreen(
                     items(cards, key = { it.task.id }) { card ->
                         TaskRow(
                             card = card,
+                            // 有剧集更新时会挪到最前，animateItem 让卡片平滑滑过去而不是瞬间跳
+                            modifier = Modifier.animateItem(),
                             isRunning = card.task.id in running,
                             runText = running[card.task.id] ?: "准备中",
                             justFinished = finished[card.task.id],
@@ -279,12 +281,13 @@ private fun TaskRow(
     onTogglePin: () -> Unit,
     onRename: () -> Unit,
     onRequestDelete: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val task = card.task
     val snap = card.snapshot
     var menuOpen by remember { mutableStateOf(false) }
 
-    Box {
+    Box(modifier = modifier) {
         val cardShape = RoundedCornerShape(16.dp)
         Card(
             modifier = Modifier
